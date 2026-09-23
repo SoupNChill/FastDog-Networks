@@ -1,0 +1,20 @@
+# Fastdog Edge CoreDNS — Phase 1 Authoritative DNS
+# Serves zones from /etc/coredns/zones/ (BIND format)
+# Listen UDP+TCP :53 — requires root or CAP_NET_BIND_SERVICE
+
+.:53 {
+    # File-backed authoritative zones
+    file /etc/coredns/zones/fastdognetworks.com.zone fastdognetworks.com
+
+    # Log queries for debugging (disable in production if noisy)
+    log
+
+    # Return SERVFAIL for zones we don't serve (no recursion)
+    errors
+
+    # Health endpoint for monitoring (internal only)
+    health :8053
+
+    # Prometheus metrics (optional, internal only)
+    prometheus :9153
+}
