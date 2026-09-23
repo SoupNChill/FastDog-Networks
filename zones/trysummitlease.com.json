@@ -1,0 +1,33 @@
+{
+  "zone": "trysummitlease.com",
+  "ttl_default": 300,
+  "records": [
+    {
+      "name": "@",
+      "type": "A",
+      "ttl": 300,
+      "content": "192.168.200.7",
+      "comment": "LAN dogfood placeholder — public still via Cloudflare"
+    },
+    {
+      "name": "www",
+      "type": "CNAME",
+      "ttl": 300,
+      "content": "trysummitlease.com."
+    },
+    {
+      "name": "@",
+      "type": "TXT",
+      "ttl": 300,
+      "content": "v=spf1 -all",
+      "comment": "stub; real SPF remains at Cloudflare until cutover"
+    },
+    {
+      "name": "_fastdog",
+      "type": "TXT",
+      "ttl": 60,
+      "content": "fastdog-edge-phase1-stub"
+    }
+  ],
+  "updated_at": "2026-09-23T18:00:00Z"
+}

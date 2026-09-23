@@ -1,0 +1,22 @@
+{
+  "name": "fastdog-edge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fastdog Networks Phase 1: LAN edge reverse proxy, tunnel agent stub, DNS control plane",
+  "type": "module",
+  "scripts": {
+    "start": "node src/edge/server.js",
+    "dev": "node --watch src/edge/server.js",
+    "agent": "node agent/index.js",
+    "test": "node --test test/*.test.js",
+    "export-zones": "node src/dns/export-cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "js-yaml": "^4.1.0",
+    "ws": "^8.18.0"
+  }
+}

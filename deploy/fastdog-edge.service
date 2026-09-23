@@ -1,0 +1,21 @@
+[Unit]
+Description=Fastdog Edge (Phase 1 LAN reverse proxy + DNS stub)
+Documentation=file:///home/mranderson/projects/fastdog-edge/README.md
+After=network.target
+# Do NOT enable until you confirm LAN-only bind and no WAN exposure.
+
+[Service]
+Type=simple
+User=mranderson
+Group=mranderson
+WorkingDirectory=/home/mranderson/projects/fastdog-edge
+EnvironmentFile=-/home/mranderson/projects/fastdog-edge/.env
+ExecStart=/usr/bin/node src/edge/server.js
+Restart=on-failure
+RestartSec=3
+# Hardening (still review before enable)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

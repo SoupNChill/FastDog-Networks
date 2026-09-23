@@ -1,0 +1,20 @@
+[Unit]
+Description=Fastdog tunnel agent (outbound connector to edge)
+Documentation=file:///home/mranderson/projects/fastdog-edge/README.md
+After=network.target fastdog-edge.service
+# Optional companion to fastdog-edge.service. Do NOT enable for public exposure.
+
+[Service]
+Type=simple
+User=mranderson
+Group=mranderson
+WorkingDirectory=/home/mranderson/projects/fastdog-edge
+EnvironmentFile=-/home/mranderson/projects/fastdog-edge/.env
+ExecStart=/usr/bin/node agent/index.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
