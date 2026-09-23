@@ -1,0 +1,23 @@
+# Fastdog tunnel agent — SEPARATE project from summitlease-prod.
+# Joins external network only. Do not edit /opt/summitlease/*.
+services:
+  fastdog-agent:
+    image: node:20-bookworm-slim
+    working_dir: /app
+    volumes:
+      - ./app:/app
+    command: ["sh", "-c", "npm install --omit=dev && node index.js"]
+    environment:
+      EDGE_HTTP_URL: http://192.168.200.42:8787
+      EDGE_WS_URL: ws://192.168.200.42:8787/_fastdog/tunnel
+      AGENT_TOKEN: fastdog-local-dev-token
+      AGENT_NAME: prod1-summitlease
+      AGENT_HOSTNAME: summitlease.fastdog.lan
+      AGENT_LOCAL_UPSTREAM: http://app:3450
+    networks:
+      - summitlease-prod_default
+    restart: unless-stopped
+
+networks:
+  summitlease-prod_default:
+    external: true
