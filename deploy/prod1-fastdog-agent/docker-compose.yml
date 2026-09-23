@@ -7,10 +7,12 @@ services:
     volumes:
       - ./app:/app
     command: ["sh", "-c", "npm install --omit=dev && node index.js"]
+    env_file:
+      - .env
     environment:
       EDGE_HTTP_URL: http://192.168.200.42:8787
       EDGE_WS_URL: ws://192.168.200.42:8787/_fastdog/tunnel
-      AGENT_TOKEN: fastdog-local-dev-token
+      AGENT_TOKEN: ${AGENT_TOKEN}
       AGENT_NAME: prod1-summitlease
       AGENT_HOSTNAME: summitlease.fastdog.lan
       AGENT_LOCAL_UPSTREAM: http://app:3450

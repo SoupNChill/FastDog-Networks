@@ -69,7 +69,32 @@ Summary: separate compose at `/home/barbra/fastdog-agent` on external network
 `summitlease-prod_default`, upstream `http://app:3450`, edge `192.168.200.42:8787`.
 Host header: `summitlease.fastdog.lan`. Never touch summitlease-prod compose/cloudflared.
 
-Edge without sudo: `bash deploy/start-edge.sh` (nohup + logs/edge.pid).
+Edge without sudo (survives logout):
+
+```sh
+./deploy/start-edge.sh
+./deploy/stop-edge.sh
+./deploy/restart-edge.sh   # or ./deploy/start-edge.sh restart
+```
+
+The scripts use `nohup`, `disown`, and `logs/edge.pid`; output appends to `logs/edge.log`. For logrotate, use `copytruncate` so the running process keeps writing to the active log. A user systemd service will not survive logout while `Linger=no`. If Pete wants boot persistence, review the unit and LAN firewall, then run these optional sudo commands on server3:
+
+```sh
+sudo cp deploy/fastdog-edge.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now fastdog-edge
+sudo systemctl status fastdog-edge
+```
+
+Stop the script-managed edge before enabling systemd to avoid a port conflict.
+
+## Rotate the shared agent token
+
+Generate a new token with `openssl rand -hex 32`. Put the same value in server3 `~/projects/fastdog-edge/.env` and prod1 `/home/barbra/fastdog-agent/.env` as `AGENT_TOKEN=...`; run `chmod 600` on both files. Restart edge with `./deploy/restart-edge.sh` (or `sudo systemctl restart fastdog-edge` if using the system unit), then restart the prod1 agent with `docker compose up -d --force-recreate`. Never commit either `.env` or print the production token. The `fastdog-local-dev-token` example is for local development only.
+
+The agent re-registers for a fresh ID after a WebSocket drop and retries registration with exponential backoff and full jitter when edge is unavailable. It survives a brief edge restart.
+
+LAN metrics are available without auth at `http://192.168.200.42:8787/_fastdog/metrics`. JSON fields include `requestsProxied`, `requestsStatic`, `requestsTunnel`, `registerCount`, `tunnelConnected`, `agentsConnected`, `agentsRegistered`, and `uptimeSeconds`.
 
 ## Do not
 
@@ -82,6 +107,8 @@ Edge without sudo: `bash deploy/start-edge.sh` (nohup + logs/edge.pid).
 
 ```sh
 curl -sS http://127.0.0.1:8787/health
+curl -sS http://192.168.200.42:8787/_fastdog/metrics
+curl -sS -H 'Host: summitlease.fastdog.lan' http://192.168.200.42:8787/api/health
 curl -sS http://127.0.0.1:8787/_fastdog/routes
 curl -sS http://127.0.0.1:8787/_fastdog/dns/zones/trysummitlease.com
 curl -sS http://127.0.0.1:8787/_fastdog/dns/zones/trysummitlease.com/export.bind | head

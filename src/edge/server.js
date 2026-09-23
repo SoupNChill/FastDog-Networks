@@ -9,6 +9,7 @@ import express from 'express';
 import { WebSocketServer } from 'ws';
 import { env, loadRoutes, defaultUpstream, ROOT } from '../lib/config.js';
 import { forwardHttp } from '../lib/http-forward.js';
+import { inc, get as getMetrics } from '../lib/metrics.js';
 import {
   listAgents,
   registerAgent,
@@ -65,6 +66,14 @@ app.get('/health', (_req, res) => {
   });
 });
 
+app.get('/_fastdog/metrics', (_req, res) => {
+  const agents = listAgents();
+  res.json(getMetrics({
+    agentsRegistered: agents.length,
+    agentsConnected: agents.filter((agent) => agent.connected).length,
+  }));
+});
+
 // --- Control API (agents) ---
 app.get('/_fastdog/agents', (_req, res) => {
   res.json({ agents: listAgents() });
@@ -106,9 +115,14 @@ app.use((req, res) => {
   const host = req.headers.host || '';
   const resolved = resolveUpstream(host);
 
+  inc('requestsProxied');
+
   if (resolved.kind === 'tunnel') {
+    inc('requestsTunnel');
     return proxyViaTunnel(resolved.agent, req, res);
   }
+
+  if (resolved.kind === 'static') inc('requestsStatic');
 
   forwardHttp(req, res, resolved.upstream, {
     extraHeaders: {

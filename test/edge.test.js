@@ -1,7 +1,9 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import WebSocket from 'ws';
 import { _resetForTests, registerAgent, listAgents } from '../src/control/tunnels.js';
+import { resetForTests } from '../src/lib/metrics.js';
 
 describe('tunnel registry', () => {
   before(() => _resetForTests());
@@ -39,6 +41,7 @@ describe('health endpoint (live server)', () => {
   let port;
 
   before(async () => {
+    resetForTests();
     process.env.NODE_ENV = 'test';
     process.env.EDGE_PORT = '0';
     process.env.AGENT_TOKEN = 'test-token';
@@ -91,5 +94,47 @@ describe('health endpoint (live server)', () => {
     assert.equal(reg.status, 201);
     const agents = await (await fetch(`http://127.0.0.1:${port}/_fastdog/agents`)).json();
     assert.ok(agents.agents.some((a) => a.hostname === 'tunnel.example.local'));
+  });
+
+  it('GET /_fastdog/metrics includes registration and proxy counters', async () => {
+    const before = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`)).json();
+    assert.ok(before.registerCount >= 1);
+    assert.ok(before.agentsRegistered >= 1);
+    assert.equal(before.tunnelConnected, false);
+    await new Promise((resolve, reject) => {
+      http.get({ hostname: '127.0.0.1', port, path: '/test', headers: { Host: 'demo.fastdog.local' } }, (res) => {
+        res.resume();
+        res.on('end', resolve);
+      }).on('error', reject);
+    });
+    const after = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`)).json();
+    assert.equal(after.requestsProxied, before.requestsProxied + 1);
+    assert.equal(after.requestsStatic, before.requestsStatic + 1);
+    assert.equal(after.registerCount, before.registerCount);
+  });
+
+  it('counts a connected tunnel and tunnel requests', async () => {
+    const id = listAgents().find((agent) => agent.hostname === 'tunnel.example.local').id;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/_fastdog/tunnel?agentId=${id}&token=test-token`);
+    await new Promise((resolve, reject) => {
+      ws.once('message', resolve);
+      ws.once('error', reject);
+    });
+    const connected = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`)).json();
+    assert.equal(connected.tunnelConnected, true);
+    assert.equal(connected.agentsConnected, 1);
+    ws.close();
+    await new Promise((resolve) => ws.once('close', resolve));
+    const before = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`)).json();
+    assert.equal(before.tunnelConnected, false);
+    await new Promise((resolve, reject) => {
+      http.get({ hostname: '127.0.0.1', port, path: '/test', headers: { Host: 'tunnel.example.local' } }, (res) => {
+        res.resume();
+        res.on('end', resolve);
+      }).on('error', reject);
+    });
+    const after = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`)).json();
+    assert.equal(after.requestsProxied, before.requestsProxied + 1);
+    assert.equal(after.requestsTunnel, before.requestsTunnel + 1);
   });
 });

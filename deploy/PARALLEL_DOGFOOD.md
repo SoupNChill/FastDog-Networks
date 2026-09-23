@@ -26,15 +26,25 @@ curl -sS http://127.0.0.1:8787/health
 curl -sS http://192.168.200.42:8787/health
 ```
 
-Stop: `bash deploy/stop-edge.sh`
+Stop: `./deploy/stop-edge.sh`. Restart: `./deploy/restart-edge.sh` (or `./deploy/start-edge.sh restart`). The no-sudo scripts use `nohup`, `disown`, `logs/edge.pid`, and append to `logs/edge.log`; use logrotate `copytruncate`. They survive logout. With `Linger=no`, a user systemd service does not persist after logout.
 
-Optional systemd: `deploy/fastdog-edge.service` (needs sudo; not installed by default; Linger currently off for user units).
+Optional boot persistence via the system unit (Pete, after reviewing the LAN firewall and stopping script-managed edge):
+
+```sh
+sudo cp deploy/fastdog-edge.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now fastdog-edge
+sudo systemctl status fastdog-edge
+# later: sudo systemctl restart fastdog-edge
+```
 
 ## Agent (prod1)
 
 ```sh
 # on prod1
 cd /home/barbra/fastdog-agent
+cp .env.example .env  # replace the local-dev placeholder with the shared token
+chmod 600 .env
 docker compose up -d
 docker compose ps
 docker compose logs -f --tail=50
@@ -43,6 +53,19 @@ docker inspect fastdog-agent-fastdog-agent-1 --format '{{json .NetworkSettings.N
 ```
 
 Compose uses `external: true` network `summitlease-prod_default`. Never `docker compose` against summitlease-prod for this.
+The agent re-registers for a new ID after WebSocket loss. Exponential backoff with full jitter retries both registration and connection, allowing a brief edge restart.
+
+## Token rotation
+
+Run `openssl rand -hex 32` to generate a new token. Set `AGENT_TOKEN` to that value in server3 `~/projects/fastdog-edge/.env` and prod1 `/home/barbra/fastdog-agent/.env`; run `chmod 600` on both files. Restart the edge with `./deploy/restart-edge.sh` (or `sudo systemctl restart fastdog-edge` for the system unit), then on prod1 run `docker compose up -d --force-recreate`. Never commit either `.env` or print the production token. The example token is for local development only.
+
+## LAN metrics
+
+```sh
+curl -sS http://192.168.200.42:8787/_fastdog/metrics
+```
+
+The unauthenticated LAN JSON includes `requestsProxied`, `requestsStatic`, `requestsTunnel`, `registerCount`, `tunnelConnected`, `agentsConnected`, `agentsRegistered`, and `uptimeSeconds`.
 
 ## Prove tunnel
 
@@ -60,4 +83,4 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://trysummitlease.com/
 
 ## Env notes
 
-- `AGENT_TOKEN` in `.env` is local-dev only; rotate before any shared/non-LAN use. Never commit `.env` or Cloudflare `TUNNEL_TOKEN`.
+- Compose reads `AGENT_TOKEN` from its local `.env`. Never commit `.env` or Cloudflare `TUNNEL_TOKEN`.

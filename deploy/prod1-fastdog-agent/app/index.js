@@ -5,13 +5,15 @@
  * receives HTTP-over-WS frames, fetches AGENT_LOCAL_UPSTREAM, returns response.
  *
  * Enough shape to eventually replace cloudflared for Summit Lease dogfood.
- * TODO: multiplex streams, binary frames, reconnect/backoff, TLS to edge,
+ * TODO: multiplex streams, binary frames, TLS to edge,
  *       multi-host, CONNECT/WebSocket upgrade passthrough.
  */
 import http from 'node:http';
 import https from 'node:https';
 import { URL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
+import { computeBackoffMs } from './backoff.js';
 
 function env(name, fallback) {
   const v = process.env[name];
@@ -112,41 +114,54 @@ async function handleFrame(ws, msg) {
   }
 }
 
-function connectWs(agentId) {
+function connectWs(agentId, onWelcome) {
   const u = new URL(EDGE_WS);
   u.searchParams.set('agentId', agentId);
   u.searchParams.set('token', TOKEN);
 
-  const ws = new WebSocket(u.toString());
-  ws.on('open', () => console.log(`[agent] tunnel connected as ${agentId} host=${HOSTNAME}`));
-  ws.on('message', (data) => {
-    let msg;
+  return new Promise((resolve) => {
+    const ws = new WebSocket(u.toString());
+    ws.on('open', () => console.log(`[agent] tunnel connected as ${agentId} host=${HOSTNAME}`));
+    ws.on('message', (data) => {
+      let msg;
+      try {
+        msg = JSON.parse(String(data));
+      } catch {
+        return;
+      }
+      if (msg.type === 'welcome') {
+        console.log(`[agent] welcome protocol=${msg.protocol}`);
+        onWelcome();
+        return;
+      }
+      handleFrame(ws, msg);
+    });
+    ws.on('close', (code, reason) => {
+      console.warn(`[agent] ws closed ${code} ${reason}`);
+      resolve();
+    });
+    ws.on('error', (err) => console.error('[agent] ws error', err.message));
+  });
+}
+
+export async function reconnectLoop({ registerAgent = register, connect = connectWs, delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), backoff = computeBackoffMs } = {}) {
+  let attempt = 0;
+  for (;;) {
     try {
-      msg = JSON.parse(String(data));
-    } catch {
-      return;
+      console.log(`[agent] registering with ${EDGE_HTTP} as ${HOSTNAME} -> ${LOCAL_UPSTREAM}`);
+      const reg = await registerAgent();
+      console.log(`[agent] registered id=${reg.id} route=`, reg.route);
+      await connect(reg.id, () => { attempt = 0; });
+    } catch (err) {
+      console.error('[agent] register/connect failed:', err.message);
     }
-    if (msg.type === 'welcome') {
-      console.log(`[agent] welcome protocol=${msg.protocol}`);
-      return;
-    }
-    handleFrame(ws, msg);
-  });
-  ws.on('close', (code, reason) => {
-    console.warn(`[agent] ws closed ${code} ${reason} — reconnecting in 3s`);
-    setTimeout(() => connectWs(agentId), 3000);
-  });
-  ws.on('error', (err) => console.error('[agent] ws error', err.message));
+    const nextDelay = backoff(attempt);
+    console.warn(`[agent] reconnect attempt ${attempt + 1}, next delay ${nextDelay}ms`);
+    attempt += 1;
+    await delay(nextDelay);
+  }
 }
 
-async function main() {
-  console.log(`[agent] registering with ${EDGE_HTTP} as ${HOSTNAME} -> ${LOCAL_UPSTREAM}`);
-  const reg = await register();
-  console.log(`[agent] registered id=${reg.id} route=`, reg.route);
-  connectWs(reg.id);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.env.FASTDOG_AGENT_NO_MAIN !== '1') {
+  reconnectLoop();
 }
-
-main().catch((err) => {
-  console.error('[agent] fatal', err);
-  process.exit(1);
-});

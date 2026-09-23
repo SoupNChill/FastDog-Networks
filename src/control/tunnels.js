@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { inc } from '../lib/metrics.js';
 
 /**
  * In-memory tunnel registry for Phase 1.
@@ -59,6 +60,7 @@ export function registerAgent({ name, hostname, localUpstream, token, expectedTo
   };
   agents.set(id, record);
   hostIndex.set(host, id);
+  inc('registerCount');
   return {
     id: record.id,
     hostname: record.hostname,
