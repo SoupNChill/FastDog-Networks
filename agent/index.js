@@ -46,10 +46,12 @@ function fetchLocal(method, path, headers, bodyBuf) {
     const target = new URL(path || '/', LOCAL_UPSTREAM);
     const isHttps = target.protocol === 'https:';
     const lib = isHttps ? https : http;
-    const hdrs = { ...headers, host: target.host };
+    // Preserve client Host from the edge (Host-based apps); only use LOCAL_UPSTREAM for TCP.
+    const hdrs = { ...headers };
     delete hdrs['transfer-encoding'];
     delete hdrs.connection;
     delete hdrs['content-length'];
+    if (!hdrs.host && !hdrs.Host) hdrs.host = target.host;
 
     const req = lib.request(
       {

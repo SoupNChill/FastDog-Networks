@@ -7,3 +7,5 @@ data/*
 *.log
 coverage/
 .DS_Store
+logs/
+*.pid

@@ -61,6 +61,16 @@ curl -sS http://127.0.0.1:8787/health
 - Point `config/routes.yaml` at `http://192.168.200.7:PORT` **or** run `agent/` on prod1 outbound to `ws://192.168.200.42:8787/_fastdog/tunnel`.
 - Test with Host header / LAN hosts file only — leave Cloudflare public DNS alone.
 
+## Parallel Summit Lease agent (prod1)
+
+See [PARALLEL_DOGFOOD.md](./PARALLEL_DOGFOOD.md).
+
+Summary: separate compose at `/home/barbra/fastdog-agent` on external network
+`summitlease-prod_default`, upstream `http://app:3450`, edge `192.168.200.42:8787`.
+Host header: `summitlease.fastdog.lan`. Never touch summitlease-prod compose/cloudflared.
+
+Edge without sudo: `bash deploy/start-edge.sh` (nohup + logs/edge.pid).
+
 ## Do not
 
 - Publish `:8787` on a WAN interface, cloud security group, or home-router port forward

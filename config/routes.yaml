@@ -1,17 +1,17 @@
 # Host-based routing for Fastdog Edge (Phase 1)
 # hostname -> upstream URL
-# Do not point production Summit Lease here until dogfood checklist is done.
-# Cloudflare tunnel on prod1 stays authoritative for public traffic.
+# Do not cut over public Cloudflare traffic. Parallel LAN dogfood only.
 
 routes:
   # Local demo host (add to /etc/hosts -> 192.168.200.42 for LAN testing)
   demo.fastdog.local: http://127.0.0.1:9999
 
-  # Placeholder for Summit Lease dogfood (parallel to CF — not cut over yet)
-  # Once prod1 SSH exists and Docker HTTP port is known, set e.g.:
-  # trysummitlease.com: http://192.168.200.7:PORT
-  # www.trysummitlease.com: http://192.168.200.7:PORT
+  # NOTE: Do NOT add a static upstream for Summit Lease host ports here.
+  # prod1 publishes app :3450 only on docker network summitlease-prod_default
+  # (not on the host). Use tunnel agent on prod1 instead (see tunnel_hosts).
 
-# Optional: hosts that should be served via a registered tunnel agent
-# (agent registers and advertises these hostnames)
-tunnel_hosts: []
+# Hosts served via a registered outbound tunnel agent (agent registers hostname).
+# Agent on prod1 joins summitlease-prod_default and proxies to http://app:3450.
+tunnel_hosts:
+  - summitlease.fastdog.lan
+  - trysummitlease.com
