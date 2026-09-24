@@ -1,15 +1,14 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
-import { ROOT, env } from '../lib/config.js';
+import { env } from '../lib/config.js';
 import { readZone, writeZone } from '../dns/store.js';
 import { syncAfterOnboard } from '../dns/sync-coredns.js';
+import { readJson, writeJson } from './json.js';
+import { inviteRequired, assertInvite, redeemInvite } from './invites.js';
 
 export const ns = () => [env('NS1_HOST', 'ns1.fastdognetworks.com'), env('NS2_HOST', 'ns2.fastdognetworks.com')].map((h) => `${h.replace(/\.$/, '').toLowerCase()}.`);
 export const edgeIp = () => env('EDGE_PUBLIC_IP', '157.230.57.32');
-export const dataDir = () => path.resolve(ROOT, env('DATA_DIR', 'data'));
-const dataFile = (name) => path.join(dataDir(), name);
+export { dataDir } from './json.js';
 const domainPattern = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
 export function domain(value) {
@@ -18,25 +17,13 @@ export function domain(value) {
   return result;
 }
 
-function readJson(name, fallback) {
-  const file = dataFile(name);
-  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : fallback;
-}
-
-function writeJson(name, data, mode = 0o644) {
-  fs.mkdirSync(dataDir(), { recursive: true });
-  const file = dataFile(name);
-  const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  fs.writeFileSync(temp, `${JSON.stringify(data, null, 2)}\n`, { mode });
-  fs.renameSync(temp, file);
-  fs.chmodSync(file, mode);
-}
-
-export function createZone({ zone, edge_ip, force = false }) {
+export function createZone({ zone, edge_ip, force = false, invite_code } = {}) {
   zone = domain(zone);
   if (readZone(zone) && force !== true) throw Object.assign(new Error('zone_exists'), { status: 409 });
   const ip = edge_ip || edgeIp();
   if (edge_ip && isIP(ip) !== 4) throw Object.assign(new Error('invalid_edge_ip'), { status: 400 });
+  const needsInvite = inviteRequired();
+  if (needsInvite) assertInvite(invite_code);
   const nameservers = ns();
   const serial = `${new Date().toISOString().slice(0, 10).replaceAll('-', '')}01`;
   const records = [
@@ -45,6 +32,7 @@ export function createZone({ zone, edge_ip, force = false }) {
   ];
   if (edge_ip) records.push({ name: '@', type: 'A', ttl: 300, content: ip });
   writeZone(zone, { ttl_default: 300, records });
+  if (needsInvite) redeemInvite({ code: invite_code, redeemed_by: zone });
   const coredns_sync = syncAfterOnboard(zone, 'create-zone');
   return { zone, ns: nameservers, dig_verify: digChecks(zone), coredns_sync };
 }

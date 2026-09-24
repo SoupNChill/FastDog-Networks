@@ -24,10 +24,11 @@ describe('coredns sync validation + audit', () => {
   }
 
   before(() => {
-    snapEnv(['ZONES_DIR', 'DATA_DIR', 'COREDNS_SYNC_ENABLED', 'COREDNS_SYNC_DRY_RUN', 'COREDNS_POP_TARGETS', 'COREDNS_ZONES_DIR', 'COREDNS_SSH_KEY', 'COREDNS_AUDIT_LOG', 'NS1_HOST', 'NS2_HOST']);
+    snapEnv(['ZONES_DIR', 'DATA_DIR', 'INVITE_REQUIRED', 'COREDNS_SYNC_ENABLED', 'COREDNS_SYNC_DRY_RUN', 'COREDNS_POP_TARGETS', 'COREDNS_ZONES_DIR', 'COREDNS_SSH_KEY', 'COREDNS_AUDIT_LOG', 'NS1_HOST', 'NS2_HOST']);
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fastdog-sync-'));
     process.env.ZONES_DIR = path.join(tmp, 'zones');
     process.env.DATA_DIR = path.join(tmp, 'data');
+    process.env.INVITE_REQUIRED = 'false';
     process.env.COREDNS_ZONES_DIR = path.join(tmp, 'coredns-zones');
     process.env.COREDNS_AUDIT_LOG = path.join(tmp, 'data', 'audit', 'coredns-sync.jsonl');
     delete process.env.COREDNS_SYNC_ENABLED;

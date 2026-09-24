@@ -14,11 +14,13 @@ describe('stranger onboarding', () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fastdog-onboard-'));
     process.env.ZONES_DIR = path.join(tmp, 'zones');
     process.env.DATA_DIR = path.join(tmp, 'data');
+    process.env.INVITE_REQUIRED = 'false';
   });
   after(() => {
     _resetForTests();
     delete process.env.ZONES_DIR;
     delete process.env.DATA_DIR;
+    delete process.env.INVITE_REQUIRED;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
