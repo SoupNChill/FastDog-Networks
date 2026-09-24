@@ -23,6 +23,7 @@ import { dnsRouter } from '../dns/api.js';
 import { onboardRouter } from '../onboard/api.js';
 import { statusService, intervalMs as statusIntervalMs } from '../status/service.js';
 import { renderStatus } from '../status/html.js';
+import { billingRouter, billingWebhook } from '../billing/api.js';
 
 const PORT = Number(env('EDGE_PORT', '8787'));
 const BIND = env('EDGE_BIND', '0.0.0.0');
@@ -53,7 +54,9 @@ function resolveUpstream(hostname) {
 
 const app = express();
 app.disable('x-powered-by');
+app.post('/_fastdog/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billingWebhook);
 app.use(express.json({ limit: '1mb' }));
+app.use(billingRouter());
 
 app.get('/health', (_req, res) => {
   res.json({
@@ -175,6 +178,7 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`  health:  GET /health`);
     console.log(`  status:  http://${BIND}:${PORT}/status`);
     console.log(`  control: /_fastdog/*  dns: /_fastdog/dns/*  ws: /_fastdog/tunnel`);
+    console.log(`  billing: GET /pricing  /_fastdog/billing/* (TEST MODE)`);
     console.log(`  routes:  ${routeConfig.file}`);
     console.log(`  root:    ${ROOT}`);
     console.log('  WARNING: LAN-only — do not expose to public internet');

@@ -19,6 +19,7 @@
   "dependencies": {
     "express": "^4.21.2",
     "js-yaml": "^4.1.0",
+    "stripe": "^18.5.0",
     "ws": "^8.18.0"
   }
 }
