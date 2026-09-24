@@ -2,6 +2,8 @@
 
 **Status: preparation only. DO NOT change registrar nameservers yet.** Pete must approve the cutover after every gate below is green. This runbook applies only to `fastdognetworks.com`.
 
+For a future Porkbun transfer, see the [dry-run transfer checklist](PORKBUN_TRANSFER.md); it is separate from this nameserver cutover.
+
 ## Roles and prerequisites
 
 - `ns1.fastdognetworks.com` stays on the existing DigitalOcean `edge-fastdog` PoP, `157.230.57.32`, where CoreDNS serves the zone on UDP and TCP port 53. Keep edge and whoami HTTPS healthy.

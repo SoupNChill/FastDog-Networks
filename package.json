@@ -10,7 +10,8 @@
     "agent": "node agent/index.js",
     "test": "node --test test/*.test.js",
     "export-zones": "node src/dns/export-cli.js",
-    "sync-coredns": "bash scripts/sync-coredns.sh"
+    "sync-coredns": "bash scripts/sync-coredns.sh",
+    "onboard": "node scripts/onboard.js"
   },
   "engines": {
     "node": ">=18"

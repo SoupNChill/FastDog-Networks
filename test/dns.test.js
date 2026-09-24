@@ -87,9 +87,9 @@ describe('dns store', () => {
     assert.ok(aRecords.some((r) => r.name === 'edge'), 'must have edge A record');
     assert.ok(aRecords.some((r) => r.name === '@'), 'must have apex A record');
 
-    // All A records should point to the PoP IP
+    // ns2 is the separate Hetzner DNS PoP; other A records use the edge PoP.
     for (const r of aRecords) {
-      assert.equal(r.content, '157.230.57.32', `${r.name} A record should point to PoP IP`);
+      assert.equal(r.content, r.name === 'ns2' ? '2.29.58.90' : '157.230.57.32', `${r.name} A record should point to its PoP IP`);
     }
 
     process.env.ZONES_DIR = tmp;
