@@ -4,6 +4,7 @@ import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypt
 import { isIP } from 'node:net';
 import { ROOT, env } from '../lib/config.js';
 import { readZone, writeZone } from '../dns/store.js';
+import { syncAfterOnboard } from '../dns/sync-coredns.js';
 
 export const ns = () => [env('NS1_HOST', 'ns1.fastdognetworks.com'), env('NS2_HOST', 'ns2.fastdognetworks.com')].map((h) => `${h.replace(/\.$/, '').toLowerCase()}.`);
 export const edgeIp = () => env('EDGE_PUBLIC_IP', '157.230.57.32');
@@ -44,7 +45,8 @@ export function createZone({ zone, edge_ip, force = false }) {
   ];
   if (edge_ip) records.push({ name: '@', type: 'A', ttl: 300, content: ip });
   writeZone(zone, { ttl_default: 300, records });
-  return { zone, ns: nameservers, dig_verify: digChecks(zone) };
+  const coredns_sync = syncAfterOnboard(zone, 'create-zone');
+  return { zone, ns: nameservers, dig_verify: digChecks(zone), coredns_sync };
 }
 
 export function digChecks(zone) {
@@ -102,5 +104,6 @@ export function mapHost({ zone, hostname, origin_hint }) {
   writeZone(zone, data);
   const hosts = tunnelHosts();
   if (!hosts.includes(hostname)) writeJson('tunnel_hosts.json', [...hosts, hostname]);
-  return { zone, hostname, edge_ip: ip, agent_run: { AGENT_HOSTNAME: hostname, AGENT_LOCAL_UPSTREAM: origin_hint || 'http://127.0.0.1:9999', command: 'npm run agent' } };
+  const coredns_sync = syncAfterOnboard(zone, 'map-host');
+  return { zone, hostname, edge_ip: ip, agent_run: { AGENT_HOSTNAME: hostname, AGENT_LOCAL_UPSTREAM: origin_hint || 'http://127.0.0.1:9999', command: 'npm run agent' }, coredns_sync };
 }

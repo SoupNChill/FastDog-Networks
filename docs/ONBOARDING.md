@@ -7,7 +7,7 @@ This is a thin LAN control path. The edge API uses the shared `AGENT_TOKEN` for 
 3. Review nameserver instructions: `npm run onboard -- ns-instructions example.com`. Verify the SOA and NS on **both** authoritative servers before changing registrar delegation. In-bailiwick nameservers also need registrar child host/glue records.
 4. Issue an agent credential: `npm run onboard -- issue-credential --name example-agent --hostname app.example.com`. Save the returned `AGENT_TOKEN` privately. A hostname-bound token registers only that hostname.
 5. Map the host: `npm run onboard -- map-host example.com app.example.com --origin-hint http://127.0.0.1:8080`. Set the returned `AGENT_HOSTNAME`, `AGENT_LOCAL_UPSTREAM`, and issued `AGENT_TOKEN` on the agent, along with `EDGE_HTTP_URL` and `EDGE_WS_URL`, then run `npm run agent`. Mapping adds an A record and a tunnel host. For CLI changes, reload a running edge via `POST /_fastdog/routes/reload` or restart it. API map-host reloads automatically.
-6. Export and serve the updated zone on both CoreDNS servers using the existing zone sync process, then check `dig @<NS_IP> app.example.com A +norecurse`. A JSON edit alone does not publish DNS.
+6. When `COREDNS_SYNC_ENABLED=true` (and PoP SSH configured), create-zone/map-host auto-export, validate, and sync CoreDNS to both PoPs. Otherwise sync is skipped (audited) and you can run `npm run sync-coredns -- example.com` manually. Then check `dig @<NS_IP> app.example.com A +norecurse`. A JSON edit alone does not publish DNS.
 
 The same actions are available under `/_fastdog/onboard`: `POST /zones`, `GET /zones/:zone/ns-instructions`, `POST /credentials`, and `POST /hosts`. Send `x-fastdog-token: <AGENT_TOKEN>` (or `token` in JSON). Registration accepts issued credentials; the WebSocket handshake uses the same token.
 
@@ -19,7 +19,7 @@ curl -sS -X POST http://127.0.0.1:8787/_fastdog/onboard/zones \
   -d '{"zone":"example.com","edge_ip":"157.230.57.32"}'
 ```
 
-This path does not change registrar settings or deploy zones automatically. Public use requires the existing authoritative DNS and edge ingress to be ready for the new domain.
+This path does not change registrar settings. Zone deploy to CoreDNS is automatic only when auto-sync is enabled and configured; otherwise run `sync-coredns` manually. Public use requires the existing authoritative DNS and edge ingress to be ready for the new domain.
 
 ## Public NS status (read before pointing a stranger)
 
@@ -49,3 +49,51 @@ AGENT_TOKEN=<issued> AGENT_HOSTNAME=app.demo-customer.test AGENT_LOCAL_UPSTREAM=
 
 curl -sS -H 'Host: app.demo-customer.test' http://127.0.0.1:8787/
 ```
+
+## Auto sync-coredns (validation + audit)
+
+After `create-zone` and `map-host` (CLI and `/_fastdog/onboard` API), the control plane exports the zone, validates it, and optionally syncs CoreDNS.
+
+**Safe defaults:** `COREDNS_SYNC_ENABLED=false`. Sync is skipped, an audit line is written, and onboarding still succeeds. Apex A remains **opt-in** (`--edge-ip` / `edge_ip` only).
+
+### Enable (operator / Pete + bots only)
+
+Shared `AGENT_TOKEN` is Phase 1 **operator admin** for onboarding API calls. Do **not** put that token in customer docs or UI. Customer tunnel credentials stay per-zone via `issue-credential`.
+
+```sh
+# .env on the control-plane host
+COREDNS_SYNC_ENABLED=true
+COREDNS_POP_TARGETS=ns1=157.230.57.32,ns2=2.29.58.90
+COREDNS_SSH_USER=root
+COREDNS_SSH_KEY=/path/to/operator-pop-key
+COREDNS_ZONES_DIR=/etc/coredns/zones
+```
+
+Manual sync (existing script, now validates before reload):
+
+```sh
+npm run sync-coredns -- example.com
+# or all zones:
+npm run sync-coredns
+```
+
+### Dry-run on LAN (no PoP SSH)
+
+```sh
+COREDNS_SYNC_ENABLED=true COREDNS_SYNC_DRY_RUN=true   COREDNS_POP_TARGETS=ns1=157.230.57.32,ns2=2.29.58.90   npm run onboard -- create-zone dry-run.example
+```
+
+Dry-run validates SOA/NS (`ns1`/`ns2.fastdognetworks.com`), appends audit, and skips local write + remote SSH.
+
+### Validation
+
+Before reload/sync: zone must be non-empty, include SOA + NS, and NS must include `NS1_HOST` / `NS2_HOST` (defaults `ns1.fastdognetworks.com` / `ns2.fastdognetworks.com`).
+
+### Audit log
+
+Structured JSONL at `DATA_DIR/audit/coredns-sync.jsonl` (or `COREDNS_AUDIT_LOG`): `ts`, `zone`, `action`, `pops`, `success`, `error`, `dry_run`.
+
+### Failure behavior
+
+Remote sync failure does **not** roll back zone/host map. The onboard result includes `coredns_sync` with `ok: false` and `error`. CLI prints a clear stderr warning; set `COREDNS_SYNC_STRICT=true` to make the CLI exit non-zero on sync failure. Edge keeps serving; fix PoP SSH/keys and re-run `npm run sync-coredns -- <zone>`.
+
