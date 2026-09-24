@@ -12,7 +12,7 @@ Quick reference for setting up CoreDNS on the public PoP droplet.
 
 ```sh
 # Get latest stable (adjust version as needed)
-COREDNS_VERSION="1.11.3"
+COREDNS_VERSION="1.14.7"
 curl -fsSL "https://github.com/coredns/coredns/releases/download/v${COREDNS_VERSION}/coredns_${COREDNS_VERSION}_linux_amd64.tgz" \
   | sudo tar -xz -C /usr/local/bin/
 sudo chmod +x /usr/local/bin/coredns

@@ -1,6 +1,6 @@
 # Authoritative DNS — Phase 1 (Prove Before Cutover)
 
-Fastdog Edge Phase 1 authoritative DNS using CoreDNS on the public PoP droplet `edge-fastdog` (157.230.57.32).
+Fastdog Edge Phase 1 authoritative DNS using CoreDNS on ns1 `edge-fastdog` (157.230.57.32, DigitalOcean) and ns2 `ns2-fastdog` (2.29.58.90, Hetzner hel1 DNS-only). Registrar NS flip still pending.
 
 **Status:** Soak / prove mode. Do NOT change Cloudflare registrar NS until Pete approves.
 

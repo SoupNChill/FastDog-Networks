@@ -1,0 +1,11 @@
+# Fastdog Edge CoreDNS — ns2 (Hetzner hel1 DNS-only)
+# Serves zones from /etc/coredns/zones/ (BIND format)
+# Health/metrics bound to localhost only (safer than ns1 *:8053/9153)
+
+.:53 {
+    file /etc/coredns/zones/fastdognetworks.com.zone fastdognetworks.com
+    log
+    errors
+    health 127.0.0.1:8053
+    prometheus 127.0.0.1:9153
+}

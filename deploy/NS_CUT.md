@@ -5,9 +5,9 @@
 ## Roles and prerequisites
 
 - `ns1.fastdognetworks.com` stays on the existing DigitalOcean `edge-fastdog` PoP, `157.230.57.32`, where CoreDNS serves the zone on UDP and TCP port 53. Keep edge and whoami HTTPS healthy.
-- `ns2.fastdognetworks.com` is a future Hetzner DNS-only secondary in Helsinki (`hel1`), geographically separate from the NYC DigitalOcean PoP. **It has no address now. Do not publish its A or NS record until the host is real and serving the complete zone.**
-- Confirm CoreDNS and both HTTPS hosts have soaked without errors for at least 48 hours. After ns2 is commissioned, soak **both** nameservers for at least 48 hours with matching answers before the flip.
-- Obtain Pete's explicit approval for Hetzner spending/provisioning and, separately, for the registrar flip. Do not provision ns2 during preparation.
+- `ns2.fastdognetworks.com` is live on Hetzner CX23 `ns2-fastdog` in Helsinki (`hel1`), IPv4 `2.29.58.90`, DNS-only CoreDNS 1.14.7 (`fastdog-coredns`). Geographically separate from the NYC DigitalOcean PoP. Zone includes both NS and A records; **do not flip Cloudflare registrar nameservers yet.**
+- Confirm CoreDNS and both HTTPS hosts have soaked without errors for at least 48 hours. Soak **both** nameservers for at least 48 hours with matching answers before the flip.
+- Pete approved Hetzner ns2 provisioning. Still obtain Pete's explicit approval for the registrar flip and Cloudflare child NS / grey-cloud glue when ready.
 - Complete the [record inventory](ZONE_INVENTORY.md) in Cloudflare's DNS UI. Copy every needed public record into the Fastdog JSON zone and serve it from both nameservers. Resolve the apex A and `www` behavior with Pete.
 - Create Cloudflare Registrar child nameserver/host (glue) records for **both** `ns1` and `ns2` using their real public IPv4 addresses **before** changing the registrar nameservers. Verify their addresses and parent delegation via `dig`/WHOIS or the registrar UI. Glue is separate from A records in the authoritative zone.
 - Keep the current Cloudflare NS pair, `duke.ns.cloudflare.com` and `melany.ns.cloudflare.com`, recorded for rollback.
@@ -31,13 +31,24 @@ Use the Cloudflare DNS UI as the complete source of truth: public DNS cannot enu
 
 If Cloudflare proxy, redirects, Workers, or rules currently implement a hostname, decide how that behavior will work after the zone leaves Cloudflare DNS; copying an orange-cloud A value alone may not preserve it. Record each resolution in the inventory.
 
-## Future ns2 build (placeholder; do not execute now)
+## ns2 status (commissioned 2026-09-24 MT)
 
-1. After Pete authorizes spending, choose a Hetzner CX23 or the least expensive suitable VM with public IPv4 in Helsinki (`hel1`); verify current plan, IPv4 availability, and price at order time. Keep it DNS-only.
-2. Permit inbound `53/udp`, `53/tcp`, and `22/tcp` only; restrict SSH source where practical. Do not expose CoreDNS health/metrics ports. Install and configure CoreDNS using [installation notes](coredns/INSTALL.md) adapted for the second host.
-3. Export the **same** `fastdognetworks.com` JSON zone to BIND format on ns2. This is a file-synced second authoritative server; no AXFR/secondary automation exists yet. Ensure CoreDNS can reload it safely.
-4. Add the real `ns2` A and second apex NS to `zones/fastdognetworks.com.json`, bump the SOA serial, then run `scripts/sync-coredns.sh fastdognetworks.com` on **both PoPs** (or copy the locally exported zone file and send SIGUSR1). Confirm serial and all answers match.
-5. Create registrar child nameserver/glue records for ns1 and ns2 with their real addresses. Test from outside both hosts and soak both for at least 48 hours. Do not flip if either fails.
+- Host: `ns2-fastdog`, Hetzner CX23 `hel1`, IPv4 `2.29.58.90`, Ubuntu 24.04
+- CoreDNS 1.14.7 as systemd `fastdog-coredns`; UFW allows `22/tcp`, `53/tcp`, `53/udp` only
+- Health/metrics bound to `127.0.0.1:8053` / `127.0.0.1:9153` (see `deploy/coredns/Corefile.ns2`)
+- Zone sync is file-copy (no AXFR yet): export on control plane, copy BIND zone to both PoPs, `systemctl reload fastdog-coredns`
+- Apex NS and `ns2` A are in the Fastdog zone (serial `2026092402`); registrar NS flip and CF child glue still pending Pete
+
+### Cloudflare A / glue Pete should add when ready (not done yet)
+
+Grey-cloud A records in the Cloudflare DNS zone (and matching registrar child nameserver/glue hosts):
+
+| Name | Type | Content | Proxy |
+| --- | --- | --- | --- |
+| `ns1` | A | `157.230.57.32` | DNS only (grey cloud) |
+| `ns2` | A | `2.29.58.90` | DNS only (grey cloud) |
+
+Then create Cloudflare Registrar child nameserver hosts for `ns1.fastdognetworks.com` → `157.230.57.32` and `ns2.fastdognetworks.com` → `2.29.58.90` before any registrar NS flip.
 
 ## Pre-flight (before Pete says go)
 
@@ -62,7 +73,7 @@ dig @157.230.57.32 whoami.fastdognetworks.com A +norecurse
 dig @157.230.57.32 _fastdog.fastdognetworks.com TXT +norecurse
 
 # Set this only after ns2 has a real public address; then repeat the full list:
-NS2_IP='replace-with-real-public-IPv4'
+NS2_IP='2.29.58.90'
 dig @"$NS2_IP" fastdognetworks.com SOA +norecurse
 dig +tcp @"$NS2_IP" fastdognetworks.com SOA +norecurse
 dig @"$NS2_IP" fastdognetworks.com NS +norecurse
@@ -85,7 +96,7 @@ At Cloudflare Registrar, set nameservers back to **`duke.ns.cloudflare.com` and 
 ## DO NOT
 
 - Do not change Cloudflare registrar nameservers before Pete explicitly approves the flip and all gates pass.
-- Do not provision or pay for Hetzner/DO resources during preparation; do not publish a fake ns2 address or NS record.
+- Do not provision additional Hetzner/DO spend without Pete; ns2 is already live at `2.29.58.90`. Do not flip registrar NS without Pete.
 - Do not touch `trysummitlease.com`, Summit Lease, or `prod1`.
 - Do not break `whoami` or edge HTTPS; do not expose CoreDNS health/metrics ports publicly.
 - Do not treat the current single-NS zone as production-ready or assume public DNS lists all Cloudflare records.

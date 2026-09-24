@@ -6,7 +6,7 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026092401 3600 600 604800 300",
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026092402 3600 600 604800 300",
       "comment": "Serial: YYYYMMDDNN \u2014 bump NN on each edit"
     },
     {
@@ -14,7 +14,14 @@
       "type": "NS",
       "ttl": 3600,
       "content": "ns1.fastdognetworks.com.",
-      "comment": "Single NS for Phase 1 soak; ns2 TBD after Pete approves and funds Hetzner. Add real ns2 A and second NS before registrar cutover."
+      "comment": "ns1 DigitalOcean NYC PoP; ns2 Hetzner hel1 DNS-only"
+    },
+    {
+      "name": "@",
+      "type": "NS",
+      "ttl": 3600,
+      "content": "ns2.fastdognetworks.com.",
+      "comment": "ns2 Hetzner CX23 hel1 DNS-only secondary"
     },
     {
       "name": "ns1",
@@ -22,6 +29,13 @@
       "ttl": 3600,
       "content": "157.230.57.32",
       "comment": "edge-fastdog DigitalOcean droplet"
+    },
+    {
+      "name": "ns2",
+      "type": "A",
+      "ttl": 3600,
+      "content": "2.29.58.90",
+      "comment": "ns2-fastdog Hetzner CX23 hel1"
     },
     {
       "name": "edge",
@@ -52,5 +66,5 @@
       "comment": "Public dogfood whoami \u2014 grey-cloud CF A until NS cut"
     }
   ],
-  "updated_at": "2026-09-24T19:36:08Z"
+  "updated_at": "2026-09-24T20:50:45Z"
 }
