@@ -20,6 +20,7 @@ import {
   touch,
 } from '../control/tunnels.js';
 import { dnsRouter } from '../dns/api.js';
+import { onboardRouter } from '../onboard/api.js';
 
 const PORT = Number(env('EDGE_PORT', '8787'));
 const BIND = env('EDGE_BIND', '0.0.0.0');
@@ -109,6 +110,7 @@ app.get('/_fastdog/routes', (_req, res) => {
 
 // --- DNS control plane ---
 app.use('/_fastdog/dns', dnsRouter());
+app.use('/_fastdog/onboard', onboardRouter({ reloadRoutes, staticRouteForHost: (host) => routeConfig.routes.has(host) }));
 
 // Catch-all reverse proxy (after control routes)
 app.use((req, res) => {
@@ -141,7 +143,7 @@ wss.on('connection', (ws, req) => {
   const agentId = url.searchParams.get('agentId');
   const token = url.searchParams.get('token') || req.headers['x-fastdog-token'];
 
-  if (token !== AGENT_TOKEN || !agentId || !attachWs(agentId, ws)) {
+  if (!agentId || !attachWs(agentId, ws, token)) {
     ws.close(4401, 'unauthorized');
     return;
   }

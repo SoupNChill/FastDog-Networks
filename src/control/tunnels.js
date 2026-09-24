@@ -1,5 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { inc } from '../lib/metrics.js';
+import { validCredential } from '../onboard/store.js';
 
 /**
  * In-memory tunnel registry for Phase 1.
@@ -28,7 +29,7 @@ export function getAgentByHost(hostname) {
 }
 
 export function registerAgent({ name, hostname, localUpstream, token, expectedToken }) {
-  if (!expectedToken || token !== expectedToken) {
+  if (!token || !(expectedToken && token === expectedToken) && !validCredential(token, hostname)) {
     const err = new Error('unauthorized');
     err.status = 401;
     throw err;
@@ -57,6 +58,7 @@ export function registerAgent({ name, hostname, localUpstream, token, expectedTo
     ws: null,
     registeredAt: new Date().toISOString(),
     lastSeen: new Date().toISOString(),
+    tokenHash: createHash('sha256').update(token).digest(),
   };
   agents.set(id, record);
   hostIndex.set(host, id);
@@ -69,9 +71,11 @@ export function registerAgent({ name, hostname, localUpstream, token, expectedTo
   };
 }
 
-export function attachWs(agentId, ws) {
+export function attachWs(agentId, ws, token) {
   const a = agents.get(agentId);
-  if (!a) return false;
+  if (!a || typeof token !== 'string') return false;
+  const hash = createHash('sha256').update(token).digest();
+  if (!timingSafeEqual(a.tokenHash, hash)) return false;
   a.ws = ws;
   a.lastSeen = new Date().toISOString();
   return true;

@@ -30,6 +30,11 @@ export function loadRoutes(filePath = env('ROUTES_FILE', path.join(ROOT, 'config
   const tunnelHosts = new Set(
     (data.tunnel_hosts || []).map((h) => String(h).toLowerCase()),
   );
+  const dataDir = env('DATA_DIR', path.join(ROOT, 'data'));
+  const hostsFile = path.join(path.isAbsolute(dataDir) ? dataDir : path.join(ROOT, dataDir), 'tunnel_hosts.json');
+  if (fs.existsSync(hostsFile)) {
+    for (const host of JSON.parse(fs.readFileSync(hostsFile, 'utf8'))) tunnelHosts.add(String(host).toLowerCase());
+  }
   return { file: abs, routes: map, tunnelHosts };
 }
 
