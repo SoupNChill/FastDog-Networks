@@ -6,15 +6,15 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026092301 3600 600 604800 300",
-      "comment": "Serial: YYYYMMDDNN — bump NN on each edit"
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026092401 3600 600 604800 300",
+      "comment": "Serial: YYYYMMDDNN \u2014 bump NN on each edit"
     },
     {
       "name": "@",
       "type": "NS",
       "ttl": 3600,
       "content": "ns1.fastdognetworks.com.",
-      "comment": "Single NS for Phase 1 soak — add ns2 before registrar cutover"
+      "comment": "Single NS for Phase 1 soak; ns2 TBD after Pete approves and funds Hetzner. Add real ns2 A and second NS before registrar cutover."
     },
     {
       "name": "ns1",
@@ -28,14 +28,14 @@
       "type": "A",
       "ttl": 300,
       "content": "157.230.57.32",
-      "comment": "Public PoP — fastdog-edge behind Caddy"
+      "comment": "Public PoP \u2014 fastdog-edge behind Caddy"
     },
     {
       "name": "@",
       "type": "A",
       "ttl": 300,
       "content": "157.230.57.32",
-      "comment": "Apex placeholder — same as edge for now"
+      "comment": "Apex placeholder \u2014 same as edge for now"
     },
     {
       "name": "_fastdog",
@@ -43,7 +43,14 @@
       "ttl": 60,
       "content": "fastdog-edge-phase1-coredns",
       "comment": "Phase 1 marker for dig verification"
+    },
+    {
+      "name": "whoami",
+      "type": "A",
+      "ttl": 300,
+      "content": "157.230.57.32",
+      "comment": "Public dogfood whoami \u2014 grey-cloud CF A until NS cut"
     }
   ],
-  "updated_at": "2026-09-23T21:00:00Z"
+  "updated_at": "2026-09-24T19:36:08Z"
 }

@@ -31,7 +31,7 @@ Test authoritative responses directly against the PoP — no registrar changes n
 ```sh
 # SOA record
 dig @157.230.57.32 fastdognetworks.com SOA +short
-# Expected: ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026092301 3600 600 604800 300
+# Expected after latest sync: ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026092401 3600 600 604800 300
 
 # NS record
 dig @157.230.57.32 fastdognetworks.com NS +short
@@ -42,6 +42,9 @@ dig @157.230.57.32 ns1.fastdognetworks.com A +short
 # Expected: 157.230.57.32
 
 dig @157.230.57.32 edge.fastdognetworks.com A +short
+# Expected: 157.230.57.32
+
+dig @157.230.57.32 whoami.fastdognetworks.com A +short
 # Expected: 157.230.57.32
 
 dig @157.230.57.32 fastdognetworks.com A +short
@@ -121,15 +124,18 @@ sudo systemctl reload fastdog-coredns
 3. Run `./scripts/sync-coredns.sh newdomain.com`
 4. Restart CoreDNS: `sudo systemctl restart fastdog-coredns`
 
-## Registrar NS Cutover — DO NOT DO YET
+## Registrar NS Cutover — DO NOT CHANGE NS YET
+
+Use the full [NS cutover runbook](NS_CUT.md) and [zone inventory](ZONE_INVENTORY.md). **DO NOT change Cloudflare registrar NS yet.** The `whoami` A record is now in the Fastdog zone for direct CoreDNS verification; Cloudflare remains publicly authoritative.
 
 **Requirements before changing Cloudflare registrar NS:**
 
 1. ✅ CoreDNS serving correct responses (prove with dig)
 2. ⬜ Pete approval
 3. ⬜ ns2 exists (second nameserver for redundancy)
-4. ⬜ At least 48h soak with no issues
-5. ⬜ Rollback plan documented
+4. ⬜ Both nameservers serve matching complete zones and have soaked for at least 48h with no issues
+5. ⬜ Cloudflare Registrar glue/host records exist for both nameservers
+6. ⬜ Cloudflare UI record inventory is complete and rollback plan is ready
 
 **When ready (NOT NOW):**
 
@@ -188,6 +194,8 @@ sudo systemctl restart systemd-resolved
 
 ## Related Docs
 
+- [NS_CUT.md](NS_CUT.md) — prerequisites, migration, flip, soak, and rollback
+- [ZONE_INVENTORY.md](ZONE_INVENTORY.md) — public and candidate zone inventory
 - [coredns/INSTALL.md](coredns/INSTALL.md) — CoreDNS installation steps
 - [LOCAL_PROD.md](LOCAL_PROD.md) — LAN deployment (server3)
 - [PARALLEL_DOGFOOD.md](PARALLEL_DOGFOOD.md) — Summit Lease parallel path (unchanged)
