@@ -21,6 +21,8 @@ import {
 } from '../control/tunnels.js';
 import { dnsRouter } from '../dns/api.js';
 import { onboardRouter } from '../onboard/api.js';
+import { statusService, intervalMs as statusIntervalMs } from '../status/service.js';
+import { renderStatus } from '../status/html.js';
 
 const PORT = Number(env('EDGE_PORT', '8787'));
 const BIND = env('EDGE_BIND', '0.0.0.0');
@@ -65,6 +67,15 @@ app.get('/health', (_req, res) => {
     routeCount: routeConfig.routes.size,
     agents: listAgents().length,
   });
+});
+
+app.get('/status', async (req, res) => {
+  const status = await statusService.get({ force: req.query.refresh === '1' });
+  res.type('html').send(renderStatus(status));
+});
+
+app.get('/status.json', async (req, res) => {
+  res.json(await statusService.get({ force: req.query.refresh === '1' }));
 });
 
 app.get('/_fastdog/metrics', (_req, res) => {
@@ -156,9 +167,13 @@ wss.on('connection', (ws, req) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
+  if (statusIntervalMs > 0) setInterval(() => {
+    statusService.refresh().catch((error) => console.warn(`status: periodic check failed: ${error.message}`));
+  }, statusIntervalMs).unref();
   server.listen(PORT, BIND, () => {
     console.log(`fastdog-edge listening on http://${BIND}:${PORT}`);
     console.log(`  health:  GET /health`);
+    console.log(`  status:  http://${BIND}:${PORT}/status`);
     console.log(`  control: /_fastdog/*  dns: /_fastdog/dns/*  ws: /_fastdog/tunnel`);
     console.log(`  routes:  ${routeConfig.file}`);
     console.log(`  root:    ${ROOT}`);
