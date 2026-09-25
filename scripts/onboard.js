@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { createZone, nsInstructions, issueCredential, mapHost } from '../src/onboard/store.js';
+import { generateInvite, listInvites, redeemInvite } from '../src/onboard/invites.js';
 
 const [command, ...args] = process.argv.slice(2);
-const usage = 'Usage: npm run onboard -- create-zone <zone> [--edge-ip <IPv4>] [--force] | ns-instructions <zone> | issue-credential [--name <name>] [--hostname <host>] | map-host <zone> <hostname> [--origin-hint <URL>]';
+const usage = 'Usage: npm run onboard -- create-zone <zone> [--edge-ip <IPv4>] [--force] [--invite <code>] | generate-invite [--max-uses N] [--expires-in-hours H] [--expires-at ISO] [--note TEXT] | list-invites | redeem-invite <code> [--redeemed-by NAME] | ns-instructions <zone> | issue-credential [--name <name>] [--hostname <host>] | map-host <zone> <hostname> [--origin-hint <URL>]';
 function option(name) { const index = args.indexOf(name); return index < 0 ? undefined : args[index + 1]; }
 function warnSync(result) {
   const sync = result?.coredns_sync;
@@ -18,7 +19,10 @@ function warnSync(result) {
 
 try {
   let result;
-  if (command === 'create-zone' && args[0]) result = createZone({ zone: args[0], edge_ip: option('--edge-ip'), force: args.includes('--force') });
+  if (command === 'create-zone' && args[0]) result = createZone({ zone: args[0], edge_ip: option('--edge-ip'), force: args.includes('--force'), invite_code: option('--invite') });
+  else if (command === 'generate-invite') result = generateInvite({ max_uses: option('--max-uses') === undefined ? 1 : Number(option('--max-uses')), expires_in_hours: option('--expires-in-hours') === undefined ? undefined : Number(option('--expires-in-hours')), expires_at: option('--expires-at'), note: option('--note') });
+  else if (command === 'list-invites') result = listInvites();
+  else if (command === 'redeem-invite' && args[0]) result = redeemInvite({ code: args[0], redeemed_by: option('--redeemed-by') });
   else if (command === 'ns-instructions' && args[0]) result = nsInstructions(args[0]);
   else if (command === 'issue-credential') result = issueCredential({ name: option('--name'), hostname: option('--hostname') });
   else if (command === 'map-host' && args[0] && args[1]) result = mapHost({ zone: args[0], hostname: args[1], origin_hint: option('--origin-hint') });

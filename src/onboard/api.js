@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { env } from '../lib/config.js';
 import { createZone, nsInstructions, issueCredential, mapHost } from './store.js';
+import { generateInvite, listInvites, redeemInvite } from './invites.js';
 
 export function onboardRouter({ reloadRoutes, staticRouteForHost }) {
   const router = Router();
@@ -14,6 +15,9 @@ export function onboardRouter({ reloadRoutes, staticRouteForHost }) {
     catch (error) { res.status(error.status || 500).json({ error: error.message }); }
   };
   router.post('/zones', handle((req) => createZone(req.body || {})));
+  router.post('/invites', handle((req) => generateInvite(req.body || {})));
+  router.get('/invites', handle(() => listInvites()));
+  router.post('/invites/redeem', handle((req) => redeemInvite(req.body || {})));
   router.get('/zones/:zone/ns-instructions', handle((req) => nsInstructions(req.params.zone)));
   router.post('/credentials', handle((req) => issueCredential(req.body || {})));
   router.post('/hosts', handle((req) => {

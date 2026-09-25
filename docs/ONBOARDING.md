@@ -2,8 +2,10 @@
 
 This is a thin LAN control path. The edge API uses the shared `AGENT_TOKEN` for onboarding requests. Keep the control port on a trusted LAN; issued agent credentials are returned once and stored as hashes in `DATA_DIR/agent-credentials.json`.
 
+Zone creation requires an invite code by default (`INVITE_REQUIRED=true`). Generate one with `npm run onboard -- generate-invite`, then pass `--invite <code>` to `create-zone` or `invite_code` in the API body. See [Invite codes](INVITES.md) for API routes, redemption, and how to disable the gate.
+
 1. Set `AGENT_TOKEN`, `EDGE_PUBLIC_IP`, `ZONES_DIR`, and `DATA_DIR` in the edge environment. Set `NS1_HOST`, `NS2_HOST`, `NS1_IP`, and `NS2_IP` if they differ from the live defaults in `.env.example`.
-2. Create a zone: `npm run onboard -- create-zone example.com --edge-ip 157.230.57.32`. Omit `--edge-ip` to leave the apex A absent. An existing zone returns an error; `--force` replaces it.
+2. Create a zone: `npm run onboard -- create-zone example.com --edge-ip 157.230.57.32 --invite <code>`. Omit `--edge-ip` to leave the apex A absent. An existing zone returns an error; `--force` replaces it.
 3. Review nameserver instructions: `npm run onboard -- ns-instructions example.com`. Verify the SOA and NS on **both** authoritative servers before changing registrar delegation. In-bailiwick nameservers also need registrar child host/glue records.
 4. Issue an agent credential: `npm run onboard -- issue-credential --name example-agent --hostname app.example.com`. Save the returned `AGENT_TOKEN` privately. A hostname-bound token registers only that hostname.
 5. Map the host: `npm run onboard -- map-host example.com app.example.com --origin-hint http://127.0.0.1:8080`. Set the returned `AGENT_HOSTNAME`, `AGENT_LOCAL_UPSTREAM`, and issued `AGENT_TOKEN` on the agent, along with `EDGE_HTTP_URL` and `EDGE_WS_URL`, then run `npm run agent`. Mapping adds an A record and a tunnel host. For CLI changes, reload a running edge via `POST /_fastdog/routes/reload` or restart it. API map-host reloads automatically.
@@ -16,7 +18,7 @@ Example API request:
 ```sh
 curl -sS -X POST http://127.0.0.1:8787/_fastdog/onboard/zones \
   -H "x-fastdog-token: $AGENT_TOKEN" -H 'content-type: application/json' \
-  -d '{"zone":"example.com","edge_ip":"157.230.57.32"}'
+  -d '{"zone":"example.com","edge_ip":"157.230.57.32","invite_code":"fd-<code>"}'
 ```
 
 This path does not change registrar settings. Zone deploy to CoreDNS is automatic only when auto-sync is enabled and configured; otherwise run `sync-coredns` manually. Public use requires the existing authoritative DNS and edge ingress to be ready for the new domain.
@@ -36,7 +38,8 @@ npm test
 npm start   # terminal A: edge :8787
 
 # terminal B
-npm run onboard -- create-zone demo-customer.test --edge-ip 157.230.57.32
+npm run onboard -- generate-invite --note demo
+npm run onboard -- create-zone demo-customer.test --edge-ip 157.230.57.32 --invite fd-<code>
 npm run onboard -- ns-instructions demo-customer.test
 npm run onboard -- issue-credential --name demo --hostname app.demo-customer.test
 # save issued AGENT_TOKEN from JSON
@@ -80,7 +83,7 @@ npm run sync-coredns
 ### Dry-run on LAN (no PoP SSH)
 
 ```sh
-COREDNS_SYNC_ENABLED=true COREDNS_SYNC_DRY_RUN=true   COREDNS_POP_TARGETS=ns1=157.230.57.32,ns2=2.29.58.90   npm run onboard -- create-zone dry-run.example
+COREDNS_SYNC_ENABLED=true COREDNS_SYNC_DRY_RUN=true   COREDNS_POP_TARGETS=ns1=157.230.57.32,ns2=2.29.58.90   npm run onboard -- create-zone dry-run.example --invite fd-<code>
 ```
 
 Dry-run validates SOA/NS (`ns1`/`ns2.fastdognetworks.com`), appends audit, and skips local write + remote SSH.
@@ -96,4 +99,3 @@ Structured JSONL at `DATA_DIR/audit/coredns-sync.jsonl` (or `COREDNS_AUDIT_LOG`)
 ### Failure behavior
 
 Remote sync failure does **not** roll back zone/host map. The onboard result includes `coredns_sync` with `ok: false` and `error`. CLI prints a clear stderr warning; set `COREDNS_SYNC_STRICT=true` to make the CLI exit non-zero on sync failure. Edge keeps serving; fix PoP SSH/keys and re-run `npm run sync-coredns -- <zone>`.
-
