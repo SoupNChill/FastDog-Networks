@@ -6,7 +6,7 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026092601 3600 600 604800 300",
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026092602 3600 600 604800 300",
       "comment": "Serial: YYYYMMDDNN — bump NN on each edit"
     },
     {
@@ -92,7 +92,14 @@
       "ttl": 300,
       "content": "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5bLVxFiKhBD76LdXDns8P9HjIDCDxCC4C91Pk8PPh/J9hF+1F88BnRA+QA4FVy3rkCIepGf2hJ7O7I2EukinFQmFFhwGgWAaE4EMO73HCbY4IvmOufjf9WqNhZj31lxfgygweSG9IE13G1QrVTdb/qS7HijjlgJqKgH4pTbZcjyGxrX1SNKtcIu+bLCl0xYJBEgob8l1PqTOnth8hPgSXgBeaRtycaMAOurji85/PH4nNBgto/Cb2ZwINWGiWcpmW6uZMuOk0C2YTK+9CFOfwRk3ihG3q5cTsbcCIYwxFnn1UEAeUAAWDdklZTQtBXGvWJh70gJFbon+4n4YajgkzwIDAQAB",
       "comment": "MXRoute DKIM selector x"
+    },
+    {
+      "name": "_da-verify-a20f5c4388ae68105280a48af2215639",
+      "type": "TXT",
+      "ttl": 300,
+      "content": "domain-verified",
+      "comment": "Cloudflare/DA domain verification (from CF inventory 2026-09-26)"
     }
   ],
-  "updated_at": "2026-09-26T23:23:10.897Z"
+  "updated_at": "2026-09-26T23:24:24.878Z"
 }
