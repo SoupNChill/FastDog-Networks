@@ -14,6 +14,7 @@ import { URL } from 'node:url';
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { computeBackoffMs } from './backoff.js';
+import { startHeartbeat } from './heartbeat.js';
 
 function env(name, fallback) {
   const v = process.env[name];
@@ -121,7 +122,10 @@ function connectWs(agentId, onWelcome) {
 
   return new Promise((resolve) => {
     const ws = new WebSocket(u.toString());
-    ws.on('open', () => console.log(`[agent] tunnel connected as ${agentId} host=${HOSTNAME}`));
+    ws.on('open', () => {
+      console.log(`[agent] tunnel connected as ${agentId} host=${HOSTNAME}`);
+      startHeartbeat(ws);
+    });
     ws.on('message', (data) => {
       let msg;
       try {
@@ -134,6 +138,7 @@ function connectWs(agentId, onWelcome) {
         onWelcome();
         return;
       }
+      if (msg.type === 'pong') return;
       handleFrame(ws, msg);
     });
     ws.on('close', (code, reason) => {
