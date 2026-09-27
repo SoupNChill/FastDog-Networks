@@ -11,7 +11,8 @@
     "test": "node --test test/*.test.js",
     "export-zones": "node src/dns/export-cli.js",
     "sync-coredns": "bash scripts/sync-coredns.sh",
-    "onboard": "node scripts/onboard.js"
+    "onboard": "node scripts/onboard.js",
+    "ns-cut-checklist": "bash scripts/ns-cut-checklist.sh"
   },
   "engines": {
     "node": ">=18"

@@ -42,3 +42,7 @@ export function markPaidTest(sessionId) {
 export function getStatus(zone) {
   return read('billing-accounts.json')[zone] || null;
 }
+
+export function listAccounts() {
+  return Object.values(read('billing-accounts.json'));
+}

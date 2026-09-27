@@ -36,6 +36,8 @@ Dogfood target: **Summit Lease** (`trysummitlease.com`) on LAN `prod1` (192.168.
 
 ## Quick start (server3)
 
+Operator dashboard: see [docs/operator-ui.md](docs/operator-ui.md) for the loopback SSH tunnel, token use, metrics, and NS-cut checklist.
+
 ```sh
 cd ~/projects/fastdog-edge
 cp .env.example .env   # optional
