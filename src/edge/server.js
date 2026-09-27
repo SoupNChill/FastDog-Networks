@@ -17,8 +17,8 @@ import {
   detachWs,
   getAgentByHost,
   proxyViaTunnel,
-  touch,
 } from '../control/tunnels.js';
+import { watchTunnel } from '../control/heartbeat.js';
 import { dnsRouter } from '../dns/api.js';
 import { onboardRouter } from '../onboard/api.js';
 import { statusService, intervalMs as statusIntervalMs } from '../status/service.js';
@@ -166,7 +166,7 @@ wss.on('connection', (ws, req) => {
 
   ws.send(JSON.stringify({ type: 'welcome', agentId, protocol: 'fastdog-tunnel-v0' }));
 
-  ws.on('message', () => touch(agentId));
+  watchTunnel(ws, agentId);
   ws.on('close', () => detachWs(agentId, ws));
   ws.on('error', () => detachWs(agentId, ws));
 });
