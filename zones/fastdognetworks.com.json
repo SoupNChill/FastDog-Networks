@@ -6,8 +6,8 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026092402 3600 600 604800 300",
-      "comment": "Serial: YYYYMMDDNN \u2014 bump NN on each edit"
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026092602 3600 600 604800 300",
+      "comment": "Serial: YYYYMMDDNN — bump NN on each edit"
     },
     {
       "name": "@",
@@ -42,14 +42,14 @@
       "type": "A",
       "ttl": 300,
       "content": "157.230.57.32",
-      "comment": "Public PoP \u2014 fastdog-edge behind Caddy"
+      "comment": "Public PoP — fastdog-edge behind Caddy"
     },
     {
       "name": "@",
       "type": "A",
       "ttl": 300,
       "content": "157.230.57.32",
-      "comment": "Apex placeholder \u2014 same as edge for now"
+      "comment": "Apex placeholder — same as edge for now"
     },
     {
       "name": "_fastdog",
@@ -63,8 +63,43 @@
       "type": "A",
       "ttl": 300,
       "content": "157.230.57.32",
-      "comment": "Public dogfood whoami \u2014 grey-cloud CF A until NS cut"
+      "comment": "Public dogfood whoami — grey-cloud CF A until NS cut"
+    },
+    {
+      "name": "@",
+      "type": "MX",
+      "ttl": 3600,
+      "content": "10 chocobo.mxrouting.net.",
+      "comment": "MXRoute — accounting@fastdognetworks.com"
+    },
+    {
+      "name": "@",
+      "type": "TXT",
+      "ttl": 300,
+      "content": "v=spf1 include:mxroute.com -all",
+      "comment": "SPF via MXRoute"
+    },
+    {
+      "name": "_dmarc",
+      "type": "TXT",
+      "ttl": 300,
+      "content": "v=DMARC1; p=none;",
+      "comment": "DMARC monitoring only"
+    },
+    {
+      "name": "x._domainkey",
+      "type": "TXT",
+      "ttl": 300,
+      "content": "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5bLVxFiKhBD76LdXDns8P9HjIDCDxCC4C91Pk8PPh/J9hF+1F88BnRA+QA4FVy3rkCIepGf2hJ7O7I2EukinFQmFFhwGgWAaE4EMO73HCbY4IvmOufjf9WqNhZj31lxfgygweSG9IE13G1QrVTdb/qS7HijjlgJqKgH4pTbZcjyGxrX1SNKtcIu+bLCl0xYJBEgob8l1PqTOnth8hPgSXgBeaRtycaMAOurji85/PH4nNBgto/Cb2ZwINWGiWcpmW6uZMuOk0C2YTK+9CFOfwRk3ihG3q5cTsbcCIYwxFnn1UEAeUAAWDdklZTQtBXGvWJh70gJFbon+4n4YajgkzwIDAQAB",
+      "comment": "MXRoute DKIM selector x"
+    },
+    {
+      "name": "_da-verify-a20f5c4388ae68105280a48af2215639",
+      "type": "TXT",
+      "ttl": 300,
+      "content": "domain-verified",
+      "comment": "Cloudflare/DA domain verification (from CF inventory 2026-09-26)"
     }
   ],
-  "updated_at": "2026-09-24T20:50:45Z"
+  "updated_at": "2026-09-26T23:24:24.878Z"
 }
