@@ -24,6 +24,7 @@ import { onboardRouter } from '../onboard/api.js';
 import { statusService, intervalMs as statusIntervalMs } from '../status/service.js';
 import { renderStatus } from '../status/html.js';
 import { billingRouter, billingWebhook } from '../billing/api.js';
+import { createOperatorServer, OPERATOR_BIND, OPERATOR_PORT } from '../operator/server.js';
 
 const PORT = Number(env('EDGE_PORT', '8787'));
 const BIND = env('EDGE_BIND', '0.0.0.0');
@@ -149,6 +150,7 @@ app.use((req, res) => {
 });
 
 const server = http.createServer(app);
+const operatorServer = createOperatorServer({ edgeHealthy: () => server.listening });
 
 const wss = new WebSocketServer({ server, path: '/_fastdog/tunnel' });
 
@@ -170,6 +172,9 @@ wss.on('connection', (ws, req) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
+  if (OPERATOR_BIND !== '127.0.0.1' && OPERATOR_BIND !== '::1') throw new Error('OPERATOR_BIND must be a loopback address');
+  if (!Number.isSafeInteger(OPERATOR_PORT) || OPERATOR_PORT < 1 || OPERATOR_PORT > 65535) throw new Error('invalid OPERATOR_PORT');
+  if (OPERATOR_PORT === PORT && OPERATOR_BIND === BIND) throw new Error('operator and edge listeners conflict');
   if (statusIntervalMs > 0) setInterval(() => {
     statusService.refresh().catch((error) => console.warn(`status: periodic check failed: ${error.message}`));
   }, statusIntervalMs).unref();
@@ -183,6 +188,9 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`  root:    ${ROOT}`);
     console.log('  WARNING: LAN-only — do not expose to public internet');
   });
+  operatorServer.listen(OPERATOR_PORT, OPERATOR_BIND, () => {
+    console.log(`fastdog operator listening on http://${OPERATOR_BIND}:${OPERATOR_PORT}/ (loopback only)`);
+  });
 }
 
-export { app, server, resolveUpstream, reloadRoutes, PORT, BIND };
+export { app, server, operatorServer, resolveUpstream, reloadRoutes, PORT, BIND };

@@ -10,3 +10,4 @@ coverage/
 .DS_Store
 logs/
 *.pid
+zones/dogfood-lan-*.test.json
