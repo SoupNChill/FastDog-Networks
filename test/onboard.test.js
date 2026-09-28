@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createZone, issueCredential, mapHost } from '../src/onboard/store.js';
+import { createZone, nsInstructions, issueCredential, mapHost } from '../src/onboard/store.js';
 import { readZone } from '../src/dns/store.js';
 import { loadRoutes, ROOT } from '../src/lib/config.js';
 import { registerAgent, _resetForTests } from '../src/control/tunnels.js';
@@ -31,6 +31,13 @@ describe('stranger onboarding', () => {
     assert.deepEqual(records.map((r) => r.type), ['SOA', 'NS', 'NS', 'A']);
     assert.match(records[0].content, /ns1\.fastdognetworks\.com\./);
     assert.throws(() => createZone({ zone: 'stranger.example' }), /zone_exists/);
+    assert.equal(result.lan_only, true);
+    assert.match(result.hold, /HOLD/);
+    assert.match(result.registrar_instructions, /Preview only/);
+    assert.match(result.dig_verify[0], /^dig @.* SOA \+norecurse$/);
+    assert.match(result.dig_verify[2], /^dig @.* SOA \+norecurse$/);
+    assert.match(result.next_steps_lan.join(' '), /Curl the LAN edge/);
+    assert.throws(() => nsInstructions('missing.example'), /zone_not_found/);
   });
 
   it('issues a credential accepted for its agent hostname', () => {

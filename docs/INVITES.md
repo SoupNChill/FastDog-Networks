@@ -1,16 +1,15 @@
 # Invite codes (LAN dogfood)
 
-`INVITE_REQUIRED=true` by default. When enabled, `create-zone` needs an invite code in the CLI (`--invite`) or HTTP body (`invite_code`). A successful zone creation consumes one use and records the zone and redemption time. Invalid, expired, or exhausted codes reject the request. Existing zones and invalid zone inputs do not consume a use. Set `INVITE_REQUIRED=false` in the edge and CLI environment to disable this gate.
+`INVITE_REQUIRED=true` by default and stays on for LAN dogfood. `create-zone` needs an invite code in the CLI (`--invite`) or HTTP body (`invite_code`). A successful zone creation consumes one use and records the zone and redemption time. Missing (`invite_code_required`), invalid, expired, or exhausted codes reject the request. Existing zones (`zone_exists`) and invalid zone inputs do not consume a use. Stop on any error; no zone or nameserver step follows a failed create.
 
-Invites are operator controlled. The HTTP routes use the same `AGENT_TOKEN` authentication as the rest of `/_fastdog/onboard`: send `x-fastdog-token: <AGENT_TOKEN>` or `token` in JSON. Keep this API on a trusted LAN. `GET /invites` returns plaintext codes so the operator can copy them. Codes are random (`fd-` plus 24 random bytes in hex) and saved in `$DATA_DIR/invites.json` with mode `0600` using an atomic replacement.
+Invites are operator controlled. The HTTP routes use the same `AGENT_TOKEN` authentication as the rest of `/_fastdog/onboard`: send `x-fastdog-token: <AGENT_TOKEN>` or `token` in JSON. Keep this API on a trusted LAN. The edge `GET /invites` returns plaintext codes; the loopback operator dashboard lists invite capacity without codes and shows a newly minted code once. Copy it privately. Codes are random (`fd-` plus 24 random bytes in hex) and saved in `$DATA_DIR/invites.json` with mode `0600` using an atomic replacement.
 
 ## CLI
 
 ```sh
 npm run onboard -- generate-invite --max-uses 2 --expires-in-hours 48 --note 'LAN trial'
 npm run onboard -- list-invites
-npm run onboard -- redeem-invite fd-<code> --redeemed-by operator
-npm run onboard -- create-zone example.com --invite fd-<code>
+npm run onboard -- create-zone example.com --invite '<invite-code>'
 ```
 
 `--max-uses` defaults to 1. For a fixed expiry use `--expires-at 2026-10-01T12:00:00Z` instead of `--expires-in-hours`. Expiry is optional. `--note` is optional.
@@ -34,4 +33,4 @@ curl -sS -X POST http://127.0.0.1:8787/_fastdog/onboard/invites \
   -d '{"max_uses":1,"expires_in_hours":24,"note":"dogfood"}'
 ```
 
-The standalone redeem route consumes a use immediately. Zone creation consumes it automatically, so do not redeem a code first if it is intended for that zone. This thin JSON store assumes one control process writes invites at a time.
+The standalone redeem route consumes a use immediately. Zone creation consumes it automatically, so do not redeem a code first if it is intended for that zone. This thin JSON store assumes one control process writes invites at a time. After creation, preview `ns-instructions`; direct PoP dig checks are verification only. **Registrar NS remains on HOLD.** Continue with the [LAN Host-header flow](ONBOARDING.md#lan-try-server3).
