@@ -67,6 +67,15 @@ describe('health endpoint (live server)', () => {
     assert.equal(body.service, 'fastdog-edge');
   });
 
+  it('serves the marketing preview at /www/', async () => {
+    const page = await fetch(`http://127.0.0.1:${port}/www/`);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /Fast by/);
+    const style = await fetch(`http://127.0.0.1:${port}/www/css/site.css`);
+    assert.equal(style.status, 200);
+    assert.match(await style.text(), /#00D4FF/);
+  });
+
   it('GET /_fastdog/routes returns config', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/_fastdog/routes`);
     assert.equal(res.status, 200);

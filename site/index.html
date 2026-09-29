@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#222831">
+  <meta name="description" content="FastDog Networks: authoritative DNS, a private tunnel, and a TLS reverse proxy for services you run.">
+  <title>FastDog Networks — Fast by Design.</title>
+  <link rel="icon" href="./logos/hound-light.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./css/site.css">
+  <script src="./js/status.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-header wrap">
+    <a class="brand" href="#top" aria-label="FastDog Networks, top of page">
+      <img src="./logos/hound-light.svg" width="70" height="21" alt="">
+      <span>FastDog <span class="brand-second">Networks</span></span>
+    </a>
+    <nav aria-label="Main navigation">
+      <a href="#approach">Approach</a>
+      <a href="#pricing">Pricing</a>
+      <a class="nav-contact" href="mailto:support@fastdognetworks.com">Get in touch <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section id="top" class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-intro"><span class="eyebrow">FastDog Networks / Phase 01</span><span class="hero-index">Infrastructure, kept legible.</span></div>
+      <h1 id="hero-title">Fast by<br><em>Design.</em></h1>
+      <div class="hero-bottom">
+        <p class="hero-lede">A clear path from your domain to the service you run. Authoritative DNS, a private tunnel, and a TLS reverse proxy, operated together.</p>
+        <a class="text-link" href="#approach">See the approach <span aria-hidden="true">↘</span></a>
+      </div>
+    </section>
+
+    <section class="section problem" aria-labelledby="problem-title">
+      <div class="wrap split">
+        <div class="section-marker"><span>01 / The problem</span></div>
+        <div class="section-body">
+          <h2 id="problem-title">The distance between a domain and a working service should be short.</h2>
+          <p>DNS, ingress, and certificates are often managed in separate places. When something breaks, that separation makes a simple request hard to trace. We bring those three pieces into one deliberate path.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="approach" class="section offer" aria-labelledby="offer-title">
+      <div class="wrap split">
+        <div class="section-marker"><span>02 / What we run</span></div>
+        <div class="section-body">
+          <h2 id="offer-title">One path, three parts.</h2>
+          <ul class="offer-list">
+            <li><span class="offer-number">01</span><div><h3>Authoritative DNS</h3><p>We serve the DNS records for your domain. You keep your registrar and control when to delegate nameservers.</p></div></li>
+            <li><span class="offer-number">02</span><div><h3>Private tunnel</h3><p>An agent connects your origin to our edge, so the public request does not need a direct route to your service.</p></div></li>
+            <li><span class="offer-number">03</span><div><h3>TLS reverse proxy</h3><p>The edge terminates HTTPS and forwards requests through the tunnel to the right origin.</p></div></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section fit" aria-labelledby="fit-title">
+      <div class="wrap split">
+        <div class="section-marker"><span>03 / Who it's for</span></div>
+        <div class="section-body">
+          <h2 id="fit-title">For teams that run their own services and want a smaller ingress surface.</h2>
+          <p>Especially useful when the origin sits behind a private network or when you want one operator to own the DNS-to-TLS path. We run this architecture ourselves; we are opening it carefully to others.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="pricing" class="section pricing" aria-labelledby="pricing-title">
+      <div class="wrap split">
+        <div class="section-marker"><span>04 / Planning numbers</span></div>
+        <div class="section-body">
+          <div class="pricing-head"><h2 id="pricing-title">Proposed ranges.</h2><p>Monthly estimates. Subject to change as scope is agreed.</p></div>
+          <div class="price-list" aria-label="Proposed monthly pricing ranges">
+            <div><span>Starter</span><strong>~$49–99 <small>/ mo</small></strong></div>
+            <div><span>Growth</span><strong>~$149–299 <small>/ mo</small></strong></div>
+            <div><span>Pro</span><strong>~$299–499 <small>/ mo</small></strong></div>
+          </div>
+          <p class="small-note">These are proposed planning ranges, not live checkout prices or a published service commitment.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section cutover" aria-labelledby="cutover-title">
+      <div class="wrap split">
+        <div class="section-marker"><span>05 / Cutover</span></div>
+        <div class="section-body">
+          <h2 id="cutover-title">Verify first. Delegate when ready.</h2>
+          <p>We prepare the zone and verify answers directly on our nameserver IPs. When the nameserver cut is live and you choose to move, you will point your registrar at <code>ns1.fastdognetworks.com</code> and <code>ns2.fastdognetworks.com</code>. Your registrar remains yours.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section status" aria-labelledby="status-title">
+      <div class="wrap split">
+        <div class="section-marker"><span>06 / From our edge</span></div>
+        <div class="section-body">
+          <div class="status-heading"><div><h2 id="status-title">A small live signal.</h2><p>Read from this edge's health endpoint when available. This is a point-in-time check, not an uptime promise.</p></div><span class="status-host">edge.fastdognetworks.com</span></div>
+          <ul class="status-list" aria-live="polite">
+            <li data-signal="edge"><span class="signal-dot" aria-hidden="true"></span><span>Edge</span><strong>Checking</strong></li>
+            <li data-signal="tunnel"><span class="signal-dot" aria-hidden="true"></span><span>Tunnel</span><strong>Checking</strong></li>
+            <li data-signal="tls"><span class="signal-dot" aria-hidden="true"></span><span>TLS</span><strong>Checking</strong></li>
+          </ul>
+          <p id="status-note" class="small-note" role="status">Checking the edge…</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="contact" class="contact wrap" aria-labelledby="contact-title">
+      <span class="eyebrow">Start a conversation</span>
+      <h2 id="contact-title">Tell us what<br>you run.</h2>
+      <div class="contact-bottom"><p>Write with your hostname, origin setup, and what you want to make simpler. We respond the same business day on America/Denver business days.</p><a href="mailto:support@fastdognetworks.com?subject=FastDog%20Networks%20inquiry">support@fastdognetworks.com <span aria-hidden="true">↗</span></a></div>
+    </section>
+  </main>
+
+  <footer class="footer wrap">
+    <img src="./logos/lockup-light.svg" width="180" height="110" alt="FastDog Networks. Fast by Design.">
+    <div><span>Phase 1 / DNS · tunnel · TLS</span><span>© FastDog Networks</span></div>
+  </footer>
+</body>
+</html>
