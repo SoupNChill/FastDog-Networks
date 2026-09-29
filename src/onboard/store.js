@@ -34,17 +34,26 @@ export function createZone({ zone, edge_ip, force = false, invite_code } = {}) {
   writeZone(zone, { ttl_default: 300, records });
   if (needsInvite) redeemInvite({ code: invite_code, redeemed_by: zone });
   const coredns_sync = syncAfterOnboard(zone, 'create-zone');
-  return { zone, ns: nameservers, dig_verify: digChecks(zone), coredns_sync };
+  return { ...nsInstructions(zone), coredns_sync };
 }
 
 export function digChecks(zone) {
-  return [`dig ${zone} NS`, `dig ${zone} SOA`, `dig +trace ${zone} NS`, ...ns().map((_, i) => `dig @${env(i ? 'NS2_IP' : 'NS1_IP', i ? '2.29.58.90' : '157.230.57.32')} ${zone} SOA +norecurse`)];
+  return [...ns().flatMap((_, i) => {
+    const ip = env(i ? 'NS2_IP' : 'NS1_IP', i ? '2.29.58.90' : '157.230.57.32');
+    return [`dig @${ip} ${zone} SOA +norecurse`, `dig @${ip} ${zone} NS +norecurse`];
+  }), `dig ${zone} NS`, `dig ${zone} SOA`, `dig +trace ${zone} NS`];
 }
 
 export function nsInstructions(zone) {
   zone = domain(zone);
   if (!readZone(zone)) throw Object.assign(new Error('zone_not_found'), { status: 404 });
-  return { zone, ns: ns(), registrar_instructions: `At the registrar for ${zone}, set custom nameservers to ${ns().join(' and ')} after the zone is served and verified on both servers.`, glue: ns().filter((h) => h.endsWith(`${zone}.`)).map((host) => ({ host, ip: host === ns()[0] ? env('NS1_IP', '157.230.57.32') : env('NS2_IP', '2.29.58.90') })), dig_verify: digChecks(zone) };
+  return {
+    zone, ns: ns(), hold: 'Registrar NS remains on HOLD. Do not change nameservers.', lan_only: true,
+    registrar_instructions: `Preview only for ${zone}: ${ns().join(' and ')} are proposed nameservers. Registrar delegation is on HOLD; verification does not authorize a flip.`,
+    glue: ns().filter((h) => h.endsWith(`${zone}.`)).map((host) => ({ host, ip: host === ns()[0] ? env('NS1_IP', '157.230.57.32') : env('NS2_IP', '2.29.58.90') })),
+    dig_verify: digChecks(zone),
+    next_steps_lan: ['If already served on the PoPs, verify SOA and NS with dig @NS1_IP and @NS2_IP +norecurse (substitute the configured IPs); failed dig blocks a DNS-ready claim.', 'Issue a hostname-bound agent credential.', 'Map the hostname, then reload routes if using the CLI.', 'Run the agent with its issued token and local upstream.', 'Curl the LAN edge with a Host header for the mapped hostname.'],
+  };
 }
 
 export function issueCredential({ name, hostname } = {}) {

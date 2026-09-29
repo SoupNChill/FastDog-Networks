@@ -46,6 +46,7 @@ it('parses checklist output and fails closed on execution errors', () => {
   assert.equal(parseChecklist(output).SAFE_TO_FLIP, 'no');
   assert.deepEqual(parseChecklist(output).checks, ['PASS MX: ok', 'FAIL SOA: mismatch']);
   assert.equal(parseChecklist(output, new Error('timeout')).SAFE_TO_FLIP, 'no');
+  assert.equal(parseChecklist('SAFE_TO_FLIP=yes\n').SAFE_TO_FLIP, 'no');
   assert.match(parseChecklist('').hold, /HOLD/);
 });
 
@@ -70,6 +71,8 @@ it('serves gated checklist and zone creation/detail with onboarding instructions
     assert.equal(created.instructions.zone, 'operator.example');
     assert.equal(created.instructions.ns.length, 2);
     assert.match(created.hold, /HOLD/);
+    assert.equal(created.instructions.lan_only, true);
+    assert.match(created.instructions.next_steps_lan.join(' '), /agent credential/);
     const detail = await (await fetch(`${base}/_fastdog/dns/zones/operator.example`, { headers })).json();
     assert.deepEqual(detail.records.map((r) => r.type), ['SOA', 'NS', 'NS', 'A']);
     assert.equal((await fetch(`${base}/_fastdog/dns/zones/missing.example`, { headers })).status, 404);

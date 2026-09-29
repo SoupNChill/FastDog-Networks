@@ -1,8 +1,10 @@
 const $ = (id) => document.getElementById(id);
 let token = '';
 async function api(path, options = {}) {
+  if (!token.trim()) throw new Error('Enter the agent token, then load the dashboard.');
   const response = await fetch(path, { ...options, headers: { 'x-fastdog-token': token, ...(options.headers || {}) } });
   const data = await response.json();
+  if (response.status === 401) throw new Error('Agent token rejected (401). Check the token and try again.');
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data;
 }
@@ -15,6 +17,13 @@ function list(id, values) {
   const ul = $(id); ul.replaceChildren();
   for (const value of values) { const li = document.createElement('li'); li.textContent = value; ul.append(li); }
 }
+function inviteAvailability(remaining) {
+  $('create-zone').disabled = !Number.isSafeInteger(remaining) || remaining < 1;
+  $('invite-guidance').textContent = remaining < 1
+    ? 'No active invite uses remain. Mint an invite before creating a zone.'
+    : `${remaining} active invite use${remaining === 1 ? '' : 's'} available. Enter a valid invite code to create a zone.`;
+}
+function holdError(error) { return `${error.message} Zone creation did not complete. Registrar NS remains on HOLD.`; }
 function metric(label, value) {
   const div = document.createElement('div'); div.className = 'metric';
   const strong = document.createElement('strong'); strong.textContent = String(value);
@@ -49,6 +58,7 @@ async function load() {
       metric('Tunnel connected', metrics.tunnelConnected ? 'yes' : 'no'),
       metric('Newest connected last seen', metrics.newestConnectedLastSeen ? `${relativeTime(metrics.newestConnectedLastSeen)} (${metrics.newestConnectedLastSeen})` : 'none'),
     );
+    inviteAvailability(metrics.invitesRemaining);
     $('invites').replaceChildren(...invites.map((i) => row([i.created_at, i.remaining_uses, i.expires_at && Date.parse(i.expires_at) <= Date.now() ? 'yes' : 'no', i.expires_at || 'never', i.note || ''])));
     const zoneList = $('zones'); zoneList.replaceChildren();
     for (const zone of zones.zones) {
@@ -59,11 +69,12 @@ async function load() {
     list('agents', agents.agents.map((a) => `${a.name} · ${a.hostname} · connected ${a.connected ? 'yes' : 'no'} · registered ${a.registeredAt || 'unknown'} · last seen ${a.lastSeen ? `${relativeTime(a.lastSeen)} (${a.lastSeen})` : 'unknown'} · upstream ${a.localUpstream || 'unknown'}`));
     $('status-summary').textContent = `${status.overall} · checked ${status.lastChecked}`;
     $('message').textContent = 'Dashboard updated.';
-  } catch (error) { $('message').textContent = error.message; }
+  } catch (error) { inviteAvailability(0); $('message').textContent = error.message; }
 }
 $('load').addEventListener('click', load);
 $('invite-form').addEventListener('submit', async (event) => {
   event.preventDefault();
+  $('invite-code').textContent = ''; $('invite-code').style.display = 'none';
   try {
     token = $('token').value;
     const fields = new FormData(event.target);
@@ -74,31 +85,36 @@ $('invite-form').addEventListener('submit', async (event) => {
     $('invite-code').textContent = `Copy this code now: ${invite.code}`;
     $('invite-code').style.display = 'block';
     await load();
-  } catch (error) { $('message').textContent = error.message; }
+  } catch (error) { $('message').textContent = `Invite not minted: ${error.message}`; }
 });
 $('zone-form').addEventListener('submit', async (event) => {
   event.preventDefault(); token = $('token').value;
+  const output = $('zone-created'); output.replaceChildren();
   try {
     const fields = new FormData(event.target);
     const body = { zone: String(fields.get('zone')).trim(), invite_code: String(fields.get('invite_code')).trim() };
+    if (!body.invite_code) throw new Error('Invite code required. Mint an invite first.');
     if (fields.get('edge_ip')) body.edge_ip = String(fields.get('edge_ip')).trim();
     const result = await api('/_fastdog/onboard/zones', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    const output = $('zone-created'); output.replaceChildren();
-    const title = document.createElement('p'); title.textContent = `Created ${result.zone}. NS: ${result.ns.join(', ')}. ${result.hold}`;
-    const next = document.createElement('p'); next.textContent = 'Next: verify DNS on both servers, then issue an agent credential and map a hostname through the onboard API. Keep registrar NS on HOLD.';
+    const instructions = result.instructions;
+    const title = document.createElement('p'); title.textContent = `Created ${result.zone}. Proposed NS: ${instructions.ns.join(', ')}. ${instructions.hold}`;
+    const next = document.createElement('p'); next.textContent = 'LAN preview: check SOA and NS directly on both PoPs. DNS publication is separate; CoreDNS auto sync stays off.';
     const checks = document.createElement('ul');
-    for (const command of result.instructions.dig_verify) { const li = document.createElement('li'); li.textContent = command; checks.append(li); }
-    output.append(title, next, checks);
+    for (const command of instructions.dig_verify) { const li = document.createElement('li'); li.textContent = command; checks.append(li); }
+    const steps = document.createElement('p'); steps.textContent = 'LAN next steps: ' + instructions.next_steps_lan.join(' ');
+    output.append(title, next, checks, steps);
     await load(); await showZone(result.zone);
-  } catch (error) { $('message').textContent = error.message; }
+  } catch (error) { output.replaceChildren(); $('message').textContent = holdError(error); }
 });
 $('run-checklist').addEventListener('click', async () => {
   token = $('token').value; $('checklist-result').textContent = 'Running checklist…';
   try {
     const result = await api('/_fastdog/operator/ns-cut-checklist');
     const panel = $('checklist-result'); panel.replaceChildren();
-    const summary = document.createElement('p'); summary.textContent = `SAFE_TO_FLIP=${result.SAFE_TO_FLIP}. ${result.hold}`;
-    const lines = document.createElement('pre'); lines.textContent = result.lines.join('\n') || result.error || 'No output';
+    const valid = Array.isArray(result.lines) && Array.isArray(result.checks) && result.checks.length > 0 && !result.checks.some((line) => !line.startsWith('PASS')) && !result.error;
+    const safe = valid && result.SAFE_TO_FLIP === 'yes' ? 'yes' : 'no';
+    const summary = document.createElement('p'); summary.textContent = `SAFE_TO_FLIP=${safe}. Registrar NS remains on HOLD. ${result.error || (!valid ? 'Checklist failed or returned no checks; inspect the server and dig availability.' : result.hold || '')}`;
+    const lines = document.createElement('pre'); lines.textContent = Array.isArray(result.lines) ? result.lines.join('\n') || 'No checklist output' : 'No checklist output';
     panel.append(summary, lines);
-  } catch (error) { $('checklist-result').textContent = error.message; }
+  } catch (error) { $('checklist-result').textContent = `SAFE_TO_FLIP=no. Registrar NS remains on HOLD. Checklist failed: ${error.message}`; }
 });
