@@ -1,4 +1,5 @@
 node_modules/
+.branding-src/
 data/*
 !data/.gitkeep
 .env

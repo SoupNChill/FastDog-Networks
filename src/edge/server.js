@@ -5,6 +5,7 @@
  * Summit Lease / Cloudflare on prod1 is untouched; this runs in parallel.
  */
 import http from 'node:http';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { env, loadRoutes, defaultUpstream, ROOT } from '../lib/config.js';
@@ -55,6 +56,8 @@ function resolveUpstream(hostname) {
 
 const app = express();
 app.disable('x-powered-by');
+// Marketing preview only. Keep /www separate from the edge APIs and operator listener.
+app.use('/www', express.static(fileURLToPath(new URL('../../site/', import.meta.url)), { index: 'index.html', fallthrough: false }));
 app.post('/_fastdog/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billingWebhook);
 app.use(express.json({ limit: '1mb' }));
 app.use(billingRouter());
