@@ -6,7 +6,7 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026092602 3600 600 604800 300",
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026100301 3600 600 604800 300",
       "comment": "Serial: YYYYMMDDNN — bump NN on each edit"
     },
     {
@@ -50,6 +50,13 @@
       "ttl": 300,
       "content": "157.230.57.32",
       "comment": "Apex placeholder — same as edge for now"
+    },
+    {
+      "name": "www",
+      "type": "A",
+      "ttl": 300,
+      "content": "157.230.57.32",
+      "comment": "www vhost — Caddy serves apex and www identically"
     },
     {
       "name": "_fastdog",
@@ -101,5 +108,5 @@
       "comment": "Cloudflare/DA domain verification (from CF inventory 2026-09-26)"
     }
   ],
-  "updated_at": "2026-09-26T23:24:24.878Z"
+  "updated_at": "2026-10-04T03:30:40.000Z"
 }
