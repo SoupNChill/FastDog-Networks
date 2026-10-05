@@ -62,18 +62,29 @@ app.post('/_fastdog/billing/webhook', express.raw({ type: 'application/json', li
 app.use(express.json({ limit: '1mb' }));
 app.use(billingRouter());
 
-app.get('/health', (_req, res) => {
-  res.json({
-    ok: true,
-    service: 'fastdog-edge',
-    version: '0.1.0',
-    phase: 1,
-    listen: `${BIND}:${PORT}`,
-    warning: 'LAN-only — do not expose to public internet',
-    routesFile: routeConfig.file,
-    routeCount: routeConfig.routes.size,
-    agents: listAgents().length,
-  });
+const VERSION = '0.1.0';
+
+function isLoopbackRequest(req) {
+  if (req.headers['x-forwarded-for']) return false;
+  const addr = req.socket?.remoteAddress || '';
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
+app.get('/health', (req, res) => {
+  if (isLoopbackRequest(req)) {
+    return res.json({
+      ok: true,
+      service: 'fastdog-edge',
+      version: VERSION,
+      phase: 1,
+      listen: `${BIND}:${PORT}`,
+      warning: 'LAN-only — do not expose to public internet',
+      routesFile: routeConfig.file,
+      routeCount: routeConfig.routes.size,
+      agents: listAgents().length,
+    });
+  }
+  res.json({ ok: true, version: VERSION });
 });
 
 app.get('/status', async (req, res) => {

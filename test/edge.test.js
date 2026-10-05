@@ -67,6 +67,33 @@ describe('health endpoint (live server)', () => {
     assert.equal(body.service, 'fastdog-edge');
   });
 
+  it('GET /health from loopback returns full details', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.ok(body.service, 'loopback should include service');
+    assert.ok(body.version, 'loopback should include version');
+    assert.ok(body.listen, 'loopback should include listen');
+    assert.ok(body.routesFile, 'loopback should include routesFile');
+    assert.ok('routeCount' in body, 'loopback should include routeCount');
+    assert.ok('agents' in body, 'loopback should include agents');
+    assert.ok(body.warning, 'loopback should include warning');
+  });
+
+  it('GET /health with X-Forwarded-For returns minimal response', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+      headers: { 'X-Forwarded-For': '203.0.113.42' },
+    });
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.ok(body.version, 'public should include version');
+    assert.equal(Object.keys(body).length, 2, 'public should only have ok and version');
+    assert.equal(body.listen, undefined, 'public should not include listen');
+    assert.equal(body.service, undefined, 'public should not include service');
+    assert.equal(body.routesFile, undefined, 'public should not include routesFile');
+    assert.equal(body.agents, undefined, 'public should not include agents');
+  });
+
   it('serves the marketing preview at /www/', async () => {
     const page = await fetch(`http://127.0.0.1:${port}/www/`);
     assert.equal(page.status, 200);
