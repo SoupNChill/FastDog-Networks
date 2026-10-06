@@ -6,7 +6,7 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026100301 3600 600 604800 300",
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026100601 3600 600 604800 300",
       "comment": "Serial: YYYYMMDDNN — bump NN on each edit"
     },
     {
@@ -71,6 +71,13 @@
       "ttl": 300,
       "content": "157.230.57.32",
       "comment": "Public dogfood whoami — grey-cloud CF A until NS cut"
+    },
+    {
+      "name": "lease",
+      "type": "A",
+      "ttl": 300,
+      "content": "157.230.57.32",
+      "comment": "Summit Lease dogfood on FastDog — trysummitlease.com remains on CF"
     },
     {
       "name": "@",
