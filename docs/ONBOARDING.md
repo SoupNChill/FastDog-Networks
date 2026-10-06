@@ -1,6 +1,49 @@
-# Stranger onboarding (Track A1)
+# Stranger onboarding
 
-This is a LAN-only control path. The edge API uses the shared `AGENT_TOKEN` for onboarding requests. Keep the control port on a trusted LAN; issued agent credentials are returned once and stored as hashes in `DATA_DIR/agent-credentials.json`. **Registrar NS remains on HOLD throughout this flow.** A LAN Host-header request does not need a registrar change.
+This is a LAN-only control path. The edge API uses the shared `AGENT_TOKEN` for onboarding requests. Keep the control port on a trusted LAN; issued agent credentials are returned once and stored as hashes in `DATA_DIR/agent-credentials.json`.
+
+## Quick start: Hostname attach (CNAME) — Recommended
+
+**This is the default first-seat onboarding path.** Customer keeps their registrar DNS (including Cloudflare Free). They CNAME their hostname to FastDog's edge. No NS change needed.
+
+```sh
+# 1. Attach hostname (returns CNAME instructions)
+npm run onboard -- attach-host app.customer.com
+
+# 2. Customer adds CNAME at their registrar:
+#    app.customer.com.  300  IN  CNAME  attach.fastdognetworks.com.
+
+# 3. Verify DNS and activate (issues credential, returns Caddy block)
+npm run onboard -- verify-host app.customer.com
+
+# 4. Save the issued AGENT_TOKEN (shown once)
+
+# 5. Run agent
+AGENT_TOKEN='<issued-token>' \
+AGENT_HOSTNAME=app.customer.com \
+AGENT_LOCAL_UPSTREAM=http://127.0.0.1:8080 \
+npm run agent
+
+# 6. Operator: Add Caddy block and reload (see verify-host output)
+
+# 7. Test: https://app.customer.com works
+```
+
+For detailed instructions, see [Hostname attach design](HOSTNAME_ATTACH.md) and [deploy runbook](../deploy/HOSTNAME_ATTACH.md).
+
+### Operator UI
+
+The operator dashboard (`http://127.0.0.1:8788/`) has "Quick attach" as the default first action:
+1. Enter hostname → Click Attach
+2. Customer adds CNAME
+3. Click Verify → Shows credential + Caddy block
+4. Add Caddy block, reload Caddy
+
+---
+
+## Advanced: NS cut (authoritative zone)
+
+**For customers who need full zone control.** This path makes FastDog authoritative for the domain. **Registrar NS remains on HOLD throughout this flow.** Use hostname attach above for most customers.
 
 Zone creation requires an invite code by default (`INVITE_REQUIRED=true`). Generate one with `npm run onboard -- generate-invite`, then pass `--invite <code>` to `create-zone` or `invite_code` in the API body. Missing, invalid, expired, or exhausted invites fail zone creation; an existing zone returns `zone_exists`. Resolve the error before continuing. See [Invite codes](INVITES.md) for API routes and redemption.
 

@@ -45,6 +45,13 @@
       "comment": "Public PoP — fastdog-edge behind Caddy"
     },
     {
+      "name": "attach",
+      "type": "A",
+      "ttl": 300,
+      "content": "157.230.57.32",
+      "comment": "CNAME target for hostname-attach onboarding"
+    },
+    {
       "name": "@",
       "type": "A",
       "ttl": 300,

@@ -4,6 +4,7 @@ import { env } from '../lib/config.js';
 import { listZones, readZone } from '../dns/store.js';
 import { createZone, nsInstructions, domain } from '../onboard/store.js';
 import { listInvites, generateInvite } from '../onboard/invites.js';
+import { attachHost, verifyHost, listAttachedHosts, detachHost } from '../onboard/attach.js';
 import { listAccounts } from '../billing/store.js';
 import { listAgents } from '../control/tunnels.js';
 import { statusService } from '../status/service.js';
@@ -62,6 +63,19 @@ export function createOperatorApp({ edgeHealthy = () => false, checklist = runCh
   app.get('/_fastdog/onboard/invites', (_req, res) => res.json(listInvites().map(({ code, ...invite }) => invite)));
   app.post('/_fastdog/onboard/invites', (req, res) => {
     try { res.status(201).json(generateInvite(req.body || {})); }
+    catch (error) { res.status(error.status || 500).json({ error: error.message }); }
+  });
+  app.post('/_fastdog/onboard/attach-host', (req, res) => {
+    try { res.status(201).json(attachHost(req.body || {})); }
+    catch (error) { res.status(error.status || 500).json({ error: error.message }); }
+  });
+  app.post('/_fastdog/onboard/verify-host', async (req, res) => {
+    try { res.json(await verifyHost(req.body || {})); }
+    catch (error) { res.status(error.status || 500).json({ error: error.message }); }
+  });
+  app.get('/_fastdog/onboard/attached-hosts', (_req, res) => res.json({ hosts: listAttachedHosts() }));
+  app.delete('/_fastdog/onboard/attached-hosts/:hostname', (req, res) => {
+    try { res.json(detachHost({ hostname: req.params.hostname })); }
     catch (error) { res.status(error.status || 500).json({ error: error.message }); }
   });
   app.get('/status.json', async (_req, res) => res.json(await statusService.get()));
