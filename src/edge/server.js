@@ -59,7 +59,10 @@ app.disable('x-powered-by');
 // Marketing preview only. Keep /www separate from the edge APIs and operator listener.
 app.use('/www', express.static(fileURLToPath(new URL('../../site/', import.meta.url)), { index: 'index.html', fallthrough: false }));
 app.post('/_fastdog/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billingWebhook);
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 app.use(billingRouter());
 
 const VERSION = '0.1.0';

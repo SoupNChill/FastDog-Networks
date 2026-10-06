@@ -174,3 +174,233 @@ describe('health endpoint (live server)', () => {
     assert.equal(after.requestsTunnel, before.requestsTunnel + 1);
   });
 });
+
+describe('tunnel POST body forwarding (shared server)', () => {
+  let server;
+  let port;
+
+  before(async () => {
+    _resetForTests();
+    resetForTests();
+    process.env.NODE_ENV = 'test';
+    process.env.EDGE_PORT = '0';
+    process.env.AGENT_TOKEN = 'test-token';
+    const mod = await import('../src/edge/server.js?postbody');
+    await new Promise((resolve) => {
+      mod.server.listen(0, '127.0.0.1', resolve);
+    });
+    server = mod.server;
+    port = server.address().port;
+  });
+
+  after(async () => {
+    _resetForTests();
+    await new Promise((resolve) => server.close(resolve));
+    delete process.env.NODE_ENV;
+  });
+
+  it('POST with JSON body is forwarded through tunnel', async () => {
+    const reg = await fetch(`http://127.0.0.1:${port}/_fastdog/agents/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'body-test-agent',
+        hostname: 'postbody.test.local',
+        localUpstream: 'http://127.0.0.1:9999',
+        token: 'test-token',
+      }),
+    });
+    assert.equal(reg.status, 201);
+
+    const agentId = (await reg.json()).id;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/_fastdog/tunnel?agentId=${agentId}&token=test-token`);
+    await new Promise((resolve, reject) => {
+      ws.once('message', resolve);
+      ws.once('error', reject);
+    });
+
+    const testBody = { email: 'test@example.com', password: 'secret123' };
+    let receivedFrame = null;
+
+    ws.on('message', (data) => {
+      const msg = JSON.parse(String(data));
+      if (msg.type === 'http_req') {
+        receivedFrame = msg;
+        ws.send(JSON.stringify({
+          type: 'http_res',
+          id: msg.id,
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          bodyBase64: Buffer.from(JSON.stringify({ received: true })).toString('base64'),
+        }));
+      }
+    });
+
+    const res = await new Promise((resolve, reject) => {
+      const reqData = JSON.stringify(testBody);
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port,
+        path: '/api/auth/sign-in',
+        method: 'POST',
+        headers: {
+          'Host': 'postbody.test.local',
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(reqData),
+        },
+      }, (res) => {
+        let body = '';
+        res.on('data', (chunk) => body += chunk);
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+      });
+      req.on('error', reject);
+      req.write(reqData);
+      req.end();
+    });
+
+    assert.equal(res.status, 200, `Expected 200, got ${res.status}: ${res.body}`);
+    const resBody = JSON.parse(res.body);
+    assert.equal(resBody.received, true);
+
+    assert.ok(receivedFrame, 'tunnel agent should receive HTTP frame');
+    assert.equal(receivedFrame.method, 'POST');
+    assert.equal(receivedFrame.path, '/api/auth/sign-in');
+    assert.ok(receivedFrame.bodyBase64, 'frame should include body');
+    const forwardedBody = JSON.parse(Buffer.from(receivedFrame.bodyBase64, 'base64').toString());
+    assert.deepEqual(forwardedBody, testBody, 'forwarded body should match original');
+
+    ws.close();
+    await new Promise((resolve) => ws.once('close', resolve));
+  });
+
+  it('POST with non-JSON body is forwarded through tunnel', async () => {
+    const reg = await fetch(`http://127.0.0.1:${port}/_fastdog/agents/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'form-test-agent',
+        hostname: 'formdata.test.local',
+        localUpstream: 'http://127.0.0.1:9999',
+        token: 'test-token',
+      }),
+    });
+    assert.equal(reg.status, 201);
+
+    const agentId = (await reg.json()).id;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/_fastdog/tunnel?agentId=${agentId}&token=test-token`);
+    await new Promise((resolve, reject) => {
+      ws.once('message', resolve);
+      ws.once('error', reject);
+    });
+
+    const formBody = 'username=alice&password=secret';
+    let receivedFrame = null;
+
+    ws.on('message', (data) => {
+      const msg = JSON.parse(String(data));
+      if (msg.type === 'http_req') {
+        receivedFrame = msg;
+        ws.send(JSON.stringify({
+          type: 'http_res',
+          id: msg.id,
+          status: 200,
+          headers: { 'content-type': 'text/plain' },
+          bodyBase64: Buffer.from('ok').toString('base64'),
+        }));
+      }
+    });
+
+    const res = await new Promise((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port,
+        path: '/login',
+        method: 'POST',
+        headers: {
+          'Host': 'formdata.test.local',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': Buffer.byteLength(formBody),
+        },
+      }, (res) => {
+        let body = '';
+        res.on('data', (chunk) => body += chunk);
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+      });
+      req.on('error', reject);
+      req.write(formBody);
+      req.end();
+    });
+
+    assert.equal(res.status, 200, `Expected 200, got ${res.status}: ${res.body}`);
+
+    assert.ok(receivedFrame, 'tunnel agent should receive HTTP frame');
+    assert.equal(receivedFrame.method, 'POST');
+    assert.ok(receivedFrame.bodyBase64, 'frame should include body');
+    const forwardedBody = Buffer.from(receivedFrame.bodyBase64, 'base64').toString();
+    assert.equal(forwardedBody, formBody, 'forwarded form body should match original');
+
+    ws.close();
+    await new Promise((resolve) => ws.once('close', resolve));
+  });
+
+  it('GET request without body works through tunnel', async () => {
+    const reg = await fetch(`http://127.0.0.1:${port}/_fastdog/agents/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'get-test-agent',
+        hostname: 'getreq.test.local',
+        localUpstream: 'http://127.0.0.1:9999',
+        token: 'test-token',
+      }),
+    });
+    assert.equal(reg.status, 201);
+
+    const agentId = (await reg.json()).id;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/_fastdog/tunnel?agentId=${agentId}&token=test-token`);
+    await new Promise((resolve, reject) => {
+      ws.once('message', resolve);
+      ws.once('error', reject);
+    });
+
+    let receivedFrame = null;
+
+    ws.on('message', (data) => {
+      const msg = JSON.parse(String(data));
+      if (msg.type === 'http_req') {
+        receivedFrame = msg;
+        ws.send(JSON.stringify({
+          type: 'http_res',
+          id: msg.id,
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          bodyBase64: Buffer.from(JSON.stringify({ status: 'healthy' })).toString('base64'),
+        }));
+      }
+    });
+
+    const res = await new Promise((resolve, reject) => {
+      http.get({
+        hostname: '127.0.0.1',
+        port,
+        path: '/api/health',
+        headers: { 'Host': 'getreq.test.local' },
+      }, (res) => {
+        let body = '';
+        res.on('data', (chunk) => body += chunk);
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+      }).on('error', reject);
+    });
+
+    assert.equal(res.status, 200, `Expected 200, got ${res.status}: ${res.body}`);
+    const resBody = JSON.parse(res.body);
+    assert.equal(resBody.status, 'healthy');
+
+    assert.ok(receivedFrame, 'tunnel agent should receive HTTP frame');
+    assert.equal(receivedFrame.method, 'GET');
+    assert.equal(receivedFrame.bodyBase64, undefined, 'GET should have no body');
+
+    ws.close();
+    await new Promise((resolve) => ws.once('close', resolve));
+  });
+});

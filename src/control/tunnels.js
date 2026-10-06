@@ -106,10 +106,8 @@ export function proxyViaTunnel(agent, req, res) {
   }
 
   const id = randomUUID();
-  const chunks = [];
-  req.on('data', (c) => chunks.push(c));
-  req.on('end', () => {
-    const body = Buffer.concat(chunks);
+
+  function sendFrame(body) {
     const frame = {
       type: 'http_req',
       id,
@@ -137,7 +135,6 @@ export function proxyViaTunnel(agent, req, res) {
       if (msg.type !== 'http_res' || msg.id !== id) return;
       cleanup();
       const headers = msg.headers || {};
-      // Avoid hop-by-hop issues
       delete headers['transfer-encoding'];
       delete headers['content-length'];
       const buf = msg.bodyBase64 ? Buffer.from(msg.bodyBase64, 'base64') : Buffer.alloc(0);
@@ -161,7 +158,15 @@ export function proxyViaTunnel(agent, req, res) {
         res.end(JSON.stringify({ error: 'tunnel_send_failed', detail: err.message }));
       }
     }
-  });
+  }
+
+  if (req.rawBody !== undefined) {
+    sendFrame(req.rawBody);
+  } else {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => sendFrame(Buffer.concat(chunks)));
+  }
 }
 
 export function _resetForTests() {
