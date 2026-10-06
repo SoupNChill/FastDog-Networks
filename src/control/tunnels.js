@@ -106,10 +106,8 @@ export function proxyViaTunnel(agent, req, res) {
   }
 
   const id = randomUUID();
-  const chunks = [];
-  req.on('data', (c) => chunks.push(c));
-  req.on('end', () => {
-    const body = Buffer.concat(chunks);
+
+  function sendFrame(body) {
     const frame = {
       type: 'http_req',
       id,
@@ -160,6 +158,23 @@ export function proxyViaTunnel(agent, req, res) {
         res.writeHead(502, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'tunnel_send_failed', detail: err.message }));
       }
+    }
+  }
+
+  // Defense in depth: if a prior middleware already consumed the stream (e.g. express.json),
+  // 'end' will never fire again — proceed with an empty body rather than hang forever.
+  if (req.readableEnded || req.complete) {
+    sendFrame(Buffer.alloc(0));
+    return;
+  }
+
+  const chunks = [];
+  req.on('data', (c) => chunks.push(c));
+  req.on('end', () => sendFrame(Buffer.concat(chunks)));
+  req.on('error', (err) => {
+    if (!res.headersSent) {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'request_body_error', detail: err.message }));
     }
   });
 }
