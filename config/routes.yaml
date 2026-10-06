@@ -15,3 +15,5 @@ routes:
 tunnel_hosts:
   - summitlease.fastdog.lan
   - trysummitlease.com
+  # lease.* is public dogfood on FastDog zone; trysummitlease.com public remains on CF
+  - lease.fastdognetworks.com
