@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 let token = '';
+let currentAttachHostname = '';
 async function api(path, options = {}) {
   if (!token.trim()) throw new Error('Enter the agent token, then load the dashboard.');
   const response = await fetch(path, { ...options, headers: { 'x-fastdog-token': token, ...(options.headers || {}) } });
@@ -47,11 +48,14 @@ async function load() {
   token = $('token').value;
   $('message').textContent = 'Loading…';
   try {
-    const [metrics, invites, zones, agents, status] = await Promise.all([
+    const [metrics, invites, zones, agents, status, attachedHosts] = await Promise.all([
       api('/_fastdog/operator/metrics'), api('/_fastdog/onboard/invites'),
       api('/_fastdog/dns/zones'), api('/_fastdog/agents'), api('/status.json'),
+      api('/_fastdog/onboard/attached-hosts'),
     ]);
     $('metrics').replaceChildren(
+      metric('Attached hosts', attachedHosts.hosts.length),
+      metric('Active hosts', attachedHosts.hosts.filter((h) => h.status === 'active').length),
       metric('Zones', metrics.zoneCount), metric('Invite uses remaining', metrics.invitesRemaining),
       metric('Unused invites', metrics.unusedInviteCount), metric('Last paid_test', metrics.lastPaidTest || 'none'),
       metric('Edge /health', metrics.edgeHealthOk ? 'OK' : 'DOWN'), metric('Tunnels connected', `${metrics.agentsConnected}/${metrics.agentsRegistered}`),
@@ -68,6 +72,7 @@ async function load() {
     }
     list('agents', agents.agents.map((a) => `${a.name} · ${a.hostname} · connected ${a.connected ? 'yes' : 'no'} · registered ${a.registeredAt || 'unknown'} · last seen ${a.lastSeen ? `${relativeTime(a.lastSeen)} (${a.lastSeen})` : 'unknown'} · upstream ${a.localUpstream || 'unknown'}`));
     $('status-summary').textContent = `${status.overall} · checked ${status.lastChecked}`;
+    await loadAttachedHosts();
     $('message').textContent = 'Dashboard updated.';
   } catch (error) { inviteAvailability(0); $('message').textContent = error.message; }
 }
@@ -117,4 +122,92 @@ $('run-checklist').addEventListener('click', async () => {
     const lines = document.createElement('pre'); lines.textContent = Array.isArray(result.lines) ? result.lines.join('\n') || 'No checklist output' : 'No checklist output';
     panel.append(summary, lines);
   } catch (error) { $('checklist-result').textContent = `SAFE_TO_FLIP=no. Registrar NS remains on HOLD. Checklist failed: ${error.message}`; }
+});
+async function loadAttachedHosts() {
+  try {
+    const data = await api('/_fastdog/onboard/attached-hosts');
+    const tbody = $('attached-hosts'); tbody.replaceChildren();
+    for (const host of data.hosts) {
+      const tr = document.createElement('tr');
+      const status = host.status === 'active' ? 'Active' : host.status === 'verified' ? 'Verified' : 'Pending';
+      const cells = [host.hostname, status, host.created_at || '', host.verified_at || ''];
+      for (const value of cells) { const td = document.createElement('td'); td.textContent = value; tr.append(td); }
+      const actionTd = document.createElement('td');
+      const detachBtn = document.createElement('button');
+      detachBtn.textContent = 'Detach';
+      detachBtn.style.background = '#dc2626';
+      detachBtn.addEventListener('click', async () => {
+        if (!confirm(`Detach ${host.hostname}? This removes the tunnel binding.`)) return;
+        try {
+          await api(`/_fastdog/onboard/attached-hosts/${encodeURIComponent(host.hostname)}`, { method: 'DELETE' });
+          await loadAttachedHosts();
+          $('message').textContent = `Detached ${host.hostname}`;
+        } catch (err) { $('message').textContent = err.message; }
+      });
+      actionTd.append(detachBtn);
+      tr.append(actionTd);
+      tbody.append(tr);
+    }
+  } catch (error) { $('message').textContent = error.message; }
+}
+$('attach-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  token = $('token').value;
+  const result = $('attach-result');
+  const instructions = $('attach-instructions');
+  const verifyResult = $('verify-result');
+  result.style.display = 'none'; result.className = '';
+  instructions.style.display = 'none';
+  verifyResult.style.display = 'none';
+  try {
+    const fields = new FormData(event.target);
+    const hostname = String(fields.get('hostname')).trim();
+    if (!hostname) throw new Error('Hostname required');
+    const data = await api('/_fastdog/onboard/attach-host', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ hostname }) });
+    currentAttachHostname = hostname;
+    result.textContent = data.status === 'pending' ? `Attached ${hostname} (pending verification)` : `${hostname} already attached (${data.status})`;
+    result.style.display = 'block';
+    $('cname-record').textContent = `${hostname}.  300  IN  CNAME  ${data.cname_target}.`;
+    instructions.style.display = 'block';
+    await loadAttachedHosts();
+  } catch (error) {
+    result.textContent = error.message;
+    result.className = 'error';
+    result.style.display = 'block';
+  }
+});
+$('copy-cname').addEventListener('click', () => {
+  navigator.clipboard.writeText($('cname-record').textContent).then(() => {
+    $('copy-cname').textContent = 'Copied!';
+    setTimeout(() => { $('copy-cname').textContent = 'Copy'; }, 2000);
+  });
+});
+$('verify-btn').addEventListener('click', async () => {
+  token = $('token').value;
+  const result = $('verify-result');
+  result.style.display = 'none'; result.className = '';
+  if (!currentAttachHostname) { result.textContent = 'No hostname attached. Attach a hostname first.'; result.className = 'error'; result.style.display = 'block'; return; }
+  try {
+    const data = await api('/_fastdog/onboard/verify-host', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ hostname: currentAttachHostname }) });
+    if (data.verified) {
+      let msg = `Verified! ${currentAttachHostname} is now active.\n\n`;
+      if (data.credential) {
+        msg += `Agent credential (save now, shown once):\nAGENT_TOKEN=${data.credential.token}\nAGENT_HOSTNAME=${currentAttachHostname}\n\n`;
+      }
+      if (data.caddy_block) {
+        msg += `Caddy block (add to Caddyfile, then reload Caddy):\n${data.caddy_block}`;
+      }
+      result.textContent = msg;
+      result.style.display = 'block';
+      await loadAttachedHosts();
+    } else {
+      result.textContent = `Verification failed: ${data.error}${data.found ? ` (found: ${data.found})` : ''}. Check DNS and try again.`;
+      result.className = 'error';
+      result.style.display = 'block';
+    }
+  } catch (error) {
+    result.textContent = error.message;
+    result.className = 'error';
+    result.style.display = 'block';
+  }
 });
