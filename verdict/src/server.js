@@ -1,4 +1,6 @@
 import express from 'express';
+import { readFileSync } from 'node:fs';
+import { createMetrics } from './metering/metrics.js';
 import { dirname, join } from 'node:path';
 import { createDecisionLog } from './metering/decisions.js';
 import { edgeRouter } from './edge/routes.js';
@@ -7,6 +9,8 @@ import { createMeter } from './metering/usage.js';
 import { v1Router } from './routes/v1.js';
 import { openapi } from './openapi.js';
 import { createRateLimiter } from './middleware/rateLimit.js';
+
+const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 export async function createApp({
   keyFile = process.env.VERDICT_KEY_FILE || 'data/keys.json',
@@ -25,10 +29,17 @@ export async function createApp({
   await meter.load();
   const app = express();
   app.disable('x-powered-by');
+  const metrics = createMetrics();
+  app.use(metrics.middleware);
+  app.get('/metrics', (_req, res) => res.set('Cache-Control', 'no-store').json(metrics.snapshot()));
   app.use(express.json({ limit: '256kb' }));
-  const logDecision = createDecisionLog(decisionFile);
+  const appendDecision = createDecisionLog(decisionFile);
+  const logDecision = async record => {
+    await appendDecision(record);
+    metrics.decision(record.action);
+  };
   app.use(edgeRouter({ secret: clearanceSecret, ttl: Number.isInteger(clearanceTTL) && clearanceTTL > 0 ? clearanceTTL : 300, demoForce, logDecision }));
-  app.get('/health', (_req, res) => res.json({ ok: true, service: 'verdict', version: '0.2.1' }));
+  app.get('/health', (_req, res) => res.json({ ok: true, service: 'verdict', version }));
   app.get('/openapi.json', (_req, res) => res.json(openapi));
   app.use('/', express.static('public'));
   app.use('/v1', v1Router(store, meter, { rateLimit: rateLimit || createRateLimiter(), ipRateLimit, logDecision, allowBootstrap }));
