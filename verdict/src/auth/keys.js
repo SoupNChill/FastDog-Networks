@@ -45,7 +45,7 @@ export function createKeyStore(file = 'data/keys.json') {
     pending = task.catch(() => {});
     return task;
   }
-  return { load, create, verify, revoke, hasKeys: () => keys.length > 0 };
+  return { load, create, verify, revoke, list: () => keys.map(({ id, name, created_at, revoked_at }) => ({ id, name, created_at, revoked_at: revoked_at || null })), hasKeys: () => keys.length > 0 };
 }
 
 export function isLoopback(address = '') {

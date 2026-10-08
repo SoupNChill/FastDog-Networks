@@ -7,10 +7,11 @@ const state = { type: 'object', additionalProperties: true, properties: {
 } };
 const json = schema => ({ 'application/json': { schema } });
 export const openapi = {
-  openapi: '3.0.3', info: { title: 'Verdict API', version: '0.2.0', description: 'Threat decisions and demo edge clearance.' },
+  openapi: '3.0.3', info: { title: 'Verdict API', version: '0.2.1', description: 'Threat decisions and demo edge clearance.' },
   servers: [{ url: '/' }],
   components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer' } }, schemas: { State: state, Error: error } },
   paths: {
+    '/metrics': { get: { summary: 'Public process metrics (loopback intended)', description: 'Lifetime request/action totals and recent per-endpoint latency histograms in milliseconds, with p50/p99 over at most 2048 samples. Resets on restart.', security: [], responses: { 200: { description: 'Metrics snapshot', content: json({ type: 'object' }) } } } },
     '/v1/keys/{id}/revoke': { post: { summary: 'Soft revoke API key', security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }], responses: { 200: { description: 'Revoked' }, 401: { description: 'Unauthorized' }, 404: { description: 'Key not found' } } } },
     '/v1/edge-auth': { get: { summary: 'Local forward auth (no bearer required)', description: 'Uses X-Forwarded-For, User-Agent, X-Forwarded-Method and X-Forwarded-Uri. Accept application/json for a debug decision. Valid clearance allows.', responses: { 200: { description: 'Allow' }, 401: { description: 'Challenge; Location and X-Verdict-Action headers' }, 403: { description: 'Block' } } } },
     '/challenge': { get: { summary: 'Demo JS challenge', parameters: [{ name: 'next', in: 'query', schema: { type: 'string' }, description: 'Local relative path only' }], responses: { 200: { description: 'HTML page' }, 503: { description: 'Clearance secret unset' } } } },
