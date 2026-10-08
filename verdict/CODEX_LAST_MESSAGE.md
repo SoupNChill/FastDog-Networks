@@ -45,4 +45,6 @@ Test names below are in `test/adversarial-advsec.test.js` unless another file is
 - No access to prod1 or Summit Lease services. Guardrail strings appeared only as local test inputs/source constants.
 - No merge, deploy, service restart, live Caddy edit or DNS edit.
 - Patch version bumped from 0.3.0 to **0.3.1**.
-- PR URL: pending creation after commit/push.
+- Fix commit: `78115ec`; pushed successfully to `origin/feat/verdict-advsec`.
+- PR URL: not created yet. `gh` was absent; a temporary CLI was installed under `verdict/.advsec-tools/`. GitHub API authentication is unavailable (no CLI login, token environment or configured HTTPS credential). SSH push succeeded. PR creation is blocked pending CLI authentication; ready-to-submit body: `verdict/PR_ADVSEC.md`.
+- Manual creation link (not an opened PR): https://github.com/SoupNChill/FastDog-Networks/compare/master...feat/verdict-advsec
