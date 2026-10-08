@@ -1,28 +1,32 @@
+import { randomUUID } from 'node:crypto';
+import { structuredSignals } from './signals.js';
+import { claimedGoodBot, verifyGoodBot } from './goodbots.js';
 const velocity = new Map();
-export const resetVelocity = () => velocity.clear();
-const text = value => typeof value === 'string' ? value : '';
-
-export function localHeuristic(input, { now = Date.now() } = {}) {
+const asnVelocity = new Map();
+export const resetVelocity = () => { velocity.clear(); asnVelocity.clear(); };
+function count(map, key, now) {
+  for (const [key, bucket] of map) if (now - bucket.start >= 60_000) map.delete(key);
+  const bucket = map.get(key) || { start: now, hits: 0 };
+  bucket.hits++;
+  map.set(key, bucket);
+  return bucket.hits;
+}
+export function localHeuristic(input, { now = Date.now(), goodBot } = {}) {
   const state = input && typeof input === 'object' ? input : {};
-  const signals = Array.isArray(state.signals) ? state.signals.map(text).join(' ') : '';
-  const ua = text(state.ua);
-  let score = 0.2;
-  if (/botnet|credential[ _-]?stuffing|card[ _-]?testing|sqlmap|nikto/i.test(`${ua} ${text(state.notes)} ${signals}`)) score += 0.55;
-  if (/headless|puppeteer|selenium|scrapy/i.test(`${ua} ${signals}`)) score += 0.25;
-  if (/(?:^|[/_.-])(login|signin|oauth|checkout)(?:$|[/_.? #-])/i.test(text(state.path)) &&
-      (text(state.method).toUpperCase() === 'POST' || /credential|automation/i.test(signals))) score += 0.1;
-  if (Number.isFinite(state.prior_score)) score += Math.max(0, Math.min(1, state.prior_score)) * 0.25;
-  if (Number.isFinite(state.account_age_hours) && state.account_age_hours < 1) score += 0.1;
-  if (typeof state.ip === 'string' && state.ip) {
-    for (const [ip, bucket] of velocity) if (now - bucket.start >= 60_000) velocity.delete(ip);
-    const bucket = velocity.get(state.ip) || { start: now, hits: 0 };
-    bucket.hits += 1;
-    velocity.set(state.ip, bucket);
-    if (bucket.hits > 30) score += 0.2;
-  }
-  score = Math.min(score, 0.99);
-  const engine = 'local_heuristic_v2';
-  if (score >= 0.75) return { action: 'block', confidence: score, reason: 'high_risk_signals', engine };
-  if (score >= 0.45) return { action: 'challenge', confidence: score, reason: 'ambiguous_automation', engine };
-  return { action: 'allow', confidence: 1 - score, reason: 'low_risk', engine };
+  const engine = 'local_heuristic_v3';
+  const request_id = randomUUID();
+  if (goodBot === 'verified') return { action: 'allow', confidence: 1, score: 0, reason: 'verified_good_bot', reasons: ['verified_good_bot'], engine, request_id };
+  const fired = structuredSignals(state);
+  if (claimedGoodBot(state)) fired.push({ id: goodBot === 'timeout' ? 'good_bot_dns_timeout' : 'spoofed_good_bot', weight: 0.35 });
+  if (typeof state.ip === 'string' && state.ip && count(velocity, state.ip, now) > 30) fired.push({ id: 'ip_velocity', weight: 0.2 });
+  const asn = String(state.asn ?? '').trim().replace(/^AS/i, '');
+  if (/^\d+$/.test(asn) && count(asnVelocity, String(Number(asn)), now) > 300) fired.push({ id: 'asn_velocity', weight: 0.2 });
+  const score = Math.min(0.99, Number((0.2 + fired.reduce((sum, signal) => sum + signal.weight, 0)).toFixed(6)));
+  const action = score >= 0.75 ? 'block' : score >= 0.45 ? 'challenge' : 'allow';
+  return { action, confidence: action === 'allow' ? 1 - score : score, score,
+    reason: action === 'block' ? 'high_risk_signals' : action === 'challenge' ? 'ambiguous_automation' : 'low_risk',
+    reasons: fired.map(signal => signal.id), engine, request_id };
+}
+export async function localDecision(state, { verifyBot = verifyGoodBot, ...options } = {}) {
+  return localHeuristic(state, { ...options, goodBot: await verifyBot(state) });
 }
