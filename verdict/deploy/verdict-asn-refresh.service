@@ -12,7 +12,7 @@ Environment=VERDICT_ASN_DIR=/opt/verdict/data/asn
 ExecStart=/usr/bin/node /opt/verdict/scripts/asn-refresh.js
 Nice=15
 CPUQuota=10%
-MemoryMax=200M
+MemoryMax=400M
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
 ProtectSystem=strict

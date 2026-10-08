@@ -103,6 +103,8 @@ test('ASN compact lookup + hosting signal', async () => {
   assert.equal(db.lookup('8.8.8.8').asn, 15169);
   assert.equal(db.lookup('1.1.1.1').asn, 13335);
   assert.equal(db.lookup('203.0.113.10').asn, 64500);
+  assert.equal(db.lookup('2001:4860:4860::8888').asn, 15169);
+  assert.equal(db.lookup('9.9.9.9'), null);
   const hosting = loadHostingAsns();
   assert.equal(hosting.has(15169), true);
   assert.equal(hosting.has(64500), false);
@@ -171,4 +173,19 @@ test('shadow scorer only accepts apex/www/demo hosts', () => {
     client_ip: '203.0.113.1',
     request: { method: 'GET', uri: '/', headers: { 'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'en' } },
   }), { hosting }));
+});
+
+test('ASN binary round-trip keeps lookups', async () => {
+  const { createCompiler, serialize, deserialize, createAsnDb } = await import('../src/asn/lookup.js');
+  const { readFile } = await import('node:fs/promises');
+  const c = createCompiler();
+  for (const line of (await readFile(fileURLToPath(new URL('../fixtures/asn-fixture.tsv', import.meta.url)), 'utf8')).split('\n')) c.line(line);
+  const bin = serialize(c.finish());
+  const dir = await mkdtemp(join(tmpdir(), 'vd-asn-'));
+  await writeFile(join(dir, 'asn.bin'), bin);
+  const db = createAsnDb();
+  await db.loadFile(join(dir, 'asn.bin'));
+  assert.equal(db.lookup('1.1.1.1').asn, 13335);
+  assert.equal(db.lookup('2001:4860:4860::1').asn, 15169);
+  assert.throws(() => deserialize(Buffer.from('garbage-garbage-garbage')));
 });
