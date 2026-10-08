@@ -26,6 +26,8 @@ export function v1Router(store, meter, { rateLimit, ipRateLimit, logDecision, al
   const router = Router();
   const limiter = rateLimit || createRateLimiter();
   router.use(keyAuth(store, { allowBootstrap }));
+  // Read-only keys (operator panel) may only GET; they cannot decide, write hosts, or mint keys.
+  router.use((req, res, next) => (req.apiKey?.scope === 'read' && req.method !== 'GET') ? res.status(403).json({ error: 'read_only_key' }) : next());
 
   router.post('/keys', async (req, res, next) => {
     const parsed = z.object({ name: z.string().min(1).max(80).default('default') }).safeParse(req.body ?? {});

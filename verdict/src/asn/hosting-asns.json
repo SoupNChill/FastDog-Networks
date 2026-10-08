@@ -1,5 +1,5 @@
 {
-  "_comment": "Modest curated hosting/cloud ASNs for datacenter_asn signal. Intentionally excludes mobile carriers and residential ISPs.",
+  "_comment": "Modest curated hosting/cloud ASNs for the datacenter_asn signal (+0.12, never decisive alone). Excludes mobile carriers, residential ISPs, and consumer privacy relays (Cloudflare WARP/AS13335, iCloud Private Relay egress) so real users are not penalised.",
   "asns": {
     "16509": "Amazon.com / AWS",
     "14618": "Amazon.com",
@@ -11,7 +11,6 @@
     "16276": "OVH SAS",
     "63949": "Linode / Akamai",
     "20473": "The Constant Company / Vultr",
-    "13335": "Cloudflare",
     "45102": "Alibaba",
     "31898": "Oracle Cloud",
     "12876": "Scaleway",

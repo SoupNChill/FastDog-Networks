@@ -189,3 +189,34 @@ test('ASN binary round-trip keeps lookups', async () => {
   assert.equal(db.lookup('2001:4860:4860::1').asn, 15169);
   assert.throws(() => deserialize(Buffer.from('garbage-garbage-garbage')));
 });
+
+test('read-only key can GET ops/hosts but cannot write or decide', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'vd-ro-'));
+  const { createKeyStore } = await import('../src/auth/keys.js');
+  const ks = createKeyStore(join(dir, 'keys.json'));
+  await ks.load();
+  const full = await ks.create('admin');
+  const ro = await ks.create('panel', { scope: 'read' });
+  assert.equal(ro.scope, 'read');
+  const app = await createApp({ keyFile: join(dir, 'keys.json'), usageFile: join(dir, 'u.json'), decisionFile: join(dir, 'd.jsonl'), hostsFile: join(dir, 'h.json'), clearanceSecret: 'test-secret-32chars-minimum-ok!!' });
+  const { server, url } = await listen(app);
+  try {
+    const h = k => ({ Authorization: `Bearer ${k}`, 'Content-Type': 'application/json' });
+    assert.equal((await fetch(`${url}/v1/ops/metrics`, { headers: h(ro.key) })).status, 200);
+    assert.equal((await fetch(`${url}/v1/hosts`, { headers: h(ro.key) })).status, 200);
+    assert.equal((await fetch(`${url}/v1/hosts/a.example.com`, { method: 'PUT', headers: h(ro.key), body: '{"mode":"shadow"}' })).status, 403);
+    assert.equal((await fetch(`${url}/v1/decide`, { method: 'POST', headers: h(ro.key), body: '{}' })).status, 403);
+    assert.equal((await fetch(`${url}/v1/hosts/a.example.com`, { method: 'PUT', headers: h(full.key), body: '{"mode":"shadow"}' })).status, 200);
+  } finally { server.close(); await app.locals.flush(); }
+});
+
+test('shadow rows store ISO ts and IP prefix only (no raw IP)', () => {
+  const row = scoreAccessLogLine(JSON.stringify({ ts: 1791487580.11, host: 'fastdognetworks.com', client_ip: '198.51.100.77', request: { method: 'GET', uri: '/', headers: { 'User-Agent': ['Mozilla/5.0'] } } }), { hosting: loadHostingAsns() });
+  assert.match(row.ts, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(row.ip_prefix, '198.51.100.0/24');
+  assert.ok(!JSON.stringify(row).includes('198.51.100.77'));
+});
+
+test('hosting list excludes consumer privacy relays (Cloudflare WARP)', () => {
+  assert.equal(loadHostingAsns().has(13335), false);
+});

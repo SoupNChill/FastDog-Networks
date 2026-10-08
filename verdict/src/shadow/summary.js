@@ -25,7 +25,7 @@ export function redactSample(row) {
     reason: row.reason,
     reasons: Array.isArray(row.reasons) ? row.reasons.slice(0, 12) : [],
     score: row.score,
-    ip_redacted: redactIp(row.ip),
+    ip_redacted: row.ip_prefix || redactIp(row.ip),
     ua_class: classifyUa(row.ua),
   };
 }

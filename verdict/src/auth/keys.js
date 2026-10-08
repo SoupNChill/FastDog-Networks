@@ -11,7 +11,7 @@ export function createKeyStore(file = 'data/keys.json') {
     try { keys = JSON.parse(await readFile(file, 'utf8')); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
-  async function create(name = 'default', { bootstrapOnly = false } = {}) {
+  async function create(name = 'default', { bootstrapOnly = false, scope = 'full' } = {}) {
     const task = pending.then(async () => {
       if (bootstrapOnly && keys.length > 0) {
         const error = new Error('Bootstrap already completed');
@@ -19,12 +19,12 @@ export function createKeyStore(file = 'data/keys.json') {
         throw error;
       }
       const plaintext = `vd_${randomBytes(32).toString('base64url')}`;
-      const record = { id: randomBytes(12).toString('hex'), name, hash: hash(plaintext), created_at: new Date().toISOString() };
+      const record = { id: randomBytes(12).toString('hex'), name, hash: hash(plaintext), created_at: new Date().toISOString(), scope: scope === 'read' ? 'read' : 'full' };
       const next = [...keys, record];
       await mkdir(dirname(file), { recursive: true });
       await writeFile(file, JSON.stringify(next, null, 2), { mode: 0o600 });
       keys = next;
-      return { key: plaintext, id: record.id, name: record.name, created_at: record.created_at };
+      return { key: plaintext, id: record.id, name: record.name, created_at: record.created_at, scope: record.scope };
     });
     pending = task.catch(() => {});
     return task;
@@ -52,7 +52,7 @@ export function createKeyStore(file = 'data/keys.json') {
     pending = task.catch(() => {});
     return task;
   }
-  return { load, create, verify, revoke, list: () => keys.map(({ id, name, created_at, revoked_at }) => ({ id, name, created_at, revoked_at: revoked_at || null })), hasKeys: () => keys.length > 0 };
+  return { load, create, verify, revoke, list: () => keys.map(({ id, name, created_at, revoked_at, scope }) => ({ id, name, created_at, scope: scope || 'full', revoked_at: revoked_at || null })), hasKeys: () => keys.length > 0 };
 }
 
 export function isLoopback(address = '') {
