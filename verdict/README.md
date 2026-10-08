@@ -1,4 +1,4 @@
-# Verdict 0.2.1
+# Verdict 0.2.2
 
 Threat decision API: `allow`, `challenge`, or `block`. Node 18+.
 
@@ -21,6 +21,7 @@ Defaults to `127.0.0.1:8080`. Environment variables must be exported (Node does 
 | `POST /v1/decide` | Bearer auth; decision and request ID |
 | `GET /v1/usage` | Bearer auth; persistent usage for calling key |
 | `GET /v1/edge-auth` | Public local heuristic; allow `200` empty, challenge `401` with `Location` and `X-Verdict-Action`, block `403`. `Accept: application/json` returns decision JSON with the same status. |
+| `GET /demo` | Branded phone demo; tap links enabled only with `VERDICT_DEMO_FORCE=1` |
 | `GET /challenge` | FastDog PoW page with accessible no-JS form; safe relative `?next=/path` only |
 | `GET /challenge/issue` | Single-use PoW challenge JSON; optional signed `hint` |
 | `POST /challenge/verify-fallback` | Signed arithmetic form; weaker accessible fallback |
@@ -47,10 +48,10 @@ Headers are case-insensitive. An explicitly supplied headers object missing Acce
 
 In-memory 60-second velocity windows add +0.2 after 30 requests per IP and +0.2 after 300 requests per ASN. ASN velocity only applies when `asn` is supplied in the decide body (numeric or `AS123` form). There is no bundled free local ASN database, no automatic ASN lookup, and no paid feeds. Counters reset on process restart and are not shared between workers. JA3 is accepted context without a scoring rule.
 
-Googlebot/Bingbot claims undergo reverse DNS followed by forward confirmation of the supplied IP using `dns.promises`. Googlebot requires a `.googlebot.com` hostname; Bingbot requires `.search.msn.com`. Confirmed bots allow with `verified_good_bot`. Failed claims add +0.35 (`spoofed_good_bot`); the total DNS deadline is 200ms and timeout adds +0.35 (`good_bot_dns_timeout`), never auto-allowing. Results are cached in memory for one hour, separately by bot and IP. The synchronous scoring helper cannot verify DNS and treats unverified claims as suspicious; API and edge use the async local decision wrapper.
+Googlebot/Bingbot claims undergo reverse DNS followed by forward confirmation of the supplied IP using `dns.promises`. Googlebot requires a `.googlebot.com` hostname; Bingbot requires `.search.msn.com`. Confirmed bots allow with `verified_good_bot`. Failed claims add +0.35 (`spoofed_good_bot`); the total DNS deadline is 200ms and timeout adds +0.35 (`good_bot_dns_timeout`), never auto-allowing. Results are cached in memory for one hour, separately by bot and IP. The synchronous scoring helper cannot verify DNS and treats unverified claims as suspicious; `/v1/decide` uses the async wrapper. Edge-auth defaults to no DNS (`VERDICT_EDGE_GOODBOT_DNS=0`), adding +0.35 `good_bot_pending` for claims, which requires at least a challenge. Non-bot traffic never calls DNS.
 
 
-Decide is limited per key AND socket IP. Forwarded headers cannot spoof this limiter; behind a local proxy its IP bucket is shared by callers. Invalid bodies return 400; exceeded limits return 429 and `Retry-After`. Usage and hashed keys persist. Decisions append only request ID, action, reason, engine, IP, pathname, key ID and timestamp to JSONL. Queries/fragments are removed; never put secrets in path segments. The decision log truncates before an append would exceed 5 MiB or when its oldest entry reaches 7 days. No archives accumulate. Retention runs on writes, so an idle file is cleaned on the next decision; age is recovered from the first record after restart. A record larger than the byte ceiling is skipped. Use a single process per log file.
+Decide is limited per key AND socket IP. Forwarded headers cannot spoof this limiter; behind a local proxy its IP bucket is shared by callers. Invalid bodies return 400; exceeded limits return 429 and `Retry-After`. Hashed keys persist on mutation. Usage updates in memory immediately and persists in batched one-second snapshots; graceful shutdown drains pending usage and decision writes. Abrupt termination can lose recent usage and queued logs. Decisions queue fire-and-forget serialized writes; neither route waits for disk. Log errors are reported to stderr without failing auth. Decisions append only request ID, action, reason, engine, IP, pathname, key ID and timestamp to JSONL. Queries/fragments are removed; never put secrets in path segments. The decision log truncates before an append would exceed 5 MiB or when its oldest entry reaches 7 days. No archives accumulate. Retention runs on writes, so an idle file is cleaned on the next decision; age is recovered from the first record after restart. A record larger than the byte ceiling is skipped. Use a single process per log file.
 
 ## Configuration
 
@@ -65,7 +66,8 @@ Decide is limited per key AND socket IP. Forwarded headers cannot spoof this lim
 | `VERDICT_RATE_LIMIT_MAX`, `VERDICT_IP_RATE_LIMIT_MAX` | `60` per key, `120` per socket IP |
 | `VERDICT_CLEARANCE_SECRET` | Unset; challenge routes return 503 without it |
 | `VERDICT_CLEARANCE_TTL_SECONDS` | `300` |
-| `VERDICT_DEMO_FORCE` | `0`; `1` enables `X-Verdict-Force: allow\|challenge\|block` |
+| `VERDICT_DEMO_FORCE` | `0`; `1` enables `X-Verdict-Force` and original-URI `?verdict=allow\|challenge\|block` (demo only) |
+| `VERDICT_EDGE_GOODBOT_DNS` | `0`; `1` opts edge-auth into DNS verification |
 | `TYPESAFE_API_KEY` | Unset; no external calls unless configured |
 | `TYPESAFE_BASE_URL` | `https://api.typesafe.ai` |
 
@@ -77,7 +79,7 @@ Caddy supplies `X-Forwarded-Method`, `X-Forwarded-Uri`, `User-Agent` and a sanit
 
 The self-hosted challenge uses no third-party captcha or external assets. `GET /challenge/issue` returns a random `challenge_id`, `difficulty` and `expires_at` (Unix milliseconds). A same-origin Web Worker finds a decimal nonce such that SHA-256 of `challenge_id + ':' + nonce` has at least `difficulty` leading zero bits. `POST /challenge/verify` checks the proof on the server before granting clearance. Serve on HTTPS. Failure/expiry offers retry and an accessible form; the worker stops when leaving the page.
 
-Edge-auth includes a signed, two-minute score hint in its challenge Location, bound to host, IP, UA and the safe return path. Difficulty is 16 bits below 0.45, 18 at 0.45, 20 at 0.65 and 22 at 0.75 or above (increments are not cumulative). Unsigned score parameters are ignored; direct challenges use 16 bits. Altered, expired or mismatched hints fail closed. A valid clearance bypasses the decision engine.
+Edge-auth includes a signed, two-minute score hint in its challenge Location, bound to host, IP, UA and the safe return path. Difficulty is 16 bits below 0.45, 18 at 0.45, 20 at 0.65 and 22 at 0.75 or above (increments are not cumulative). Unsigned score parameters are ignored; direct challenges use 16 bits. Altered, expired or mismatched hints fail closed. A valid clearance bypasses the decision engine; explicit demo force overrides clearance when enabled.
 
 Pending challenges are browser-bound, single-use and expire after two minutes. Verification attempts with a valid challenge identity consume it even if the answer is wrong. Issuance is limited to 30 per IP prefix per two minutes, with a 10,000-entry pending cap and opportunistic expiry cleanup. The HTML form also consumes an issuance slot. Restarting clears pending challenges. Multiple processes/replicas require sticky routing for issue and verification; the in-memory store is not shared. Apply edge request limits as well.
 
@@ -104,6 +106,42 @@ node scripts/fp-replay.js
 PORT=8080 VERDICT_API_KEY=KEY CONCURRENCY=50 node scripts/load-test.js
 ```
 
-Replay evaluates 30 realistic good-request fixtures against the local decision engine, disables paid calls explicitly, prints action counts/allow percentage, and fails below 95% allow. It is a small regression fixture, not a production false-positive estimate.
+Replay evaluates 536 good and 240 bad request fixtures with mocked reverse/forward DNS and no external or paid calls. It prints allow/challenge/block counts, FP (good → challenge/block), and FN (bad → allow); it fails when FP exceeds 1% or FN exceeds 5%. Fixtures cover browser families on desktop/mobile, language and matching hints, legitimate API clients, verified bots, malicious tools, probes, credential stuffing and spoofed bots. These are synthetic regression results, not production accuracy estimates.
 
 The load script runs for 30 seconds, splits requests between decide and edge-auth, defaults to 50 concurrent requests (configurable 1–200), and prints per-endpoint requests/sec, p50/p99 of the latest 2,048 latencies, transport errors and HTTP status counts. `TARGET` can override the default `http://127.0.0.1:$PORT`; only literal loopback HTTP origins are accepted. Public addresses, all hostnames (including localhost), and redirects are refused. Use a dedicated local server started with `TYPESAFE_API_KEY` unset to prevent spend. Default rate limits will produce 429s; raise both rate-limit maxima on that isolated server when measuring decision throughput. In-flight requests are aborted at the 30-second deadline and included in transport errors and latency samples; rps counts all attempts. The script does not change server configuration.
+
+## 0.2.2 latency and phone demo
+
+Caddy's `dial_timeout 50ms` covers TCP setup only; `response_header_timeout 200ms`
+covers waiting for the auth response headers. Dial failures, auth 5xx, and auth
+timeouts fail open in the [demo configuration](deploy/EDGE.md). Edge-auth skips DNS
+by default. With `VERDICT_EDGE_GOODBOT_DNS=1`, claimed-bot verification has a 200ms
+DNS deadline and can exceed the proxy's 200ms response timeout after overhead,
+causing fail-open. `/v1/decide` can still verify claimed bots; optional Jev calls
+also exceed the local hot-path budget. Leave `TYPESAFE_API_KEY` unset for local-only operation.
+
+On the isolated demo instance enable `VERDICT_DEMO_FORCE=1` and visit
+https://verdict-demo.fastdognetworks.com/demo. Its three tap links point to
+`/?verdict=allow`, `/?verdict=challenge`, and `/?verdict=block`; for example,
+https://verdict-demo.fastdognetworks.com/?verdict=challenge.
+The documented proxy exempts `/demo`, `/branding` and `/challenge*` from auth,
+then authenticates `/` and serves the demo page on allow. The force header still
+works. Forced challenges strip `verdict` from the return URL to avoid a loop.
+Keep demo force off on production instances.
+
+```sh
+node scripts/bench-hotpath.js
+TARGET=http://127.0.0.1:8089 RPS=100 SECONDS=30 PATHS=/v1/edge-auth node scripts/load-step.js
+```
+
+The benchmark starts a temporary in-process app with real loopback HTTP and disk
+logging, disables paid calls and rate limits, warms up each route, and prints p50/p99
+for 1,000 calls per route. It asserts p99 <25ms (goal <15ms on a quiet machine);
+noisy CI warns instead. The stepped harness sends at a steady configured rate;
+run successive invocations with increasing RPS. It accepts only literal loopback
+HTTP origins and the two decision paths, forbids redirects, and needs
+`VERDICT_API_KEY` when PATHS includes `/v1/decide`. Disable the server's paid engine
+before testing decide. Output includes offered/achieved launch RPS, milliseconds
+p50/p99, transport plus HTTP >=400 errors, and status counts. Missed scheduling
+slots are skipped, with at most 2,000 in-flight requests and a five-second request
+timeout; slow responses drain after the measured launch interval.

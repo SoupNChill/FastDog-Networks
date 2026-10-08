@@ -13,7 +13,7 @@ export function createDecisionLog(file, {
   let pending = Promise.resolve();
   let size;
   let oldest;
-  return record => {
+  const append = record => {
     const task = pending.then(async () => {
       await mkdir(dirname(file), { recursive: true });
       if (size === undefined) {
@@ -49,4 +49,6 @@ export function createDecisionLog(file, {
     pending = task.catch(() => { size = undefined; });
     return task;
   };
+  append.ready = () => pending;
+  return append;
 }

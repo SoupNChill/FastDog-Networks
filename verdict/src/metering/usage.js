@@ -8,6 +8,8 @@ function emptyUsage() {
 export function createMeter({ file = process.env.VERDICT_USAGE_FILE || 'data/usage.json' } = {}) {
   const counts = new Map();
   let pending = Promise.resolve();
+  let timer;
+  let dirty = false;
 
   async function load() {
     try {
@@ -39,7 +41,18 @@ export function createMeter({ file = process.env.VERDICT_USAGE_FILE || 'data/usa
     usage.decisions += 1;
     usage.engines[engine] = (usage.engines[engine] || 0) + 1;
     counts.set(id, usage);
-    pending = pending.then(flush, flush).catch(error => {
+    dirty = true;
+    if (!timer) {
+      timer = setTimeout(() => { timer = undefined; persist(); }, 1000);
+      timer.unref();
+    }
+  }
+
+  function persist() {
+    if (!dirty) return pending;
+    dirty = false;
+    pending = pending.then(flush).catch(error => {
+      dirty = true;
       console.error('usage flush failed:', error.message);
     });
     return pending;
@@ -51,7 +64,9 @@ export function createMeter({ file = process.env.VERDICT_USAGE_FILE || 'data/usa
   }
 
   async function ready() {
-    await pending;
+    clearTimeout(timer);
+    timer = undefined;
+    await persist();
   }
 
   return { load, record, get, ready, file };

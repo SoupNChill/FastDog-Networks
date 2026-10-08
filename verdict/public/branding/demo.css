@@ -1,0 +1,1 @@
+nav{display:grid;gap:12px;margin-top:28px}nav a{display:block;padding:16px 20px;border:1px solid var(--muted);color:var(--mint);text-decoration:none;font-weight:700}nav a:hover{border-color:var(--cyan);background:var(--bg)}nav span{display:block;color:var(--sub);font-size:14px;font-weight:400}

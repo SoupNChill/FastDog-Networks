@@ -7,7 +7,7 @@ const state = { type: 'object', additionalProperties: true, properties: {
 } };
 const json = schema => ({ 'application/json': { schema } });
 export const openapi = {
-  openapi: '3.0.3', info: { title: 'Verdict API', version: '0.2.1', description: 'Threat decisions with heuristic v3 signals and FastDog proof-of-work clearance.' },
+  openapi: '3.0.3', info: { title: 'Verdict API', version: '0.2.2', description: 'Threat decisions with heuristic v3 signals and FastDog proof-of-work clearance.' },
   servers: [{ url: '/' }],
   components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer' } }, schemas: { State: state, Error: error } },
   paths: {

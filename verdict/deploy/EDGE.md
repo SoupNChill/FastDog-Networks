@@ -46,7 +46,7 @@ verdict.fastdognetworks.com {
 }
 
 verdict-demo.fastdognetworks.com {
-    @challenge path /challenge /challenge/* /branding/*
+    @challenge path /demo /branding /branding/* /challenge*
     handle @challenge {
         reverse_proxy 127.0.0.1:8089 {
             header_up X-Forwarded-Host {hostport}
@@ -65,8 +65,8 @@ verdict-demo.fastdognetworks.com {
                 # Remove this line ONLY when intentionally demonstrating force mode.
                 header_up -X-Verdict-Force
                 transport http {
-                    dial_timeout 250ms
-                    response_header_timeout 1s
+                    dial_timeout 50ms
+                    response_header_timeout 200ms
                 }
                 @challenge status 401
                 handle_response @challenge {
@@ -83,7 +83,8 @@ verdict-demo.fastdognetworks.com {
                 }
             }
             vars verdict_auth_pending no
-            respond "Verdict demo: request allowed" 200
+            rewrite * /demo
+            reverse_proxy 127.0.0.1:8089
         }
     }
     # Dial failures/timeouts raise handler errors instead of upstream responses.
@@ -91,6 +92,7 @@ verdict-demo.fastdognetworks.com {
         @authUnavailable expression `{http.vars.verdict_auth_pending} == "yes" && {http.error.status_code} >= 500`
         handle @authUnavailable {
             header X-Verdict-Fail-Open true
+            # Verdict itself may be down, so do not proxy this fallback to it.
             respond "Verdict demo: auth unavailable, request allowed" 200
         }
         handle {
@@ -100,13 +102,40 @@ verdict-demo.fastdognetworks.com {
 }
 ```
 
-This static demo fails open on auth 5xx, dial failure and timeout. Challenge-route failures return an error. For a real application, replace BOTH demo `respond` handlers with the same application handler; preserve method/body and restrict error fallback to the auth stage. Do not fail open indiscriminately on application errors. `forward_auth` clones the request as GET and supplies original method/URI headers. See official [forward_auth](https://caddyserver.com/docs/caddyfile/directives/forward_auth) and [reverse_proxy response handling](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#intercepting-responses) documentation.
+This demo fails open on auth 5xx, dial failure and timeout. Challenge-route failures return an error. For a real application, replace the demo rewrite/reverse_proxy handler and the auth-error `respond` fallback with the same independently available application handler; preserve method/body and restrict error fallback to the auth stage. Do not fail open indiscriminately on application errors. `forward_auth` clones the request as GET and supplies original method/URI headers. See official [forward_auth](https://caddyserver.com/docs/caddyfile/directives/forward_auth) and [reverse_proxy response handling](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#intercepting-responses) documentation.
 
 The API IP limiter counts socket peers, so requests through Caddy share its 120/window bucket; size `VERDICT_IP_RATE_LIMIT_MAX` appropriately. Edge velocity and clearance use overwritten forwarding headers. If another proxy sits in front of Caddy, configure its trust boundary before using its client IP assertions.
 
 ## Checks and rollback
 
-- Check loopback `/health` reports 0.2.1. Use placeholder `KEY` in examples; use a private client config for actual bearer credentials. Verify normal GET `/login` allows, sqlmap blocks, and headless challenges.
+- Check loopback `/health` reports 0.2.2. Use placeholder `KEY` in examples; use a private client config for actual bearer credentials. Verify normal GET `/login` allows, sqlmap blocks, and headless challenges.
 - Through HTTPS, check a solved proof submitted to `/challenge/verify` issues the Secure cookie (an empty POST must fail), browser challenge returns to the original local path, and JSON edge debug retains 200/401/403 status codes. To demonstrate force, enable `VERDICT_DEMO_FORCE=1` and remove the proxy stripping line deliberately, then restore both settings.
-- In staging, test auth HTTP 503 and an unreachable auth port; confirm `X-Verdict-Fail-Open: true`. Check original POST bodies reach an application if replacing the static demo. The Caddy snippets require operator validation against the installed Caddy build.
+- In staging, test auth HTTP 503 and an unreachable auth port; confirm `X-Verdict-Fail-Open: true`. Check original POST bodies reach an application if replacing the demo. The Caddy snippets require operator validation against the installed Caddy build.
 - Roll back by restoring the previous Caddy configuration (or removing forward auth to leave the application reachable), validate it, and have the operator reload. Restore the previous `/opt/verdict` release and env file, then have the operator restart only `verdict-edge` if needed. Never restart the live LAN `verdict` unit. Preserve keys/usage/logs; avoid restoring stale key stores that resurrect revoked keys. Rotating `VERDICT_CLEARANCE_SECRET` invalidates all cookies.
+
+## Phone demo and latency (0.2.2)
+
+On the isolated verdict-demo instance only, set `VERDICT_DEMO_FORCE=1`.
+Open https://verdict-demo.fastdognetworks.com/demo for the branded tap links:
+
+- https://verdict-demo.fastdognetworks.com/?verdict=allow
+- https://verdict-demo.fastdognetworks.com/?verdict=challenge
+- https://verdict-demo.fastdognetworks.com/?verdict=block
+
+`/demo`, `/branding` assets, and `/challenge*` bypass forward_auth. `/` passes through
+forward_auth before being rewritten to `/demo`. Caddy supplies the original query
+in `X-Forwarded-Uri`; header force still works if its stripping line is removed.
+An explicit force overrides clearance in demo mode. Challenge return URLs remove
+only the force query parameter so successful verification does not loop.
+Keep force disabled on production instances; use a separate process for the demo
+if the production API needs force disabled. No running Caddy configuration is changed here.
+
+`dial_timeout 50ms` limits TCP connection setup only; `response_header_timeout 200ms`
+limits waiting for auth response headers. Auth dial errors, 5xx and timeouts fail open.
+`VERDICT_EDGE_GOODBOT_DNS=0` is the default: edge-auth never does DNS and claimed
+Googlebot/Bingbot requests get `good_bot_pending` risk (at least challenge).
+Opting into `VERDICT_EDGE_GOODBOT_DNS=1` permits reverse/forward DNS with a 200ms
+DNS deadline. HTTP overhead means this can exceed Caddy's 200ms response header
+timeout and fail open. `/v1/decide` still verifies claimed bots asynchronously.
+Normal non-bot requests never use DNS. Decision writes are queued without awaiting
+disk; usage snapshots are batched at one-second intervals and drained on graceful shutdown.

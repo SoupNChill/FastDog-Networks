@@ -14,8 +14,8 @@ async function server(fn, options = {}) {
   const app = await createApp({ keyFile: join(dir, 'keys.json'), usageFile: join(dir, 'usage.json'), ...options });
   const listener = app.listen(0, '127.0.0.1');
   await new Promise(resolve => listener.once('listening', resolve));
-  try { await fn(`http://127.0.0.1:${listener.address().port}`, dir); }
-  finally { await new Promise(resolve => listener.close(resolve)); await rm(dir, { recursive: true, force: true }); }
+  try { await fn(`http://127.0.0.1:${listener.address().port}`, dir, app); }
+  finally { await new Promise(resolve => listener.close(resolve)); await app.locals.flush(); await rm(dir, { recursive: true, force: true }); }
 }
 const post = (url, body = {}, key) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) }, body: JSON.stringify(body) });
 
@@ -76,10 +76,11 @@ test('IP rate limit spans API keys and ignores spoofed forwarding headers', () =
   const response = await post(`${base}/v1/decide`, {}, second.key);
   assert.equal(response.status, 429); assert.ok(response.headers.get('retry-after'));
 }, { ipRateLimit: createRateLimiter({ max: 1, keyBy: req => req.socket.remoteAddress }) }));
-test('decision logs contain only minimal fields and strip URL query/fragment', () => server(async (base, dir) => {
+test('decision logs contain only minimal fields and strip URL query/fragment', () => server(async (base, dir, app) => {
   const { key, id } = await (await post(`${base}/v1/keys`)).json();
   const response = await post(`${base}/v1/decide`, { path: '/login?token=SECRET#SECRET', notes: 'SECRET', headers: { authorization: 'SECRET' }, ua: 'Mozilla/5.0' }, key);
   assert.equal((await response.json()).action, 'allow');
+  await app.locals.flush();
   const raw = await readFile(join(dir, 'decisions.jsonl'), 'utf8');
   const row = JSON.parse(raw);
   assert.deepEqual(Object.keys(row).sort(), ['request_id', 'action', 'reason', 'engine', 'ip', 'path', 'key_id', 'ts'].sort());
@@ -94,7 +95,7 @@ test('challenge routes require a secret', () => server(async base => {
   assert.equal((await fetch(`${base}/challenge`)).status, 503);
   assert.equal((await post(`${base}/challenge/verify`)).status, 503);
 }, { clearanceSecret: '' }));
-test('edge actions, debug JSON and demo force are local; empty proof fails', () => server(async (base, dir) => {
+test('edge actions, debug JSON and demo force are local; empty proof fails', () => server(async (base, dir, app) => {
   const headers = { 'x-forwarded-for': '192.0.2.55', 'x-forwarded-uri': '/login', 'x-forwarded-method': 'GET', 'user-agent': 'Mozilla/5.0' };
   let response = await fetch(`${base}/v1/edge-auth`, { headers });
   assert.equal(response.status, 200); assert.equal(await response.text(), '');
@@ -107,6 +108,7 @@ test('edge actions, debug JSON and demo force are local; empty proof fails', () 
   const page = await fetch(`${base}/challenge?next=https://evil.test`); assert.equal(page.status, 200);
   assert.ok((await page.text()).includes('/branding/challenge.js'));
   assert.equal((await fetch(`${base}/challenge/verify`, { method: 'POST', headers })).status, 400);
+  await app.locals.flush();
   const logs = (await readFile(join(dir, 'decisions.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
   assert.ok(logs.every(row => row.key_id === null));
 }, { clearanceSecret: 'fixed-test-secret' }));
