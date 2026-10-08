@@ -1,0 +1,20 @@
+[Unit]
+Description=Verdict threat decision API
+After=network.target
+
+[Service]
+Type=simple
+User=mranderson
+WorkingDirectory=/home/mranderson/projects/verdict
+Environment=NODE_ENV=production
+Environment=PORT=8080
+EnvironmentFile=-/home/mranderson/projects/verdict/.env
+ExecStart=/usr/bin/node /home/mranderson/projects/verdict/src/server.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/mranderson/projects/verdict/data
+
+[Install]
+WantedBy=multi-user.target

@@ -6,8 +6,8 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026100601 3600 600 604800 300",
-      "comment": "Serial: YYYYMMDDNN — bump NN on each edit"
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026100801 3600 600 604800 300",
+      "comment": "Serial: YYYYMMDDNN \u2014 bump NN on each edit"
     },
     {
       "name": "@",
@@ -42,7 +42,7 @@
       "type": "A",
       "ttl": 300,
       "content": "157.230.57.32",
-      "comment": "Public PoP — fastdog-edge behind Caddy"
+      "comment": "Public PoP \u2014 fastdog-edge behind Caddy"
     },
     {
       "name": "attach",
@@ -56,14 +56,14 @@
       "type": "A",
       "ttl": 300,
       "content": "157.230.57.32",
-      "comment": "Apex placeholder — same as edge for now"
+      "comment": "Apex placeholder \u2014 same as edge for now"
     },
     {
       "name": "www",
       "type": "A",
       "ttl": 300,
       "content": "157.230.57.32",
-      "comment": "www vhost — Caddy serves apex and www identically"
+      "comment": "www vhost \u2014 Caddy serves apex and www identically"
     },
     {
       "name": "_fastdog",
@@ -77,21 +77,21 @@
       "type": "A",
       "ttl": 300,
       "content": "157.230.57.32",
-      "comment": "Public dogfood whoami — grey-cloud CF A until NS cut"
+      "comment": "Public dogfood whoami \u2014 grey-cloud CF A until NS cut"
     },
     {
       "name": "lease",
       "type": "A",
       "ttl": 300,
       "content": "157.230.57.32",
-      "comment": "Summit Lease dogfood on FastDog — trysummitlease.com remains on CF"
+      "comment": "Summit Lease dogfood on FastDog \u2014 trysummitlease.com remains on CF"
     },
     {
       "name": "@",
       "type": "MX",
       "ttl": 3600,
       "content": "10 chocobo.mxrouting.net.",
-      "comment": "MXRoute — accounting@fastdognetworks.com"
+      "comment": "MXRoute \u2014 accounting@fastdognetworks.com"
     },
     {
       "name": "@",
@@ -120,7 +120,21 @@
       "ttl": 300,
       "content": "domain-verified",
       "comment": "Cloudflare/DA domain verification (from CF inventory 2026-09-26)"
+    },
+    {
+      "name": "verdict",
+      "type": "A",
+      "ttl": 300,
+      "content": "157.230.57.32",
+      "comment": "Verdict antibot decide / demo (FastDog edge)"
+    },
+    {
+      "name": "verdict-demo",
+      "type": "A",
+      "ttl": 300,
+      "content": "157.230.57.32",
+      "comment": "Verdict antibot decide / demo (FastDog edge)"
     }
   ],
-  "updated_at": "2026-10-04T03:30:40.000Z"
+  "updated_at": "2026-10-08T17:42:58Z"
 }
