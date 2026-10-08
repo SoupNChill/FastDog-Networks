@@ -1,9 +1,0 @@
-Implemented Verdict 0.2.1 / local_heuristic_v3.
-
-Added structured header/order consistency, browser/client-hint contradictions, probe paths, and supplied-ASN velocity while preserving existing scoring and thresholds (0.45 challenge, 0.75 block). Added Googlebot/Bingbot reverse + forward DNS verification, a 200ms total deadline, and one-hour in-memory result caching. Verified bots allow; failed/timeout claims add risk. Edge auth forwards visible headers. Decisions include action, confidence, primary reason, reasons, engine, request_id; local decisions additionally include risk score.
-
-README and OpenAPI updated. ASN velocity requires an ASN in the decide body; no ASN database or paid feed is used.
-
-Validation: TYPESAFE_API_KEY= npm test — 81 tests passed, 0 failed, 0 skipped. Preserved all 22 existing tests (updated the expected engine version) and added 59 tests. The additions include 12 realistic browser GET false-positive cases (Chrome, Firefox, Android Chrome, iPhone Safari across /login, /api/health, /products), all allowed. Also covered 4 benign path cases, signal boundaries, DNS success/failure/timeout/cache/IPv6, API validation, and edge header propagation. git diff --check passed.
-
-All edits are inside this checkout's verdict/ directory. No commits, pushes, systemd operations, or paid service calls. DNS tests use mocks; Jev tests use mocks with TYPESAFE_API_KEY unset. Existing CODEX_PROMPT.txt was left untouched.
