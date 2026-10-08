@@ -62,21 +62,22 @@
 
     <section id="verdict" class="section fit" aria-labelledby="verdict-title">
       <div class="wrap split">
-        <div class="section-marker"><span>02b / Verdict</span></div>
+        <div class="section-marker"><span>03 / Verdict</span></div>
         <div class="section-body">
           <h2 id="verdict-title">A clear decision on every request.</h2>
+          <p class="small-note">Early access. Opt in per hostname.</p>
           <p>Verdict sits at the edge and returns allow, challenge, or block. Challenges use a self-hosted proof-of-work page. By default the path fails open if the decision service is unavailable.</p>
-          <p>On our edge, loopback checks at 200 requests per second measured about 4–6&nbsp;ms at p99. That is a verification measurement, not a service commitment.</p>
+          <p>On our edge, decisions came back in under 7 ms at p99 at 200 requests per second.</p>
           <p><a class="text-link" href="https://verdict-demo.fastdognetworks.com/demo">Try the live demo <span aria-hidden="true">↗</span></a>
           &nbsp;&nbsp;<a class="text-link" href="https://verdict.fastdognetworks.com/">Docs <span aria-hidden="true">↗</span></a></p>
-          <p class="small-note">Domains are available at cost through OpenSRS wholesale — no markup.</p>
+          <p class="small-note">Need a domain? We register it at cost, in your name, and have it live behind FastDog the same day.</p>
         </div>
       </div>
     </section>
 
     <section class="section fit" aria-labelledby="fit-title">
       <div class="wrap split">
-        <div class="section-marker"><span>03 / Who it's for</span></div>
+        <div class="section-marker"><span>04 / Who it's for</span></div>
         <div class="section-body">
           <h2 id="fit-title">For teams that run their own services and want a smaller ingress surface.</h2>
           <p>Especially useful when the origin sits behind a private network or when you want one operator to own the DNS-to-TLS path. We run this architecture ourselves; we are opening it carefully to others.</p>
@@ -86,7 +87,7 @@
 
     <section id="pricing" class="section pricing" aria-labelledby="pricing-title">
       <div class="wrap split">
-        <div class="section-marker"><span>04 / Planning numbers</span></div>
+        <div class="section-marker"><span>05 / Planning numbers</span></div>
         <div class="section-body">
           <div class="pricing-head"><h2 id="pricing-title">Proposed ranges.</h2><p>Monthly estimates. Subject to change as scope is agreed.</p></div>
           <div class="price-list" aria-label="Proposed monthly pricing ranges">
@@ -101,7 +102,7 @@
 
     <section class="section cutover" aria-labelledby="cutover-title">
       <div class="wrap split">
-        <div class="section-marker"><span>05 / Start</span></div>
+        <div class="section-marker"><span>06 / Start</span></div>
         <div class="section-body">
           <h2 id="cutover-title">Start with one hostname. Keep your DNS.</h2>
           <p>Add a CNAME from a subdomain like <code>app.yourdomain.com</code> to <code>attach.fastdognetworks.com</code>. Your registrar and your current DNS host—Cloudflare included—stay as they are. Moving the whole zone to <code>ns1.fastdognetworks.com</code> and <code>ns2.fastdognetworks.com</code> is optional, whenever you're ready.</p>
@@ -112,7 +113,7 @@
 
     <section class="section guarantee" aria-labelledby="guarantee-title">
       <div class="wrap split">
-        <div class="section-marker"><span>06 / Setup guarantee</span></div>
+        <div class="section-marker"><span>07 / Setup guarantee</span></div>
         <div class="section-body">
           <h2 id="guarantee-title">Our promise.</h2>
           <ol class="guarantee-list">
@@ -127,7 +128,7 @@
 
     <section class="section status" aria-labelledby="status-title">
       <div class="wrap split">
-        <div class="section-marker"><span>07 / From our edge</span></div>
+        <div class="section-marker"><span>08 / From our edge</span></div>
         <div class="section-body">
           <div class="status-heading"><div><h2 id="status-title">A small live signal.</h2><p>Read from this edge's health endpoint when available. This is a point-in-time check, not an uptime promise.</p></div><span class="status-host">edge.fastdognetworks.com</span></div>
           <ul class="status-list" aria-live="polite">
