@@ -104,7 +104,7 @@ verdict-demo.fastdognetworks.com {
 
 This demo fails open on auth 5xx, dial failure and timeout. Challenge-route failures return an error. For a real application, replace the demo rewrite/reverse_proxy handler and the auth-error `respond` fallback with the same independently available application handler; preserve method/body and restrict error fallback to the auth stage. Do not fail open indiscriminately on application errors. `forward_auth` clones the request as GET and supplies original method/URI headers. See official [forward_auth](https://caddyserver.com/docs/caddyfile/directives/forward_auth) and [reverse_proxy response handling](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#intercepting-responses) documentation.
 
-The API IP limiter counts socket peers, so requests through Caddy share its 120/window bucket; size `VERDICT_IP_RATE_LIMIT_MAX` appropriately. Edge velocity and clearance use overwritten forwarding headers. If another proxy sits in front of Caddy, configure its trust boundary before using its client IP assertions.
+The API IP limiter uses the rightmost proxy-supplied client IP prefix; Caddy must overwrite X-Forwarded-For with its observed remote address. Edge velocity and clearance use overwritten forwarding headers. If another proxy sits in front of Caddy, configure its trust boundary before using its client IP assertions.
 
 ## Checks and rollback
 
@@ -157,7 +157,7 @@ header_up -X-Verdict-Demo
 header_up -X-Verdict-Force
 ```
 
-Force (`?verdict=` / `X-Verdict-Force`) is ignored unless `VERDICT_DEMO_FORCE=1` **and** `X-Verdict-Demo: 1`.
+Force (`?verdict=` / `X-Verdict-Force`) is ignored unless `VERDICT_DEMO_FORCE=1` **and** `X-Verdict-Demo: 1`, a loopback proxy peer, and the canonical demo hostname.
 
 ### Apex/www JSON access logs (log-only — never forward_auth)
 
@@ -182,5 +182,5 @@ All set Nice≥10, CPUQuota=10%, MemoryMax≤200M.
 
 ### Per-host enforce
 `node scripts/verdict-hosts.js set app.customer.com enable=1 mode=enforce fail=open`
-then `node scripts/caddy-apply-hosts.js` (dry-run) / `--apply` (validate+reload+rollback).
+then `node scripts/caddy-apply-hosts.js` to generate reviewable snippets. Automatic `--apply` is disabled in 0.3.1; validate and reload through the operator workflow after reviewing the output. Never import the generated directory directly into live config.
 Denylist hosts can never be enforce.

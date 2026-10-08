@@ -21,13 +21,13 @@ test('clearance HMAC uses timing-safe compare; forged cookie fails', () => {
   assert.equal(equal('abc', 'abc'), true);
 });
 
-test('PoW cannot be replayed; bound to pending identity', async () => {
-  // Covered structurally: consume deletes pending. Smoke the hash helper.
+test('PoW hash helper checks leading zero bits', async () => {
+  // End-to-end replay and binding attacks live in adversarial-advsec.test.js.
   const id = 'abc';
   let nonce = 0;
   while (!hasWork(id, String(nonce), 8) && nonce < 100000) nonce++;
   assert.ok(hasWork(id, String(nonce), 8));
-  assert.equal(hasWork(id, String(nonce + 1), 8) || true, true);
+  assert.equal(createHash('sha256').update(`${id}:${nonce}`).digest()[0], 0);
 });
 
 test('API key missing/wrong returns 401 without leaking', async () => {

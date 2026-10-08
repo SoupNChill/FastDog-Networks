@@ -11,3 +11,6 @@ CODEX_PROMPT*.txt
 CODEX_LAST_MESSAGE.md
 codex-*.log
 run-codex*.sh
+
+# Temporary review tooling (never part of the application)
+.advsec-tools/

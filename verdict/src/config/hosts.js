@@ -1,5 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { readConfig, writeConfig } from './files.js';
 
 /** Hosts that must never receive forward_auth / enforce mode. */
 export const ENFORCE_DENYLIST = Object.freeze([
@@ -22,7 +21,10 @@ export const MODES = Object.freeze(['off', 'shadow', 'enforce']);
 export const FAIL_POLICIES = Object.freeze(['open', 'closed']);
 
 export function normalizeHost(host) {
-  return String(host || '').trim().toLowerCase().replace(/\.$/, '');
+  if (typeof host !== 'string' || /[^\x21-\x7e]/.test(host)) return '';
+  const value = host.toLowerCase().replace(/:\d{1,5}$/, '').replace(/\.$/, '');
+  if (value.length > 253 || !value.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return '';
+  return value;
 }
 
 export function isEnforceDenied(host) {
@@ -65,25 +67,26 @@ export function validateHostConfig(input, { host } = {}) {
 }
 
 export function createHostStore(file = process.env.VERDICT_HOSTS_FILE || 'data/hosts.json') {
-  let hosts = {};
+  let hosts = Object.create(null);
   let pending = Promise.resolve();
 
   async function load() {
     try {
-      const raw = JSON.parse(await readFile(file, 'utf8'));
-      hosts = {};
-      for (const [k, v] of Object.entries(raw?.hosts || raw || {})) {
+      const raw = await readConfig(file);
+      hosts = Object.create(null);
+      const entries = raw?.hosts ?? raw;
+      if (!entries || typeof entries !== 'object' || Array.isArray(entries)) throw new Error('invalid_hosts');
+      for (const [k, v] of Object.entries(entries)) {
         hosts[normalizeHost(k)] = validateHostConfig(v, { host: k });
       }
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
-      hosts = {};
+      hosts = Object.create(null);
     }
   }
 
-  async function persist() {
-    await mkdir(dirname(file), { recursive: true });
-    await writeFile(file, JSON.stringify({ hosts }, null, 2), { mode: 0o600 });
+  async function persist(next) {
+    await writeConfig(file, JSON.stringify({ hosts: next }, null, 2));
   }
 
   function list() {
@@ -91,14 +94,15 @@ export function createHostStore(file = process.env.VERDICT_HOSTS_FILE || 'data/h
   }
 
   function get(host) {
-    return hosts[normalizeHost(host)] || null;
+    return Object.hasOwn(hosts, normalizeHost(host)) ? hosts[normalizeHost(host)] : null;
   }
 
   function set(host, input) {
     const task = pending.then(async () => {
       const cfg = validateHostConfig({ ...input, host }, { host });
-      hosts = { ...hosts, [cfg.host]: cfg };
-      await persist();
+      const next = { ...hosts, [cfg.host]: cfg };
+      await persist(next);
+      hosts = next;
       return cfg;
     });
     pending = task.catch(() => {});
@@ -111,8 +115,8 @@ export function createHostStore(file = process.env.VERDICT_HOSTS_FILE || 'data/h
       if (!hosts[h]) return false;
       const next = { ...hosts };
       delete next[h];
+      await persist(next);
       hosts = next;
-      await persist();
       return true;
     });
     pending = task.catch(() => {});

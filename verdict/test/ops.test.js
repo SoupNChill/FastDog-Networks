@@ -57,7 +57,7 @@ test('metrics retain bounded recent latency histograms and lifetime totals', () 
   assert.equal(endpoint.latency_ms.buckets['5'], 4);
   assert.equal(snapshot.endpoints['/v1/edge-auth'].requests_total, 0);
 });
-test('metrics are public, accept bearer, count errors and decisions; health matches package', () => temporary(async dir => {
+test('metrics require bearer, count errors and decisions; health matches package', () => temporary(async dir => {
   const app = await createApp({ keyFile: join(dir, 'keys.json'), usageFile: join(dir, 'usage.json'), rateLimit: createRateLimiter({ max: 1 }) });
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
@@ -65,7 +65,9 @@ test('metrics are public, accept bearer, count errors and decisions; health matc
   try {
     assert.equal((await fetch(`${base}/v1/decide`, { method: 'POST' })).status, 401);
     await fetch(`${base}/v1/edge-auth`, { headers: { 'user-agent': 'sqlmap' } });
-    for (const headers of [{}, { authorization: 'Bearer example' }]) {
+    for (const headers of [{}, { authorization: 'Bearer example' }]) assert.equal((await fetch(`${base}/metrics`, { headers })).status, 401);
+    const key = await (await fetch(`${base}/v1/keys`, { method: 'POST' })).json();
+    for (const headers of [{ authorization: `Bearer ${key.key}` }]) {
       const response = await fetch(`${base}/metrics`, { headers });
       assert.equal(response.status, 200);
       const data = await response.json();
@@ -73,7 +75,6 @@ test('metrics are public, accept bearer, count errors and decisions; health matc
       assert.equal(data.endpoints['/v1/decide'].requests_total, 1);
       assert.equal(data.endpoints['/v1/edge-auth'].latency_ms.samples, 1);
     }
-    const key = await (await fetch(`${base}/v1/keys`, { method: 'POST' })).json();
     const options = { method: 'POST', headers: { authorization: `Bearer ${key.key}`, 'content-type': 'application/json' }, body: '{}' };
     for (const status of [200, 429]) {
       const response = await fetch(`${base}/v1/decide`, options);

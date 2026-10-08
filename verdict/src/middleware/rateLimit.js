@@ -12,6 +12,7 @@ export function createRateLimiter({
   keyBy = req => req.apiKey?.id || req.ip || 'anonymous',
   headerPrefix = 'X-RateLimit',
   windowMs = Number(process.env.VERDICT_RATE_LIMIT_WINDOW_MS || 60_000),
+  capacity = 10000,
   max = Number(process.env.VERDICT_RATE_LIMIT_MAX || 60),
 } = {}) {
   const safeWindow = Number.isFinite(windowMs) && windowMs > 0 ? windowMs : 60_000;
@@ -22,6 +23,10 @@ export function createRateLimiter({
     const key = keyBy(req);
     const now = Date.now();
     for (const [id, entry] of buckets) if (now - entry.startedAt >= safeWindow) buckets.delete(id);
+    if (!buckets.has(key) && buckets.size >= capacity) {
+      res.setHeader('Retry-After', String(Math.ceil(safeWindow / 1000)));
+      return res.status(429).json({ error: 'rate_limit_capacity' });
+    }
     let bucket = buckets.get(key);
     if (!bucket || now - bucket.startedAt >= safeWindow) {
       bucket = { startedAt: now, count: 0 };

@@ -1,7 +1,8 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
+import { normalizeHost } from '../config/hosts.js';
 export const sign = (payload, secret) => createHmac('sha256', secret).update(payload).digest('base64url');
-export function equal(a, b) { if (typeof a !== 'string') return false; const x=Buffer.from(a), y=Buffer.from(b); return x.length === y.length && timingSafeEqual(x,y); }
+export function equal(a, b) { if (typeof a !== 'string' || typeof b !== 'string') return false; const x=Buffer.from(a), y=Buffer.from(b); return x.length === y.length && timingSafeEqual(x,y); }
 export function ipPrefix(ip) {
   if (!isIP(ip || '')) return null;
   if (isIP(ip) === 4) return ip.split('.').slice(0, 3).join('.') + '.0/24';
@@ -14,7 +15,11 @@ export function ipPrefix(ip) {
   if (nums.slice(0,5).every(x => x === 0) && nums[5] === 65535) return `${nums[6]>>8}.${nums[6]&255}.${nums[7]>>8}.0/24`;
   return nums.slice(0,4).map(x => x.toString(16).padStart(4,'0')).join(':') + '::/64';
 }
-export function binding(req) { return { host: (req.get('x-forwarded-host') || req.get('host') || '').trim().toLowerCase(), ip: clientIP(req), ua: req.get('user-agent') || '' }; }
+export const DEMO_HOST = 'verdict-demo.fastdognetworks.com';
+export function binding(req) {
+  const forwarded = isLoopbackAddr(req.socket?.remoteAddress) && req.get('x-forwarded-host');
+  return { host: normalizeHost(forwarded || req.get('host') || ''), ip: clientIP(req), ua: req.get('user-agent') || '' };
+}
 export function isLoopbackAddr(address = '') {
   return address === '::1' || address === '::ffff:127.0.0.1' || /^(?:::ffff:)?127\.\d+\.\d+\.\d+$/.test(address || '');
 }
@@ -28,7 +33,6 @@ export function clientIP(req) {
     if (isIP(candidate)) return candidate;
   }
   if (isIP(peer)) return peer.startsWith('::ffff:') ? peer.slice(7) : peer;
-  if (isIP(real)) return real;
   return peer || '0.0.0.0';
 }
 const uaHash = ua => createHash('sha256').update(ua).digest('hex').slice(0,8);
@@ -47,13 +51,14 @@ export function validClearance(token, secret, bound, now = Date.now()) {
 }
 export function difficultyFor(score) { return score >= .75 ? 22 : score >= .65 ? 20 : score >= .45 ? 18 : 16; }
 export function hasWork(id, nonce, bits) {
+  if (!Number.isInteger(bits) || bits < 1 || bits > 256 || typeof id !== 'string' || id.length > 128 || typeof nonce !== 'string' || nonce.length > 20) return false;
   const hash = createHash('sha256').update(`${id}:${nonce}`).digest();
   for (let i=0;i<bits;i++) if (hash[i>>3] & (128>>(i%8))) return false;
   return true;
 }
 export function seal(value, secret) { const data = Buffer.from(JSON.stringify(value)).toString('base64url'); return `${data}.${sign(data,secret)}`; }
 export function unseal(token, secret) {
-  if (typeof token !== 'string' || token.length>4096) return null;
+  if (!secret || typeof token !== 'string' || token.length>4096) return null;
   const [data, sig, extra] = token.split('.');
   if (extra !== undefined || !data || !equal(sig,sign(data,secret))) return null;
   try { const value=JSON.parse(Buffer.from(data,'base64url')); return value.exp>Date.now() ? value : null; } catch { return null; }

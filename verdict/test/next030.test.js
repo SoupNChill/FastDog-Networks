@@ -58,6 +58,7 @@ test('demo force requires X-Verdict-Demo header; spoofed Host ignored', async ()
     res = await fetch(`${url}/v1/edge-auth?verdict=block`, {
       headers: {
         'User-Agent': 'Mozilla/5.0',
+        'X-Forwarded-Host': 'verdict-demo.fastdognetworks.com',
         'X-Verdict-Demo': '1',
         'X-Verdict-Force': 'block',
         Accept: 'application/json',

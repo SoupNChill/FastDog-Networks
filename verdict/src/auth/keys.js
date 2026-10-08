@@ -1,6 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { readConfig, writeConfig } from '../config/files.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 
@@ -8,7 +7,11 @@ export function createKeyStore(file = 'data/keys.json') {
   let keys = [];
   let pending = Promise.resolve();
   async function load() {
-    try { keys = JSON.parse(await readFile(file, 'utf8')); }
+    try {
+      const loaded = await readConfig(file);
+      if (!Array.isArray(loaded) || loaded.some(key => !key || typeof key.id !== 'string' || !/^[a-f0-9]{64}$/.test(key.hash) || ![undefined, 'full', 'read'].includes(key.scope))) throw new Error('invalid_key_store');
+      keys = loaded;
+    }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   async function create(name = 'default', { bootstrapOnly = false, scope = 'full' } = {}) {
@@ -21,8 +24,7 @@ export function createKeyStore(file = 'data/keys.json') {
       const plaintext = `vd_${randomBytes(32).toString('base64url')}`;
       const record = { id: randomBytes(12).toString('hex'), name, hash: hash(plaintext), created_at: new Date().toISOString(), scope: scope === 'read' ? 'read' : 'full' };
       const next = [...keys, record];
-      await mkdir(dirname(file), { recursive: true });
-      await writeFile(file, JSON.stringify(next, null, 2), { mode: 0o600 });
+      await writeConfig(file, JSON.stringify(next, null, 2));
       keys = next;
       return { key: plaintext, id: record.id, name: record.name, created_at: record.created_at, scope: record.scope };
     });
@@ -45,7 +47,7 @@ export function createKeyStore(file = 'data/keys.json') {
     const task = pending.then(async () => {
       if (!keys.some(key => key.id === id)) return false;
       const next = keys.map(key => key.id === id ? { ...key, revoked_at: key.revoked_at || new Date().toISOString() } : key);
-      await writeFile(file, JSON.stringify(next, null, 2), { mode: 0o600 });
+      await writeConfig(file, JSON.stringify(next, null, 2));
       keys = next;
       return true;
     });
@@ -62,7 +64,7 @@ export function isLoopback(address = '') {
 export function keyAuth(store, { allowBootstrap = process.env.VERDICT_ALLOW_BOOTSTRAP === '1' } = {}) {
   return (req, res, next) => {
     if (req.path === '/keys' && req.method === 'POST' && !store.hasKeys()) {
-      if (allowBootstrap || isLoopback(req.socket.remoteAddress)) return next();
+      if (allowBootstrap || (isLoopback(req.socket.remoteAddress) && !['x-forwarded-for', 'x-forwarded-host', 'forwarded', 'origin'].some(name => req.get(name)))) return next();
       return res.status(403).json({ error: 'bootstrap_disabled' });
     }
     const token = /^Bearer (\S+)$/i.exec(req.get('authorization') || '')?.[1];

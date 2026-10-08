@@ -1,5 +1,6 @@
+import { isEnforceDenied } from '../config/hosts.js';
 import { randomUUID } from 'node:crypto';
-import { binding, clientIP, validClearance, seal } from './security.js';
+import { binding, clientIP, validClearance, seal, DEMO_HOST, isLoopbackAddr } from './security.js';
 import { challengeRouter } from './challenge.js';
 import { Router } from 'express';
 import { localDecision, localHeuristic } from '../engine/heuristic.js';
@@ -13,6 +14,9 @@ function hosting() {
   }
   return hostingList;
 }
+
+// Initialize the small static ASN set before handling requests.
+hosting();
 
 export const cookieName = 'fd_verdict_clearance';
 export function safeNext(value) {
@@ -30,14 +34,20 @@ export { clientIP, issueClearance, validClearance } from './security.js';
 function demoForceAllowed(req, demoForce) {
   if (!demoForce) return false;
   // Caddy alone injects X-Verdict-Demo: 1 on verdict-demo; strip client-sent elsewhere.
-  return req.get('x-verdict-demo') === '1';
+  return isLoopbackAddr(req.socket?.remoteAddress) && binding(req).host === DEMO_HOST && req.get('x-verdict-demo') === '1';
 }
 
-export function edgeRouter({ secret, ttl = 300, demoForce = false, edgeGoodBotDNS = false, logDecision }) {
+export function edgeRouter({ secret, ttl = 300, demoForce = false, edgeGoodBotDNS = false, logDecision, hostStore }) {
   const router = Router();
   router.use('/challenge', challengeRouter({ secret, ttl }));
   router.get('/v1/edge-auth', async (req, res, next) => {
     try {
+      const bound = binding(req);
+      if (!bound.host) return res.status(400).json({ error: 'invalid_host' });
+      const config = hostStore?.get(bound.host);
+      if (isEnforceDenied(bound.host) || (config && (!config.enable || config.mode !== 'enforce'))) {
+        return res.set({ 'X-Verdict-Action': 'allow', 'Cache-Control': 'no-store' }).status(200).end();
+      }
       const ip = clientIP(req);
       const token = (req.get('cookie') || '').split(';').map(value => value.trim()).find(value => value.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
       const path = req.get('x-forwarded-uri') || req.get('x-original-uri') || '/';
