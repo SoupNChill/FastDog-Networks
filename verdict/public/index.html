@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Verdict — threat decisions</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:780px;margin:8vh auto;padding:0 24px;color:#17212b;background:#f6f7f8}h1{font-size:3rem;line-height:1.1}pre{overflow:auto;padding:20px;color:#e8edf2;background:#18222d;border-radius:8px}a{color:#175bb2}</style></head><body><h1>Verdict</h1><p>Gray-zone threat decisions for signups, requests, and sessions. Send signals; get <strong>allow</strong>, <strong>challenge</strong>, or <strong>block</strong> with confidence and a reason.</p><p>Bootstrap the first API key with <code>POST /v1/keys</code>. Keep it secret; it is shown only once. <a href="/openapi.json">OpenAPI spec</a></p><pre>curl -sS http://localhost:8080/v1/keys \
+  -H 'Content-Type: application/json' -d '{"name":"main"}'
+
+curl -sS http://localhost:8080/v1/decide \
+  -H "Authorization: Bearer $VERDICT_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"ip":"203.0.113.8","path":"/login","method":"POST","signals":["headless"]}'</pre><p>Billing coming soon.</p></body></html>
