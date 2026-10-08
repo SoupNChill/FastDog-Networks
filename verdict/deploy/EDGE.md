@@ -39,15 +39,17 @@ verdict.fastdognetworks.com {
     }
     respond @keyCreation "Key creation is loopback-only" 403
     reverse_proxy 127.0.0.1:8089 {
+        header_up X-Forwarded-Host {hostport}
         header_up X-Forwarded-For {remote_host}
         header_up -X-Real-IP
     }
 }
 
 verdict-demo.fastdognetworks.com {
-    @challenge path /challenge /challenge/verify
+    @challenge path /challenge /challenge/* /branding/*
     handle @challenge {
         reverse_proxy 127.0.0.1:8089 {
+            header_up X-Forwarded-Host {hostport}
             header_up X-Forwarded-For {remote_host}
             header_up -X-Real-IP
         }
@@ -57,6 +59,7 @@ verdict-demo.fastdognetworks.com {
             vars verdict_auth_pending yes
             forward_auth 127.0.0.1:8089 {
                 uri /v1/edge-auth
+                header_up X-Forwarded-Host {hostport}
                 header_up X-Forwarded-For {remote_host}
                 header_up -X-Real-IP
                 # Remove this line ONLY when intentionally demonstrating force mode.
@@ -103,7 +106,7 @@ The API IP limiter counts socket peers, so requests through Caddy share its 120/
 
 ## Checks and rollback
 
-- Check loopback `/health` reports 0.2.0. Use placeholder `KEY` in examples; use a private client config for actual bearer credentials. Verify normal GET `/login` allows, sqlmap blocks, and headless challenges.
-- Through HTTPS, check `/challenge/verify` issues the Secure cookie, browser challenge returns to the original local path, and JSON edge debug retains 200/401/403 status codes. To demonstrate force, enable `VERDICT_DEMO_FORCE=1` and remove the proxy stripping line deliberately, then restore both settings.
+- Check loopback `/health` reports 0.2.1. Use placeholder `KEY` in examples; use a private client config for actual bearer credentials. Verify normal GET `/login` allows, sqlmap blocks, and headless challenges.
+- Through HTTPS, check a solved proof submitted to `/challenge/verify` issues the Secure cookie (an empty POST must fail), browser challenge returns to the original local path, and JSON edge debug retains 200/401/403 status codes. To demonstrate force, enable `VERDICT_DEMO_FORCE=1` and remove the proxy stripping line deliberately, then restore both settings.
 - In staging, test auth HTTP 503 and an unreachable auth port; confirm `X-Verdict-Fail-Open: true`. Check original POST bodies reach an application if replacing the static demo. The Caddy snippets require operator validation against the installed Caddy build.
 - Roll back by restoring the previous Caddy configuration (or removing forward auth to leave the application reachable), validate it, and have the operator reload. Restore the previous `/opt/verdict` release and env file, then have the operator restart only `verdict-edge` if needed. Never restart the live LAN `verdict` unit. Preserve keys/usage/logs; avoid restoring stale key stores that resurrect revoked keys. Rotating `VERDICT_CLEARANCE_SECRET` invalidates all cookies.

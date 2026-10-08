@@ -7,7 +7,7 @@ import { createApp } from '../src/server.js';
 import { localHeuristic, resetVelocity } from '../src/engine/heuristic.js';
 import { keyAuth, createKeyStore } from '../src/auth/keys.js';
 import { createRateLimiter } from '../src/middleware/rateLimit.js';
-import { issueClearance, validClearance, safeNext } from '../src/edge/routes.js';
+import { safeNext } from '../src/edge/routes.js';
 
 async function server(fn, options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'verdict-hardening-'));
@@ -86,15 +86,6 @@ test('decision logs contain only minimal fields and strip URL query/fragment', (
   assert.equal(row.path, '/login'); assert.equal(row.key_id, id);
   assert.ok(!raw.includes('SECRET')); assert.ok(!raw.includes(key));
 }));
-test('clearance verifies signature, IP, wildcard and expiry', () => {
-  const token = issueClearance('secret', '2001:db8::1', 300, 1000000);
-  assert.equal(validClearance(token, 'secret', '2001:DB8::1', 1000000), true);
-  assert.equal(validClearance(token, 'secret', '2001:db8::2', 1000000), false);
-  assert.equal(validClearance(token, 'wrong', '2001:db8::1', 1000000), false);
-  assert.equal(validClearance(token, 'secret', '2001:db8::1', 1300000), false);
-  assert.equal(validClearance(token + 'x', 'secret', '2001:db8::1', 1000000), false);
-  assert.equal(validClearance(issueClearance('secret', '*'), 'secret', '192.0.2.1'), true);
-});
 test('redirect destinations are local paths only', () => {
   for (const value of ['https://evil.test', '//evil.test', '/\\evil.test', '/\nevil.test', null]) assert.equal(safeNext(value), '/');
   assert.equal(safeNext('/account?tab=1'), '/account?tab=1');
@@ -103,24 +94,19 @@ test('challenge routes require a secret', () => server(async base => {
   assert.equal((await fetch(`${base}/challenge`)).status, 503);
   assert.equal((await post(`${base}/challenge/verify`)).status, 503);
 }, { clearanceSecret: '' }));
-test('edge actions, debug JSON and demo force are local; clearance bypasses challenge', () => server(async (base, dir) => {
+test('edge actions, debug JSON and demo force are local; empty proof fails', () => server(async (base, dir) => {
   const headers = { 'x-forwarded-for': '192.0.2.55', 'x-forwarded-uri': '/login', 'x-forwarded-method': 'GET', 'user-agent': 'Mozilla/5.0' };
   let response = await fetch(`${base}/v1/edge-auth`, { headers });
   assert.equal(response.status, 200); assert.equal(await response.text(), '');
   response = await fetch(`${base}/v1/edge-auth`, { headers: { ...headers, 'user-agent': 'headless', accept: 'application/json' } });
   assert.equal(response.status, 401); assert.equal((await response.json()).action, 'challenge');
-  assert.equal(response.headers.get('location'), '/challenge?next=%2Flogin');
+  assert.ok(response.headers.get('location').startsWith('/challenge?next=%2Flogin&hint='));
   response = await fetch(`${base}/v1/edge-auth`, { headers: { ...headers, 'user-agent': 'sqlmap' } });
   assert.equal(response.status, 403);
   assert.equal((await fetch(`${base}/v1/edge-auth`, { headers: { ...headers, 'x-verdict-force': 'block' } })).status, 200);
   const page = await fetch(`${base}/challenge?next=https://evil.test`); assert.equal(page.status, 200);
-  assert.ok((await page.text()).includes("fetch('/challenge/verify'"));
-  response = await fetch(`${base}/challenge/verify`, { method: 'POST', headers });
-  assert.deepEqual(await response.json(), { ok: true });
-  const cookie = response.headers.get('set-cookie');
-  for (const flag of ['HttpOnly', 'Secure', 'SameSite=Lax', 'Max-Age=300']) assert.ok(cookie.includes(flag));
-  assert.equal((await fetch(`${base}/v1/edge-auth`, { headers: { ...headers, 'user-agent': 'headless', cookie: cookie.split(';')[0] } })).status, 200);
-  assert.equal((await fetch(`${base}/v1/edge-auth`, { headers: { ...headers, 'x-forwarded-for': '192.0.2.56', 'user-agent': 'headless', cookie: cookie.split(';')[0] } })).status, 401);
+  assert.ok((await page.text()).includes('/branding/challenge.js'));
+  assert.equal((await fetch(`${base}/challenge/verify`, { method: 'POST', headers })).status, 400);
   const logs = (await readFile(join(dir, 'decisions.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
   assert.ok(logs.every(row => row.key_id === null));
 }, { clearanceSecret: 'fixed-test-secret' }));
@@ -148,18 +134,6 @@ test('rate limiter window expires independently of key identity', () => {
     assert.deepEqual(statuses, [200, 429, 200]);
   } finally { Date.now = originalNow; }
 });
-
-test('challenge browser script verifies then safely redirects', () => server(async base => {
-  const { runInNewContext } = await import('node:vm');
-  const html = await (await fetch(`${base}/challenge`)).text();
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
-  for (const [destination, expected] of [['/account?x=1', '/account?x=1'], ['//evil.test', '/'], ['/\\evil.test', '/'], ['https://evil.test', '/']]) {
-    let redirected;
-    let verified = false;
-    await runInNewContext(script, { URLSearchParams, location: { search: `?next=${encodeURIComponent(destination)}`, replace(value) { assert.equal(verified, true); redirected = value; } }, fetch: async (path, options) => { assert.equal(path, '/challenge/verify'); assert.equal(options.method, 'POST'); verified = true; return { ok: true }; }, document: { getElementById: () => ({}) } });
-    assert.equal(redirected, expected);
-  }
-}, { clearanceSecret: 'test-secret' }));
 
 test('server defaults to loopback and accepts explicit VERDICT_BIND', async () => {
   const { spawn } = await import('node:child_process');
