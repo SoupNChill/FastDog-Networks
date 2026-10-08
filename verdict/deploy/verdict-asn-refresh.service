@@ -1,0 +1,20 @@
+[Unit]
+Description=FastDog Verdict ASN DB refresh (iptoasn.com)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/verdict
+EnvironmentFile=-/etc/fastdog/verdict.env
+Environment=VERDICT_ASN_DIR=/opt/verdict/data/asn
+ExecStart=/usr/bin/node /opt/verdict/scripts/asn-refresh.js
+Nice=15
+CPUQuota=10%
+MemoryMax=200M
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+ProtectSystem=strict
+ReadWritePaths=/opt/verdict/data
+PrivateTmp=true

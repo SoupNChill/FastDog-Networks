@@ -30,9 +30,16 @@ export function createKeyStore(file = 'data/keys.json') {
     return task;
   }
   function verify(plaintext) {
-    if (typeof plaintext !== 'string') return null;
+    if (typeof plaintext !== 'string' || !plaintext) return null;
     const candidate = Buffer.from(hash(plaintext), 'hex');
-    return keys.find(key => !key.revoked_at && timingSafeEqual(candidate, Buffer.from(key.hash, 'hex'))) || null;
+    let found = null;
+    for (const key of keys) {
+      if (key.revoked_at) continue;
+      const stored = Buffer.from(String(key.hash || ''), 'hex');
+      if (stored.length !== candidate.length) continue;
+      if (timingSafeEqual(candidate, stored)) found = key;
+    }
+    return found;
   }
   function revoke(id) {
     const task = pending.then(async () => {

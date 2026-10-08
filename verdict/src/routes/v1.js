@@ -22,7 +22,7 @@ const State = z.object({
 
 const WrappedBody = z.object({ state: z.union([State, z.string().max(16384)]) });
 
-export function v1Router(store, meter, { rateLimit, ipRateLimit, logDecision, allowBootstrap } = {}) {
+export function v1Router(store, meter, { rateLimit, ipRateLimit, logDecision, allowBootstrap, hostStore, shadowFile, metrics } = {}) {
   const router = Router();
   const limiter = rateLimit || createRateLimiter();
   router.use(keyAuth(store, { allowBootstrap }));
@@ -68,5 +68,64 @@ export function v1Router(store, meter, { rateLimit, ipRateLimit, logDecision, al
     }
   });
 
+
+  // --- per-host config ---
+  if (hostStore) {
+    router.get('/hosts', (_req, res) => res.json({ hosts: hostStore.list() }));
+    router.get('/hosts/:host', (req, res) => {
+      const row = hostStore.get(req.params.host);
+      if (!row) return res.status(404).json({ error: 'host_not_found' });
+      res.json(row);
+    });
+    router.put('/hosts/:host', async (req, res, next) => {
+      try {
+        const row = await hostStore.set(req.params.host, req.body || {});
+        res.json(row);
+      } catch (error) {
+        if (error.status) return res.status(error.status).json({ error: error.message, detail: error.detail });
+        next(error);
+      }
+    });
+    router.delete('/hosts/:host', async (req, res, next) => {
+      try {
+        if (!await hostStore.remove(req.params.host)) return res.status(404).json({ error: 'host_not_found' });
+        res.json({ ok: true });
+      } catch (error) { next(error); }
+    });
+  }
+
+  // --- read-only ops ---
+  router.get('/ops/metrics', (_req, res) => {
+    if (!metrics) return res.status(503).json({ error: 'metrics_unavailable' });
+    res.json(metrics.snapshot());
+  });
+  router.get('/ops/shadow-summary', async (_req, res, next) => {
+    try {
+      const { buildShadowSummary } = await import('../shadow/summary.js');
+      const file = shadowFile || process.env.VERDICT_SHADOW_FILE || 'data/shadow.jsonl';
+      res.json(await buildShadowSummary(file));
+    } catch (error) { next(error); }
+  });
+  router.get('/ops/recent-decisions', async (req, res, next) => {
+    try {
+      const { createReadStream } = await import('node:fs');
+      const { createInterface } = await import('node:readline');
+      const file = process.env.VERDICT_DECISION_FILE || 'data/decisions.jsonl';
+      const want = new Set(['challenge', 'block']);
+      const rows = [];
+      try {
+        const rl = createInterface({ input: createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity });
+        for await (const line of rl) {
+          if (!line.trim()) continue;
+          let row; try { row = JSON.parse(line); } catch { continue; }
+          if (!want.has(row.action)) continue;
+          rows.push({ ts: row.ts, action: row.action, reason: row.reason, path: row.path, engine: row.engine });
+        }
+      } catch (e) { if (e.code !== 'ENOENT') throw e; }
+      res.json({ recent: rows.slice(-50).reverse() });
+    } catch (error) { next(error); }
+  });
+
   return router;
 }
+

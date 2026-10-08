@@ -78,6 +78,44 @@ export function createOperatorApp({ edgeHealthy = () => false, checklist = runCh
     try { res.json(detachHost({ hostname: req.params.hostname })); }
     catch (error) { res.status(error.status || 500).json({ error: error.message }); }
   });
+
+  async function verdictFetch(path) {
+    const base = env('VERDICT_EDGE_URL', 'http://127.0.0.1:8089').replace(/\/$/, '');
+    const key = env('VERDICT_API_KEY', '');
+    if (!key) {
+      const err = new Error('verdict_api_key_unset');
+      err.status = 503;
+      throw err;
+    }
+    const res = await fetch(base + path, {
+      headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(4000),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(body.error || `verdict_http_${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return body;
+  }
+  app.get('/_fastdog/verdict/metrics', async (_req, res) => {
+    try { res.json(await verdictFetch('/v1/ops/metrics')); }
+    catch (error) { res.status(error.status || 502).json({ error: error.message }); }
+  });
+  app.get('/_fastdog/verdict/hosts', async (_req, res) => {
+    try { res.json(await verdictFetch('/v1/hosts')); }
+    catch (error) { res.status(error.status || 502).json({ error: error.message }); }
+  });
+  app.get('/_fastdog/verdict/shadow-summary', async (_req, res) => {
+    try { res.json(await verdictFetch('/v1/ops/shadow-summary')); }
+    catch (error) { res.status(error.status || 502).json({ error: error.message }); }
+  });
+  app.get('/_fastdog/verdict/recent', async (_req, res) => {
+    try { res.json(await verdictFetch('/v1/ops/recent-decisions')); }
+    catch (error) { res.status(error.status || 502).json({ error: error.message }); }
+  });
+
   app.get('/status.json', async (_req, res) => res.json(await statusService.get()));
   app.get('/status', async (_req, res) => res.type('html').send(renderStatus(await statusService.get())));
   return app;

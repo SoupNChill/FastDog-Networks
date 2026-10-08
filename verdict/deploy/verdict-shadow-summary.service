@@ -1,0 +1,18 @@
+[Unit]
+Description=FastDog Verdict daily shadow FP summary
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/verdict
+EnvironmentFile=-/etc/fastdog/verdict.env
+Environment=VERDICT_SHADOW_FILE=/opt/verdict/data/shadow.jsonl
+Environment=VERDICT_SHADOW_SUMMARY_DIR=/opt/verdict/data
+ExecStart=/usr/bin/node /opt/verdict/scripts/shadow-summary.js
+Nice=15
+CPUQuota=10%
+MemoryMax=100M
+IOSchedulingClass=best-effort
+ProtectSystem=strict
+ReadWritePaths=/opt/verdict/data

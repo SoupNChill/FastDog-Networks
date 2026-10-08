@@ -1,0 +1,28 @@
+[Unit]
+Description=FastDog Verdict shadow scorer (Caddy access log tail)
+After=network.target verdict-edge.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/verdict
+EnvironmentFile=-/etc/fastdog/verdict.env
+Environment=VERDICT_SHADOW_LOGS=/var/log/caddy/access-apex.json,/var/log/caddy/access-verdict-demo.json
+Environment=VERDICT_SHADOW_FILE=/opt/verdict/data/shadow.jsonl
+ExecStart=/usr/bin/node /opt/verdict/scripts/shadow-tail.js
+Restart=on-failure
+RestartSec=5
+Nice=15
+CPUQuota=10%
+MemoryMax=150M
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/verdict/data
+ReadOnlyPaths=/var/log/caddy
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

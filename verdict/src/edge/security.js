@@ -15,7 +15,22 @@ export function ipPrefix(ip) {
   return nums.slice(0,4).map(x => x.toString(16).padStart(4,'0')).join(':') + '::/64';
 }
 export function binding(req) { return { host: (req.get('x-forwarded-host') || req.get('host') || '').trim().toLowerCase(), ip: clientIP(req), ua: req.get('user-agent') || '' }; }
-export function clientIP(req) { const value = (req.get('x-forwarded-for') || req.get('x-real-ip') || '').split(',')[0].trim(); return isIP(value) ? value : req.socket.remoteAddress; }
+export function isLoopbackAddr(address = '') {
+  return address === '::1' || address === '::ffff:127.0.0.1' || /^(?:::ffff:)?127\.\d+\.\d+\.\d+$/.test(address || '');
+}
+/** Prefer socket when not behind local proxy; when peer is loopback (Caddy→Verdict), trust rightmost XFF hop. */
+export function clientIP(req) {
+  const peer = req.socket?.remoteAddress || '';
+  const xff = (req.get('x-forwarded-for') || '').split(',').map(s => s.trim()).filter(Boolean);
+  const real = (req.get('x-real-ip') || '').trim();
+  if (isLoopbackAddr(peer)) {
+    const candidate = (xff.length ? xff[xff.length - 1] : real);
+    if (isIP(candidate)) return candidate;
+  }
+  if (isIP(peer)) return peer.startsWith('::ffff:') ? peer.slice(7) : peer;
+  if (isIP(real)) return real;
+  return peer || '0.0.0.0';
+}
 const uaHash = ua => createHash('sha256').update(ua).digest('hex').slice(0,8);
 const context = ({host, ip, ua = ''}) => `${host}.${ipPrefix(ip)}.${uaHash(ua)}`;
 export function issueClearance(secret, bound, ttl = 300, now = Date.now()) {
