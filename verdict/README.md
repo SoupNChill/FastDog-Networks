@@ -1,4 +1,4 @@
-# Verdict 0.2.0
+# Verdict 0.2.1
 
 Threat decision API: `allow`, `challenge`, or `block`. Node 18+.
 
@@ -20,8 +20,10 @@ Defaults to `127.0.0.1:8080`. Environment variables must be exported (Node does 
 | `POST /v1/decide` | Bearer auth; decision and request ID |
 | `GET /v1/usage` | Bearer auth; persistent usage for calling key |
 | `GET /v1/edge-auth` | Public local heuristic; allow `200` empty, challenge `401` with `Location` and `X-Verdict-Action`, block `403`. `Accept: application/json` returns decision JSON with the same status. |
-| `GET /challenge` | Demo HTML/JS verification page; safe relative `?next=/path` only |
-| `POST /challenge/verify` | Demo clearance cookie and `{ok:true}`; no bearer required |
+| `GET /challenge` | FastDog PoW page with accessible no-JS form; safe relative `?next=/path` only |
+| `GET /challenge/issue` | Single-use PoW challenge JSON; optional signed `hint` |
+| `POST /challenge/verify-fallback` | Signed arithmetic form; weaker accessible fallback |
+| `POST /challenge/verify` | Verify `{challenge_id, nonce}` (nonce is a decimal string); clearance cookie and `{ok:true,next}` |
 
 Seed on loopback before exposing a reverse proxy. Capture the first key securely as described in EDGE.md; do not print it. On the edge the real key lives in `/etc/fastdog/verdict.env`. Examples below use the literal placeholder `KEY`:
 
@@ -58,8 +60,16 @@ Decide is limited per key AND socket IP. Forwarded headers cannot spoof this lim
 
 Edge auth always uses the local heuristic, even if TypeSafe is configured. Decide optionally uses Jev with local fallback. Tests mock Jev and need no paid credentials; run them with `TYPESAFE_API_KEY` unset.
 
-## Edge trust and demo clearance
+## Edge trust and proof-of-work
 
 Caddy supplies `X-Forwarded-Method`, `X-Forwarded-Uri`, `User-Agent` and a sanitized `X-Forwarded-For` (first IP), with `X-Real-IP` as fallback. `X-Original-Method`/`X-Original-Uri` are also accepted. Without original method/URI headers the GET auth request and `/` are used. Edge headers are trusted assertions: keep Verdict loopback-only and overwrite client-provided forwarding headers in the proxy.
 
-The `fd_verdict_clearance` cookie is HMAC-SHA256 over `exp.UPPERCASE_IP` (verification also supports signed `exp.*`), bound to the client IP by default, with `HttpOnly; Secure; SameSite=Lax; Path=/`. Serve the challenge on the protected HTTPS hostname; valid clearance permits requests until expiry. The JS check is a demo, not bot-proof verification: any client can POST to obtain clearance. Demo force must stay off outside demonstrations. An invalid or expired cookie falls back to the heuristic.
+The self-hosted challenge uses no third-party captcha or external assets. `GET /challenge/issue` returns a random `challenge_id`, `difficulty` and `expires_at` (Unix milliseconds). A same-origin Web Worker finds a decimal nonce such that SHA-256 of `challenge_id + ':' + nonce` has at least `difficulty` leading zero bits. `POST /challenge/verify` checks the proof on the server before granting clearance. Serve on HTTPS. Failure/expiry offers retry and an accessible form; the worker stops when leaving the page.
+
+Edge-auth includes a signed, two-minute score hint in its challenge Location, bound to host, IP, UA and the safe return path. Difficulty is 16 bits below 0.45, 18 at 0.45, 20 at 0.65 and 22 at 0.75 or above (increments are not cumulative). Unsigned score parameters are ignored; direct challenges use 16 bits. Altered, expired or mismatched hints fail closed. A valid clearance bypasses the decision engine.
+
+Pending challenges are browser-bound, single-use and expire after two minutes. Verification attempts with a valid challenge identity consume it even if the answer is wrong. Issuance is limited to 30 per IP prefix per two minutes, with a 10,000-entry pending cap and opportunistic expiry cleanup. The HTML form also consumes an issuance slot. Restarting clears pending challenges. Multiple processes/replicas require sticky routing for issue and verification; the in-memory store is not shared. Apply edge request limits as well.
+
+The `fd_verdict_clearance` cookie signs the exact payload `exp.host.ipprefix.uahash` with HMAC-SHA256. Its wire format is `base64url(payload).base64url(hmac)`. Host is the lowercased, trimmed `X-Forwarded-Host` (otherwise Host), including port if present. IPs normalize to IPv4 /24 or IPv6 /64; IPv4-mapped IPv6 uses the IPv4 prefix. UA hash is the first eight hex characters of SHA-256 of the User-Agent. There are no wildcard clearances. All three bindings and expiry must match; old 0.2.0 cookies are invalid. TTL defaults to 300 seconds, with `HttpOnly; Secure; SameSite=Lax; Path=/`. Use a strong random `VERDICT_CLEARANCE_SECRET`, shared by auth and challenge handlers. Keep forwarding headers sanitized, including `X-Forwarded-Host`, and serve the challenge on the protected hostname.
+
+The accessible form posts to `/challenge/verify-fallback` using a signed two-minute arithmetic puzzle, an explicit confirmation checkbox, a hidden honeypot and a minimum two-second completion time. It is single-use and browser-bound, but **weaker than PoW**: automated clients can solve arithmetic without comparable computation. It is an intentional accessibility escape hatch, not equivalent bot protection. No-JS users can expand the form and answer the labeled addition. The page ships FastDog logos and local CSS in `public/branding/`; Space Grotesk and Mulish use system fallbacks when fonts are not installed. Demo force must remain off in production.

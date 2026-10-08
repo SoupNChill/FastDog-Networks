@@ -28,7 +28,7 @@ export async function createApp({
   app.use(express.json({ limit: '256kb' }));
   const logDecision = createDecisionLog(decisionFile);
   app.use(edgeRouter({ secret: clearanceSecret, ttl: Number.isInteger(clearanceTTL) && clearanceTTL > 0 ? clearanceTTL : 300, demoForce, logDecision }));
-  app.get('/health', (_req, res) => res.json({ ok: true, service: 'verdict', version: '0.2.0' }));
+  app.get('/health', (_req, res) => res.json({ ok: true, service: 'verdict', version: '0.2.1' }));
   app.get('/openapi.json', (_req, res) => res.json(openapi));
   app.use('/', express.static('public'));
   app.use('/v1', v1Router(store, meter, { rateLimit: rateLimit || createRateLimiter(), ipRateLimit, logDecision, allowBootstrap }));
