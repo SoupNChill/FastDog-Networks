@@ -1,4 +1,6 @@
 export function createRateLimiter({
+  keyBy = req => req.apiKey?.id || req.ip || 'anonymous',
+  headerPrefix = 'X-RateLimit',
   windowMs = Number(process.env.VERDICT_RATE_LIMIT_WINDOW_MS || 60_000),
   max = Number(process.env.VERDICT_RATE_LIMIT_MAX || 60),
 } = {}) {
@@ -7,8 +9,9 @@ export function createRateLimiter({
   const buckets = new Map();
 
   return function rateLimit(req, res, next) {
-    const key = req.apiKey?.id || req.ip || 'anonymous';
+    const key = keyBy(req);
     const now = Date.now();
+    for (const [id, entry] of buckets) if (now - entry.startedAt >= safeWindow) buckets.delete(id);
     let bucket = buckets.get(key);
     if (!bucket || now - bucket.startedAt >= safeWindow) {
       bucket = { startedAt: now, count: 0 };
@@ -16,9 +19,9 @@ export function createRateLimiter({
     }
     bucket.count += 1;
     const remaining = Math.max(0, safeMax - bucket.count);
-    res.setHeader('X-RateLimit-Limit', String(safeMax));
-    res.setHeader('X-RateLimit-Remaining', String(remaining));
-    res.setHeader('X-RateLimit-Reset', String(Math.ceil((bucket.startedAt + safeWindow) / 1000)));
+    res.setHeader(`${headerPrefix}-Limit`, String(safeMax));
+    res.setHeader(`${headerPrefix}-Remaining`, String(remaining));
+    res.setHeader(`${headerPrefix}-Reset`, String(Math.ceil((bucket.startedAt + safeWindow) / 1000)));
     if (bucket.count > safeMax) {
       const retryAfter = Math.max(1, Math.ceil((bucket.startedAt + safeWindow - now) / 1000));
       res.setHeader('Retry-After', String(retryAfter));

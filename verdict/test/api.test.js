@@ -99,7 +99,7 @@ test('usage persists across app reload', async () => {
 
 test('Jev errors fall back to heuristic', async () => {
   const result = await decide({ path: '/login' }, { apiKey: 'test', fetchImpl: async () => ({ ok: false, status: 503 }) });
-  assert.equal(result.engine, 'local_heuristic_v1');
+  assert.equal(result.engine, 'local_heuristic_v2');
 });
 
 test('Jev Choice request and response match System One schema', async () => {

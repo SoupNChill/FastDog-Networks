@@ -19,15 +19,12 @@ const State = z.object({
   notes: z.string().max(8192).optional(),
 }).passthrough();
 
-const Body = z.union([
-  State,
-  z.object({ state: z.union([State, z.string().max(16384)]) }),
-]);
+const WrappedBody = z.object({ state: z.union([State, z.string().max(16384)]) });
 
-export function v1Router(store, meter, { rateLimit } = {}) {
+export function v1Router(store, meter, { rateLimit, ipRateLimit, logDecision, allowBootstrap } = {}) {
   const router = Router();
   const limiter = rateLimit || createRateLimiter();
-  router.use(keyAuth(store));
+  router.use(keyAuth(store, { allowBootstrap }));
 
   router.post('/keys', async (req, res, next) => {
     const parsed = z.object({ name: z.string().min(1).max(80).default('default') }).safeParse(req.body ?? {});
@@ -39,15 +36,22 @@ export function v1Router(store, meter, { rateLimit } = {}) {
     }
   });
 
+  router.post('/keys/:id/revoke', async (req, res, next) => {
+    try {
+      if (!await store.revoke(req.params.id)) return res.status(404).json({ error: 'key_not_found' });
+      res.json({ ok: true });
+    } catch (error) { next(error); }
+  });
+
   router.get('/usage', (req, res) => {
     res.json({ key_id: req.apiKey.id, ...meter.get(req.apiKey.id), period: 'persistent' });
   });
 
-  router.post('/decide', limiter, async (req, res, next) => {
+  router.post('/decide', ipRateLimit, limiter, async (req, res, next) => {
     if (req.body == null || typeof req.body !== 'object' || Array.isArray(req.body)) {
       return res.status(400).json({ error: 'invalid_body', details: { formErrors: ['body must be a JSON object'], fieldErrors: {} } });
     }
-    const parsed = Body.safeParse(req.body);
+    const parsed = ('state' in req.body ? WrappedBody : State).safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
     }
@@ -55,7 +59,9 @@ export function v1Router(store, meter, { rateLimit } = {}) {
     try {
       const decision = await decide(state);
       if (req.apiKey) await meter.record(req.apiKey.id, decision.engine);
-      res.json({ ...decision, request_id: randomUUID() });
+      const request_id = randomUUID();
+      await logDecision({ ...decision, request_id, ip: req.socket.remoteAddress, path: state?.path, key_id: req.apiKey.id });
+      res.json({ ...decision, request_id });
     } catch (error) {
       next(error);
     }

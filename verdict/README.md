@@ -1,59 +1,65 @@
-# Verdict
+# Verdict 0.2.0
 
-Gray-zone threat decision API: `allow`, `challenge`, or `block` with confidence and reason. Node 18+.
-
-## Setup
+Threat decision API: `allow`, `challenge`, or `block`. Node 18+.
 
 ```sh
-npm install
+npm ci
 npm test
 npm start
 ```
 
-Server listens on port 8080 by default. `npm run dev` runs with Node's watch mode. Visit `/` for a quick start or `/openapi.json` for the API schema.
+Defaults to `127.0.0.1:8080`. Environment variables must be exported (Node does not automatically load `.env`). See [edge deployment](deploy/EDGE.md) for PoP installation artifacts and Caddy configuration. No deployment is performed by these files.
 
-## API keys and decisions
+## API
 
-When `data/keys.json` has no keys, bootstrap the first key without a bearer token:
+| Route | Authentication / result |
+| --- | --- |
+| `GET /health`, `/openapi.json` | Public health/schema |
+| `POST /v1/keys` | First key: socket loopback OR `VERDICT_ALLOW_BOOTSTRAP=1`; otherwise `403 bootstrap_disabled`. Once any key exists, requires bearer auth (`401` otherwise). Returns plaintext once. |
+| `POST /v1/keys/:id/revoke` | Bearer auth; soft revoke, `200 {ok:true}` or `404`. Any active key can manage keys. Revoking all keys does not reopen bootstrap. |
+| `POST /v1/decide` | Bearer auth; decision and request ID |
+| `GET /v1/usage` | Bearer auth; persistent usage for calling key |
+| `GET /v1/edge-auth` | Public local heuristic; allow `200` empty, challenge `401` with `Location` and `X-Verdict-Action`, block `403`. `Accept: application/json` returns decision JSON with the same status. |
+| `GET /challenge` | Demo HTML/JS verification page; safe relative `?next=/path` only |
+| `POST /challenge/verify` | Demo clearance cookie and `{ok:true}`; no bearer required |
+
+Seed on loopback before exposing a reverse proxy. Capture the first key securely as described in EDGE.md; do not print it. On the edge the real key lives in `/etc/fastdog/verdict.env`. Examples below use the literal placeholder `KEY`:
 
 ```sh
-curl -sS http://localhost:8080/v1/keys -H 'Content-Type: application/json' -d '{"name":"main"}'
+curl http://127.0.0.1:8080/v1/decide \
+  -H 'Authorization: Bearer KEY' -H 'Content-Type: application/json' \
+  -d '{"path":"/login","method":"GET","ua":"Mozilla/5.0"}'
+curl http://127.0.0.1:8080/v1/usage -H 'Authorization: Bearer KEY'
+curl -X POST http://127.0.0.1:8080/v1/keys/KEY_ID/revoke -H 'Authorization: Bearer KEY'
+curl http://127.0.0.1:8080/v1/edge-auth \
+  -H 'Accept: application/json' -H 'User-Agent: headless' \
+  -H 'X-Forwarded-Uri: /login' -H 'X-Forwarded-Method: GET'
 ```
 
-Save the returned `key` securely; it is shown once. Later calls to `/v1/keys` require an existing key. All other `/v1/*` calls require `Authorization: Bearer <key>`.
+Decide accepts a structured object or `{ "state": {...} }`. Legacy string state is accepted but carries no local risk signals. Only explicit fields influence scoring; arbitrary properties and serialized object keys never do. UA/notes/signals contribute malicious-tool signals; UA/signals contribute automation signals. Sensitive paths add risk only for POST or credential/automation signals. Prior score, account age and a 60-second per-IP velocity counter contribute as specified in `src/engine/heuristic.js`. Header values, ASN and JA3 are accepted structured context but have no scoring rule in v2. GET `/login` with a normal browser allows. Thresholds remain 0.45 challenge and 0.75 block.
 
-```sh
-export VERDICT_API_KEY='paste-key-here'
-curl -sS http://localhost:8080/v1/decide \
-  -H "Authorization: Bearer $VERDICT_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"ip":"203.0.113.8","asn":64500,"ja3":"sample","path":"/login","method":"POST","ua":"sample browser","headers":{"accept":"*/*"},"account_age_hours":0.5,"prior_score":0.2,"signals":["headless"],"notes":"new session"}'
-curl -sS http://localhost:8080/v1/usage -H "Authorization: Bearer $VERDICT_API_KEY"
-```
-
-`/v1/decide` also accepts the older `{ "state": {...} }` or `{ "state": "..." }` shape. Decisions contain `action`, `confidence`, `reason`, `engine`, and `request_id`. Invalid bodies return `400` with Zod details. Decide is rate-limited per API key (default 60 requests / 60s; see env below). Usage counters persist under `data/usage.json` across restarts. Key records persist under `data/` as SHA-256 hashes; protect the file and use HTTPS outside localhost.
+Decide is limited per key AND socket IP. Forwarded headers cannot spoof this limiter; behind a local proxy its IP bucket is shared by callers. Invalid bodies return 400; exceeded limits return 429 and `Retry-After`. Usage and hashed keys persist. Decisions append only request ID, action, reason, engine, IP, pathname, key ID and timestamp to JSONL. Queries/fragments are removed; never put secrets in path segments. Rotate the log operationally.
 
 ## Configuration
 
-- `PORT`: listen port, default `8080`.
-- `VERDICT_KEY_FILE`: key store path, default `data/keys.json`.
-- `VERDICT_USAGE_FILE`: usage store path, default `data/usage.json`.
-- `VERDICT_RATE_LIMIT_WINDOW_MS`: decide window, default `60000`.
-- `VERDICT_RATE_LIMIT_MAX`: max decide calls per key per window, default `60`.
-- `TYPESAFE_API_KEY`: optional Jev key. Leave unset to use the local heuristic and avoid external calls.
-- `TYPESAFE_BASE_URL`: default `https://api.typesafe.ai`.
+| Variable | Default |
+| --- | --- |
+| `PORT`, `VERDICT_BIND` | `8080`, `127.0.0.1` |
+| `VERDICT_ALLOW_BOOTSTRAP` | `0`; `1` permits remote first-key bootstrap |
+| `VERDICT_KEY_FILE`, `VERDICT_USAGE_FILE` | `data/keys.json`, `data/usage.json` |
+| `VERDICT_DECISION_FILE` | `decisions.jsonl` beside usage file (normally `data/decisions.jsonl`) |
+| `VERDICT_RATE_LIMIT_WINDOW_MS` | `60000` for both limiters |
+| `VERDICT_RATE_LIMIT_MAX`, `VERDICT_IP_RATE_LIMIT_MAX` | `60` per key, `120` per socket IP |
+| `VERDICT_CLEARANCE_SECRET` | Unset; challenge routes return 503 without it |
+| `VERDICT_CLEARANCE_TTL_SECONDS` | `300` |
+| `VERDICT_DEMO_FORCE` | `0`; `1` enables `X-Verdict-Force: allow\|challenge\|block` |
+| `TYPESAFE_API_KEY` | Unset; no external calls unless configured |
+| `TYPESAFE_BASE_URL` | `https://api.typesafe.ai` |
 
-With a TypeSafe key, Verdict calls System One Choice at `/v1/systemone`. If the request fails or returns an unexpected response, it uses the local heuristic. The Jev integration is a stub pending validation against a real account and response. Billing coming soon.
+Edge auth always uses the local heuristic, even if TypeSafe is configured. Decide optionally uses Jev with local fallback. Tests mock Jev and need no paid credentials; run them with `TYPESAFE_API_KEY` unset.
 
-## systemd
+## Edge trust and demo clearance
 
-The unit assumes this checkout path and user `mranderson`; edit it if needed. Store environment variables in `.env` and keep the file private. To enable after reviewing the unit:
+Caddy supplies `X-Forwarded-Method`, `X-Forwarded-Uri`, `User-Agent` and a sanitized `X-Forwarded-For` (first IP), with `X-Real-IP` as fallback. `X-Original-Method`/`X-Original-Uri` are also accepted. Without original method/URI headers the GET auth request and `/` are used. Edge headers are trusted assertions: keep Verdict loopback-only and overwrite client-provided forwarding headers in the proxy.
 
-```sh
-sudo cp deploy/verdict.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now verdict
-```
-
-## Local prod
-
-See [deploy/LOCAL_PROD.md](deploy/LOCAL_PROD.md) for copying this build onto another LAN machine behind TLS.
+The `fd_verdict_clearance` cookie is HMAC-SHA256 over `exp.UPPERCASE_IP` (verification also supports signed `exp.*`), bound to the client IP by default, with `HttpOnly; Secure; SameSite=Lax; Path=/`. Serve the challenge on the protected HTTPS hostname; valid clearance permits requests until expiry. The JS check is a demo, not bot-proof verification: any client can POST to obtain clearance. Demo force must stay off outside demonstrations. An invalid or expired cookie falls back to the heuristic.

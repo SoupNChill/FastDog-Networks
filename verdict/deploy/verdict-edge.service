@@ -1,0 +1,22 @@
+[Unit]
+Description=FastDog Verdict edge decision API
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/verdict
+EnvironmentFile=/etc/fastdog/verdict.env
+Environment=VERDICT_BIND=127.0.0.1
+Environment=PORT=8089
+ExecStart=/usr/bin/node /opt/verdict/src/server.js
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/verdict/data
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -32,14 +32,32 @@ export function createKeyStore(file = 'data/keys.json') {
   function verify(plaintext) {
     if (typeof plaintext !== 'string') return null;
     const candidate = Buffer.from(hash(plaintext), 'hex');
-    return keys.find(key => timingSafeEqual(candidate, Buffer.from(key.hash, 'hex'))) || null;
+    return keys.find(key => !key.revoked_at && timingSafeEqual(candidate, Buffer.from(key.hash, 'hex'))) || null;
   }
-  return { load, create, verify, hasKeys: () => keys.length > 0 };
+  function revoke(id) {
+    const task = pending.then(async () => {
+      if (!keys.some(key => key.id === id)) return false;
+      const next = keys.map(key => key.id === id ? { ...key, revoked_at: key.revoked_at || new Date().toISOString() } : key);
+      await writeFile(file, JSON.stringify(next, null, 2), { mode: 0o600 });
+      keys = next;
+      return true;
+    });
+    pending = task.catch(() => {});
+    return task;
+  }
+  return { load, create, verify, revoke, hasKeys: () => keys.length > 0 };
 }
 
-export function keyAuth(store) {
+export function isLoopback(address = '') {
+  return address === '::1' || /^(?:::ffff:)?127\.\d+\.\d+\.\d+$/.test(address);
+}
+
+export function keyAuth(store, { allowBootstrap = process.env.VERDICT_ALLOW_BOOTSTRAP === '1' } = {}) {
   return (req, res, next) => {
-    if (req.path === '/keys' && req.method === 'POST' && !store.hasKeys()) return next();
+    if (req.path === '/keys' && req.method === 'POST' && !store.hasKeys()) {
+      if (allowBootstrap || isLoopback(req.socket.remoteAddress)) return next();
+      return res.status(403).json({ error: 'bootstrap_disabled' });
+    }
     const token = /^Bearer (\S+)$/i.exec(req.get('authorization') || '')?.[1];
     const key = store.verify(token);
     if (!key) return res.status(401).json({ error: 'unauthorized' });
