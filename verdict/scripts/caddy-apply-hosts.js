@@ -1,17 +1,16 @@
 #!/usr/bin/env node
 /**
- * Generate Caddy snippets from hosts.json and optionally validate/reload with rollback.
- * Default: --dry-run (no reload).
+ * Generate reviewable Caddy snippets only. Validation/reload is operator-owned.
  */
-import { readFile, writeFile, mkdir, copyFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
-import { join, dirname } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { writeConfig } from '../src/config/files.js';
+import { join } from 'node:path';
 import { createHostStore, isEnforceDenied, ENFORCE_DENYLIST } from '../src/config/hosts.js';
 
 const apply = process.argv.includes('--apply');
+if (apply) throw new Error('Automatic apply disabled: review generated snippets and validate/reload Caddy manually');
 const hostsFile = process.env.VERDICT_HOSTS_FILE || 'data/hosts.json';
 const outDir = process.env.VERDICT_CADDY_SNIPPET_DIR || 'data/caddy-generated';
-const caddyfile = process.env.CADDYFILE || '/etc/caddy/Caddyfile';
 const includeName = 'verdict-hosts.caddy';
 
 const store = createHostStore(hostsFile);
@@ -27,7 +26,11 @@ ${h.host} {
 	encode gzip
 	@exempt path /challenge /challenge/* /branding/*
 	handle @exempt {
-		reverse_proxy 127.0.0.1:8089
+		reverse_proxy 127.0.0.1:8089 {
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up -X-Real-IP
+		}
 	}
 	handle {
 		route {
@@ -35,6 +38,7 @@ ${h.host} {
 			forward_auth 127.0.0.1:8089 {
 				uri /v1/edge-auth
 				header_up X-Forwarded-Host {host}
+				header_up X-Forwarded-For {remote_host}
 				header_up -X-Real-IP
 				header_up -X-Verdict-Demo
 				header_up -X-Verdict-Force
@@ -77,55 +81,5 @@ const body = [
   ...hosts.map(snippetFor).filter(Boolean),
 ].join('\n');
 const outPath = join(outDir, includeName);
-await writeFile(outPath, body || '# no enforce hosts\n', 'utf8');
+await writeConfig(outPath, body || '# no enforce hosts\n');
 console.log(JSON.stringify({ wrote: outPath, enforce_hosts: hosts.map(h => h.host), dry_run: !apply }));
-
-if (!apply) process.exit(0);
-
-const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-const backup = `${caddyfile}.bak-verdict-${stamp}`;
-await copyFile(caddyfile, backup);
-console.log(JSON.stringify({ backup }));
-
-// Ensure import appears once
-let cfg = await readFile(caddyfile, 'utf8');
-const importLine = `import ${outPath}`;
-if (!cfg.includes(includeName)) {
-  cfg = cfg.trimEnd() + `\n\n# Verdict generated host snippets\n${importLine}\n`;
-  await writeFile(caddyfile, cfg);
-}
-
-function run(cmd, args) {
-  const r = spawnSync(cmd, args, { encoding: 'utf8' });
-  return r;
-}
-
-let v = run('caddy', ['validate', '--config', caddyfile]);
-if (v.status !== 0) {
-  await copyFile(backup, caddyfile);
-  console.error(JSON.stringify({ error: 'validate_failed', stderr: v.stderr, restored: backup }));
-  process.exit(1);
-}
-let r = run('caddy', ['reload', '--config', caddyfile]);
-if (r.status !== 0) {
-  await copyFile(backup, caddyfile);
-  run('caddy', ['reload', '--config', caddyfile]);
-  console.error(JSON.stringify({ error: 'reload_failed', restored: backup }));
-  process.exit(1);
-}
-
-// health probes
-const probes = [
-  ['curl', ['-sS', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '5', 'http://127.0.0.1:8089/health']],
-  ['curl', ['-sS', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '8', 'https://lease.fastdognetworks.com/']],
-];
-for (const [c, a] of probes) {
-  const p = run(c, a);
-  if (p.status !== 0 || !/^2/.test((p.stdout || '').trim())) {
-    await copyFile(backup, caddyfile);
-    run('caddy', ['reload', '--config', caddyfile]);
-    console.error(JSON.stringify({ error: 'health_failed', cmd: [c, ...a], out: p.stdout, restored: backup }));
-    process.exit(1);
-  }
-}
-console.log(JSON.stringify({ ok: true, backup }));

@@ -5,7 +5,7 @@ import { createMetrics } from './metering/metrics.js';
 import { dirname, join } from 'node:path';
 import { createDecisionLog } from './metering/decisions.js';
 import { edgeRouter } from './edge/routes.js';
-import { createKeyStore } from './auth/keys.js';
+import { createKeyStore, keyAuth } from './auth/keys.js';
 import { createMeter } from './metering/usage.js';
 import { v1Router } from './routes/v1.js';
 import { openapi } from './openapi.js';
@@ -47,12 +47,28 @@ export async function createApp({
   app.disable('x-powered-by');
   const metrics = createMetrics();
   app.use(metrics.middleware);
-  app.get('/metrics', (_req, res) => res.set('Cache-Control', 'no-store').json(metrics.snapshot()));
+  app.get('/metrics', keyAuth(store), (_req, res) => res.set('Cache-Control', 'no-store').json(metrics.snapshot()));
+  app.use((req, res, next) => {
+    if (Object.values(req.headers).some(value => String(value).length > 8192)) return res.status(431).json({ error: 'headers_too_large' });
+    next();
+  });
   app.use(express.json({ limit: '256kb' }));
+  app.use((req, res, next) => {
+    const queue = [[req.body, 0]];
+    for (let i = 0; i < queue.length; i++) {
+      const [value, depth] = queue[i];
+      if (depth > 32 || queue.length > 10000) return res.status(400).json({ error: 'body_too_complex' });
+      if (value && typeof value === 'object') for (const child of Object.values(value)) queue.push([child, depth + 1]);
+    }
+    next();
+  });
   const appendDecision = decisionWriter || createDecisionLog(decisionFile);
+  let queuedDecisions = 0;
   const logDecision = record => {
     metrics.decision(record.action);
-    Promise.resolve().then(() => appendDecision(record)).catch(error => console.error('decision log failed:', error.message));
+    if (queuedDecisions >= 1024) return;
+    queuedDecisions++;
+    Promise.resolve().then(() => appendDecision(record)).catch(() => console.error('decision log failed')).finally(() => { queuedDecisions--; });
   };
   app.locals.flush = async () => {
     await Promise.resolve();
@@ -65,7 +81,7 @@ export async function createApp({
     keyBy: req => ipBucketKey(clientIP(req)),
     headerPrefix: 'X-IP-RateLimit',
   });
-  app.use(edgeRouter({ secret: clearanceSecret, ttl: Number.isInteger(clearanceTTL) && clearanceTTL > 0 ? clearanceTTL : 300, demoForce, edgeGoodBotDNS, logDecision }));
+  app.use(edgeRouter({ secret: clearanceSecret, ttl: Number.isInteger(clearanceTTL) && clearanceTTL > 0 ? clearanceTTL : 300, demoForce, edgeGoodBotDNS, logDecision, hostStore }));
   app.get('/demo', (_req, res) => res.set('Cache-Control', 'no-store').type('html').send(demoPage(demoForce)));
   app.get('/health', (_req, res) => res.json({ ok: true, service: 'verdict', version }));
   app.get('/openapi.json', (_req, res) => res.json(openapi));
@@ -83,7 +99,7 @@ export async function createApp({
     if (error.type === 'entity.too.large') return res.status(413).json({ error: 'payload_too_large' });
     if (error instanceof SyntaxError && 'body' in error) return res.status(400).json({ error: 'invalid_json' });
     if (error.status === 401) return res.status(401).json({ error: 'unauthorized' });
-    console.error(error);
+    console.error('request failed');
     res.status(500).json({ error: 'internal_error' });
   });
   return app;

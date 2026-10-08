@@ -15,7 +15,7 @@ Defaults to `127.0.0.1:8080`. Environment variables must be exported (Node does 
 | Route | Authentication / result |
 | --- | --- |
 | `GET /health`, `/openapi.json` | Public health/schema; health version comes from package.json |
-| `GET /metrics` | Public JSON, also accepts bearer headers; intended for loopback scraping |
+| `GET /metrics` | Bearer-protected JSON; use a read-only key for loopback scraping |
 | `POST /v1/keys` | First key: socket loopback OR `VERDICT_ALLOW_BOOTSTRAP=1`; otherwise `403 bootstrap_disabled`. Once any key exists, requires bearer auth (`401` otherwise). Returns plaintext once. |
 | `POST /v1/keys/:id/revoke` | Bearer auth; soft revoke, `200 {ok:true}` or `404`. Any active key can manage keys. Revoking all keys does not reopen bootstrap. |
 | `POST /v1/decide` | Bearer auth; decision and request ID |
@@ -24,7 +24,7 @@ Defaults to `127.0.0.1:8080`. Environment variables must be exported (Node does 
 | `GET /demo` | Branded phone demo; tap links enabled only with `VERDICT_DEMO_FORCE=1` |
 | `GET /challenge` | FastDog PoW page with accessible no-JS form; safe relative `?next=/path` only |
 | `GET /challenge/issue` | Single-use PoW challenge JSON; optional signed `hint` |
-| `POST /challenge/verify-fallback` | Signed arithmetic form; weaker accessible fallback |
+| `POST /challenge/verify-fallback` | Demo-host-only signed arithmetic form; production requires PoW |
 | `POST /challenge/verify` | Verify `{challenge_id, nonce}` (nonce is a decimal string); clearance cookie and `{ok:true,next}` |
 
 Seed on loopback before exposing a reverse proxy. Capture the first key securely as described in EDGE.md; do not print it. On the edge the real key lives in `/etc/fastdog/verdict.env`. Examples below use the literal placeholder `KEY`:
@@ -75,7 +75,7 @@ Edge auth always uses the local heuristic, even if TypeSafe is configured. Decid
 
 ## Edge trust and proof-of-work
 
-Caddy supplies `X-Forwarded-Method`, `X-Forwarded-Uri`, `User-Agent` and a sanitized `X-Forwarded-For` (first IP), with `X-Real-IP` as fallback. `X-Original-Method`/`X-Original-Uri` are also accepted. Without original method/URI headers the GET auth request and `/` are used. Edge auth passes all visible headers, including User-Agent, Accept-Language and client hints, into the heuristic. Proxy-observed header order is not assumed to be original browser order. Edge headers are trusted assertions: keep Verdict loopback-only and overwrite client-provided forwarding headers in the proxy.
+Caddy supplies `X-Forwarded-Method`, `X-Forwarded-Uri`, `User-Agent` and a sanitized `X-Forwarded-For` (rightmost IP), with `X-Real-IP` as fallback. `X-Original-Method`/`X-Original-Uri` are also accepted. Without original method/URI headers the GET auth request and `/` are used. Edge auth passes all visible headers, including User-Agent, Accept-Language and client hints, into the heuristic. Proxy-observed header order is not assumed to be original browser order. Edge headers are trusted assertions: keep Verdict loopback-only and overwrite client-provided forwarding headers in the proxy.
 
 The self-hosted challenge uses no third-party captcha or external assets. `GET /challenge/issue` returns a random `challenge_id`, `difficulty` and `expires_at` (Unix milliseconds). A same-origin Web Worker finds a decimal nonce such that SHA-256 of `challenge_id + ':' + nonce` has at least `difficulty` leading zero bits. `POST /challenge/verify` checks the proof on the server before granting clearance. Serve on HTTPS. Failure/expiry offers retry and an accessible form; the worker stops when leaving the page.
 
@@ -85,7 +85,7 @@ Pending challenges are browser-bound, single-use and expire after two minutes. V
 
 The `fd_verdict_clearance` cookie signs the exact payload `exp.host.ipprefix.uahash` with HMAC-SHA256. Its wire format is `base64url(payload).base64url(hmac)`. Host is the lowercased, trimmed `X-Forwarded-Host` (otherwise Host), including port if present. IPs normalize to IPv4 /24 or IPv6 /64; IPv4-mapped IPv6 uses the IPv4 prefix. UA hash is the first eight hex characters of SHA-256 of the User-Agent. There are no wildcard clearances. All three bindings and expiry must match; old 0.2.0 cookies are invalid. TTL defaults to 300 seconds, with `HttpOnly; Secure; SameSite=Lax; Path=/`. Use a strong random `VERDICT_CLEARANCE_SECRET`, shared by auth and challenge handlers. Keep forwarding headers sanitized, including `X-Forwarded-Host`, and serve the challenge on the protected hostname.
 
-The accessible form posts to `/challenge/verify-fallback` using a signed two-minute arithmetic puzzle, an explicit confirmation checkbox, a hidden honeypot and a minimum two-second completion time. It is single-use and browser-bound, but **weaker than PoW**: automated clients can solve arithmetic without comparable computation. It is an intentional accessibility escape hatch, not equivalent bot protection. No-JS users can expand the form and answer the labeled addition. The page ships FastDog logos and local CSS in `public/branding/`; Space Grotesk and Mulish use system fallbacks when fonts are not installed. Demo force must remain off in production.
+On `verdict-demo.fastdognetworks.com` only, the accessible form posts to `/challenge/verify-fallback` using a signed two-minute arithmetic puzzle, an explicit confirmation checkbox, a hidden honeypot and a minimum two-second completion time. It is single-use and browser-bound, but **weaker than PoW**: automated clients can solve arithmetic without comparable computation. It is an intentional accessibility escape hatch, not equivalent bot protection. On other hosts the form is hidden and its verification endpoint rejects requests; PoW is required. The page ships FastDog logos and local CSS in `public/branding/`; Space Grotesk and Mulish use system fallbacks when fonts are not installed. Demo force must remain off in production.
 
 ## Local operations
 
@@ -97,7 +97,7 @@ node bin/verdict-keys.js revoke KEY_ID
 
 The CLI uses `VERDICT_KEY_FILE` (default `data/keys.json`, relative to the working directory). Create prints only the plaintext key once to stdout; capture it securely. List prints only ID, name, creation and revocation timestamps, never hashes or plaintext. Run mutations while the server and other key writers are stopped, then restart: the server caches keys in memory. For immediate changes on a running server, use the authenticated key API.
 
-`GET /metrics` returns process-lifetime `requests_total` (all completed HTTP responses), `actions` (completed decisions), and endpoint totals for `/v1/decide` and `/v1/edge-auth`, including errors and rate limits. Each endpoint retains its last 2,048 response latencies in milliseconds, with p50/p99 and cumulative histogram buckets for that recent window. Empty percentiles are null. Metrics reset on restart, contain no key/IP labels, and require no authentication even when a bearer header is supplied. Keep this route private in the reverse proxy. The scrape itself enters the request total after its response finishes.
+`GET /metrics` returns process-lifetime `requests_total` (all completed HTTP responses), `actions` (completed decisions), and endpoint totals for `/v1/decide` and `/v1/edge-auth`, including errors and rate limits. Each endpoint retains its last 2,048 response latencies in milliseconds, with p50/p99 and cumulative histogram buckets for that recent window. Empty percentiles are null. Metrics reset on restart, contain no key/IP labels, and require a valid bearer key, including read-only panel keys. Keep this route private in the reverse proxy. The scrape itself enters the request total after its response finishes.
 
 Decide retains `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` and the corresponding `X-IP-RateLimit-*` headers; rejected limits also return `Retry-After`. A rejection by the first (IP) limiter does not run the key limiter.
 
@@ -145,3 +145,15 @@ before testing decide. Output includes offered/achieved launch RPS, milliseconds
 p50/p99, transport plus HTTP >=400 errors, and status counts. Missed scheduling
 slots are skipped, with at most 2,000 in-flight requests and a five-second request
 timeout; slow responses drain after the measured launch interval.
+
+
+## 0.3.1 security boundaries
+
+- API and read-only panel credentials share the SHA-256/timing-safe key store; the panel has no session-cookie authentication. The server defaults to `127.0.0.1`. `/metrics` now requires a bearer key.
+- Loopback Caddy is a trusted peer. It must overwrite `X-Forwarded-Host`, `X-Forwarded-For`, `X-Forwarded-Uri` and `X-Forwarded-Method`; strip client `X-Verdict-Demo`/`X-Verdict-Force` on non-demo sites. Direct remote clients cannot select a forwarded tenant or IP. Local processes can impersonate the proxy, so keep the listener private.
+- Demo force additionally requires the canonical demo hostname, loopback peer and injected demo marker. Denylisted hosts always receive an allow response from edge auth; explicit off/disabled/shadow configurations never enforce. Unconfigured hosts retain heuristic behavior for existing manually configured integrations.
+- Forwarded hostnames use strict ASCII DNS labels, case folding, optional port removal and a single terminal dot. Invalid authorities are rejected. Valid IDNA A-labels represent distinct DNS names; Unicode/percent-encoded authority tricks are rejected.
+- Keys and host config files are bounded to 1 MiB, read without following final symlinks, and replaced atomically with mode 0600. Keep their parent directories operator-owned and mode 0700; directory replacement by an attacker with local write access is outside this boundary. Key creation intentionally returns a credential once; do not route that output to logs.
+- Proxy/origin-bearing bootstrap requests are rejected unless bootstrap is explicitly opted in. Seed keys locally before publishing; retain the public proxy's key-creation denial.
+- JSON requests are capped at 256 KiB, 32 levels and 10,000 traversed values; individual headers at 8 KiB (Node also caps aggregate headers). Rate/velocity/DNS cache state and pending decision-log work are bounded. Under saturated log queues, new decision log records are dropped while metrics continue.
+- `scripts/caddy-apply-hosts.js` generates snippets only. `--apply` now fails before writes; automatic shell execution, imports, reloads and live probes have been removed. Review generated snippets and perform validation/reload through your normal operator workflow. Do not directly import the generated output directory into a live config.

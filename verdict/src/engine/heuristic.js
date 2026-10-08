@@ -6,6 +6,7 @@ const asnVelocity = new Map();
 export const resetVelocity = () => { velocity.clear(); asnVelocity.clear(); };
 function count(map, key, now) {
   for (const [key, bucket] of map) if (now - bucket.start >= 60_000) map.delete(key);
+  if (!map.has(key) && map.size >= 10000) return Infinity;
   const bucket = map.get(key) || { start: now, hits: 0 };
   bucket.hits++;
   map.set(key, bucket);

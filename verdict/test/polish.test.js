@@ -36,7 +36,7 @@ test('stalled decision writer cannot delay either response; metrics remain immed
       assert.equal((await fetch(base + '/v1/edge-auth', { signal: AbortSignal.timeout(1000) })).status, 200);
       assert.equal((await post(base + '/v1/decide', {}, key)).status, 200);
       assert.equal(calls, 2);
-      assert.equal((await (await fetch(base + '/metrics')).json()).actions.allow, 2);
+      assert.equal((await (await fetch(base + '/metrics', { headers: { authorization: `Bearer ${key}` } })).json()).actions.allow, 2);
     });
   } finally { release(); }
 });
@@ -62,8 +62,8 @@ test('non-bots never use dns.promises; edge bot claims skip DNS by default and o
 });
 
 for (const demoForce of [false, true]) test(`demo queries and headers, enabled=${demoForce}`, () => serve({ demoForce, clearanceSecret: 'test-secret' }, async base => {
-  const headers = { 'user-agent': 'Mozilla/5.0', 'x-forwarded-host': 'shop.example', 'x-forwarded-for': '192.0.2.241', 'accept-language': 'en-US', ...(demoForce ? { 'x-verdict-demo': '1' } : {}) };
-  const cookie = `fd_verdict_clearance=${issueClearance('test-secret', { host: 'shop.example', ip: '192.0.2.241', ua: headers['user-agent'] })}`;
+  const headers = { 'user-agent': 'Mozilla/5.0', 'x-forwarded-host': 'verdict-demo.fastdognetworks.com', 'x-forwarded-for': '192.0.2.241', 'accept-language': 'en-US', ...(demoForce ? { 'x-verdict-demo': '1' } : {}) };
+  const cookie = `fd_verdict_clearance=${issueClearance('test-secret', { host: 'verdict-demo.fastdognetworks.com', ip: '192.0.2.241', ua: headers['user-agent'] })}`;
   for (const uriHeader of ['x-forwarded-uri', 'x-original-uri']) {
     for (const [action, status] of [['allow', 200], ['challenge', 401], ['block', 403]]) {
       const response = await fetch(base + '/v1/edge-auth', { headers: { ...headers, cookie, [uriHeader]: `/?keep=yes&verdict=${action}` } });
@@ -128,6 +128,6 @@ test('rejected log writes are reported without failing responses', async t => {
     const { key } = await (await post(base + '/v1/keys', {})).json();
     assert.equal((await fetch(base + '/v1/edge-auth')).status, 200);
     assert.equal((await post(base + '/v1/decide', {}, key)).status, 200);
-    assert.equal(errors.filter(line => line.includes('test disk failure')).length, 2);
+    assert.equal(errors.filter(line => line.includes('decision log failed')).length, 2);
   });
 });

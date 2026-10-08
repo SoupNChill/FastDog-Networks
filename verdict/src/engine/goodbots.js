@@ -39,6 +39,7 @@ export function createGoodBotVerifier({ resolver = dns, now = Date.now, timeoutM
       new Promise(resolve => { timer = setTimeout(() => resolve('timeout'), timeoutMs); }),
     ]);
     clearTimeout(timer);
+    if (cache.size >= 10000) cache.delete(cache.keys().next().value);
     cache.set(key, { result, expires: now() + 3_600_000 });
     return result;
   };

@@ -92,8 +92,8 @@ test('signed hints preserve edge score, reject alteration, expiration and cross-
 test('fallback signed arithmetic, timing, honeypot, replay and safe redirect',()=>{
   let time=Date.now();
   return server(async({get,base})=>{
-    async function form(){const r=await get('/challenge?next=//evil.test');assert.ok(r.headers.get('content-security-policy').includes("frame-ancestors 'none'"));const html=await r.text(); const token=html.match(/name="token" value="([^"]+)"/)[1];const [,a,b]=html.match(/What is (\d+) \+ (\d+)\?/);return {token,answer:String(+a + +b),confirm:'yes'};}
-    const submit=body=>fetch(base+'/challenge/verify-fallback',{method:'POST',headers,body:new URLSearchParams(body),redirect:'manual'});
+    async function form(){const r=await fetch(base+'/challenge?next=//evil.test',{headers:{...headers,'x-forwarded-host':'verdict-demo.fastdognetworks.com'}});assert.ok(r.headers.get('content-security-policy').includes("frame-ancestors 'none'"));const html=await r.text(); const token=html.match(/name="token" value="([^"]+)"/)[1];const [,a,b]=html.match(/What is (\d+) \+ (\d+)\?/);return {token,answer:String(+a + +b),confirm:'yes'};}
+    const submit=body=>fetch(base+'/challenge/verify-fallback',{method:'POST',headers:{...headers,'x-forwarded-host':'verdict-demo.fastdognetworks.com'},body:new URLSearchParams(body),redirect:'manual'});
     let body=await form(); assert.equal((await submit(body)).status,400);
     body=await form(); time+=2000; assert.equal((await submit({...body,website:'bot'})).status,400);
     body=await form(); time+=2000; assert.equal((await submit({...body,answer:'999'})).status,400);

@@ -50,7 +50,7 @@ test('bootstrap checks socket loopback, explicit opt-in, and existing keys', () 
   const check = (address, hasKeys, allowBootstrap, expected) => {
     let result = 200;
     keyAuth({ hasKeys: () => hasKeys, verify: () => null }, { allowBootstrap })(
-      { path: '/keys', method: 'POST', socket: { remoteAddress: address }, get: () => '127.0.0.1' },
+      { path: '/keys', method: 'POST', socket: { remoteAddress: address }, get: () => undefined },
       { status(code) { result = code; return this; }, json(body) { if (result === 403) assert.equal(body.error, 'bootstrap_disabled'); } }, () => {});
     assert.equal(result, expected);
   };
@@ -114,7 +114,7 @@ test('edge actions, debug JSON and demo force are local; empty proof fails', () 
 }, { clearanceSecret: 'fixed-test-secret' }));
 test('demo force is explicitly opt-in', () => server(async base => {
   for (const [action, status] of [['allow', 200], ['challenge', 401], ['block', 403]]) {
-    const response = await fetch(`${base}/v1/edge-auth`, { headers: { 'x-verdict-force': action, 'x-verdict-demo': '1', accept: 'application/json' } });
+    const response = await fetch(`${base}/v1/edge-auth`, { headers: { 'x-forwarded-host': 'verdict-demo.fastdognetworks.com', 'x-verdict-force': action, 'x-verdict-demo': '1', accept: 'application/json' } });
     assert.equal(response.status, status); assert.equal((await response.json()).reason, 'demo_force');
   }
 }, { demoForce: true }));
