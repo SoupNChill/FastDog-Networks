@@ -62,7 +62,7 @@ test('non-bots never use dns.promises; edge bot claims skip DNS by default and o
 });
 
 for (const demoForce of [false, true]) test(`demo queries and headers, enabled=${demoForce}`, () => serve({ demoForce, clearanceSecret: 'test-secret' }, async base => {
-  const headers = { 'user-agent': 'Mozilla/5.0', 'x-forwarded-host': 'shop.example', 'x-forwarded-for': '192.0.2.241', 'accept-language': 'en-US' };
+  const headers = { 'user-agent': 'Mozilla/5.0', 'x-forwarded-host': 'shop.example', 'x-forwarded-for': '192.0.2.241', 'accept-language': 'en-US', ...(demoForce ? { 'x-verdict-demo': '1' } : {}) };
   const cookie = `fd_verdict_clearance=${issueClearance('test-secret', { host: 'shop.example', ip: '192.0.2.241', ua: headers['user-agent'] })}`;
   for (const uriHeader of ['x-forwarded-uri', 'x-original-uri']) {
     for (const [action, status] of [['allow', 200], ['challenge', 401], ['block', 403]]) {

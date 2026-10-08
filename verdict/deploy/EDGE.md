@@ -139,3 +139,48 @@ DNS deadline. HTTP overhead means this can exceed Caddy's 200ms response header
 timeout and fail open. `/v1/decide` still verifies claimed bots asynchronously.
 Normal non-bot requests never use DNS. Decision writes are queued without awaiting
 disk; usage snapshots are batched at one-second intervals and drained on graceful shutdown.
+
+## 0.3.0 — Shadow, ASN, demo-force lock, per-host config
+
+### Demo force (verdict-demo only)
+Caddy for `verdict-demo.fastdognetworks.com` MUST set:
+
+```
+header_up X-Verdict-Demo 1
+header_up -X-Verdict-Force   # strip client force on non-demo; demo may pass query
+```
+
+On all other sites, strip both:
+
+```
+header_up -X-Verdict-Demo
+header_up -X-Verdict-Force
+```
+
+Force (`?verdict=` / `X-Verdict-Force`) is ignored unless `VERDICT_DEMO_FORCE=1` **and** `X-Verdict-Demo: 1`.
+
+### Apex/www JSON access logs (log-only — never forward_auth)
+
+```
+fastdognetworks.com, www.fastdognetworks.com {
+  log {
+    output file /var/log/caddy/access-apex.json {
+      roll_size 5MiB
+      roll_keep 3
+    }
+    format json
+  }
+  # ... existing handlers unchanged ...
+}
+```
+
+Same pattern for verdict-demo → `/var/log/caddy/access-verdict-demo.json`.
+
+### Background jobs
+Install `verdict-shadow.service`, `verdict-shadow-summary.timer`, `verdict-asn-refresh.timer`.
+All set Nice≥10, CPUQuota=10%, MemoryMax≤200M.
+
+### Per-host enforce
+`node scripts/verdict-hosts.js set app.customer.com enable=1 mode=enforce fail=open`
+then `node scripts/caddy-apply-hosts.js` (dry-run) / `--apply` (validate+reload+rollback).
+Denylist hosts can never be enforce.

@@ -19,6 +19,7 @@ export function localHeuristic(input, { now = Date.now(), goodBot } = {}) {
   const fired = structuredSignals(state);
   if (claimedGoodBot(state)) fired.push({ id: goodBot === 'pending' ? 'good_bot_pending' : goodBot === 'timeout' ? 'good_bot_dns_timeout' : 'spoofed_good_bot', weight: 0.35 });
   if (typeof state.ip === 'string' && state.ip && count(velocity, state.ip, now) > 30) fired.push({ id: 'ip_velocity', weight: 0.2 });
+  if (state.hosting_asn && goodBot !== 'verified') fired.push({ id: 'datacenter_asn', weight: 0.12 });
   const asn = String(state.asn ?? '').trim().replace(/^AS/i, '');
   if (/^\d+$/.test(asn) && count(asnVelocity, String(Number(asn)), now) > 300) fired.push({ id: 'asn_velocity', weight: 0.2 });
   const score = Math.min(0.99, Number((0.2 + fired.reduce((sum, signal) => sum + signal.weight, 0)).toFixed(6)));

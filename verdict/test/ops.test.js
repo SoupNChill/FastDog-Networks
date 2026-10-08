@@ -93,7 +93,7 @@ test('key CLI creates once, lists metadata, and persists revocation', () => temp
   const key = run('create', 'ops');
   assert.match(key, /^vd_[\w-]+$/);
   const [entry] = JSON.parse(run('list'));
-  assert.deepEqual(Object.keys(entry).sort(), ['created_at', 'id', 'name', 'revoked_at']);
+  assert.deepEqual(Object.keys(entry).sort(), ['created_at', 'id', 'name', 'revoked_at', 'scope']);
   assert.equal(entry.name, 'ops');
   assert.ok(!(await readFile(env.VERDICT_KEY_FILE, 'utf8')).includes(key));
   run('revoke', entry.id);

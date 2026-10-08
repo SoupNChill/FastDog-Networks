@@ -211,3 +211,42 @@ $('verify-btn').addEventListener('click', async () => {
     result.style.display = 'block';
   }
 });
+
+
+async function loadVerdict(token) {
+  const status = document.getElementById('verdict-status');
+  const metricsEl = document.getElementById('verdict-metrics');
+  const hostsEl = document.getElementById('verdict-hosts');
+  const reasonsEl = document.getElementById('verdict-reasons');
+  const recentEl = document.getElementById('verdict-recent');
+  if (!status) return;
+  const headers = { 'x-fastdog-token': token };
+  try {
+    const [metrics, hosts, recent] = await Promise.all([
+      fetch('/_fastdog/verdict/metrics', { headers }).then(r => r.json()),
+      fetch('/_fastdog/verdict/hosts', { headers }).then(r => r.json()),
+      fetch('/_fastdog/verdict/recent', { headers }).then(r => r.json()),
+    ]);
+    if (metrics.error) throw new Error(metrics.error);
+    status.textContent = 'Edge Verdict metrics loaded.';
+    const actions = metrics.actions || {};
+    metricsEl.innerHTML = ['allow','challenge','block'].map(k =>
+      `<div class="metric"><strong>${actions[k] ?? '—'}</strong>${k}</div>`).join('');
+    const lat = metrics.endpoints?.['/v1/edge-auth']?.latency_ms;
+    if (lat) metricsEl.innerHTML += `<div class="metric"><strong>${lat.p50 ?? '—'} / ${lat.p99 ?? '—'}</strong>edge-auth p50/p99 ms</div>`;
+    hostsEl.innerHTML = (hosts.hosts || []).map(h =>
+      `<tr><td>${h.host}</td><td>${h.mode}</td><td>${h.fail}</td><td>${h.enable}</td></tr>`).join('') || '<tr><td colspan="4">No hosts configured</td></tr>';
+    // reasons from shadow if available
+    reasonsEl.innerHTML = '<li>See shadow summary endpoint for live would-be reasons.</li>';
+    recentEl.innerHTML = (recent.recent || []).slice(0, 15).map(r =>
+      `<tr><td>${r.ts || ''}</td><td>${r.action}</td><td>${r.reason || ''}</td><td><code>${r.path || ''}</code></td></tr>`).join('') || '<tr><td colspan="4">None yet</td></tr>';
+  } catch (e) {
+    status.textContent = 'Verdict unavailable: ' + e.message;
+  }
+}
+
+
+document.getElementById('load')?.addEventListener('click', () => {
+  const t = document.getElementById('token')?.value || '';
+  loadVerdict(t);
+});

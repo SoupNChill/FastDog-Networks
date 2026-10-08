@@ -11,6 +11,16 @@ body{font:16px/1.5 system-ui,sans-serif;max-width:980px;margin:2.5rem auto;paddi
 <section class="panel"><h2>Create zone (advanced — NS cut)</h2><p>For customers who want full zone control. Mint an invite, then enter its code here. Zone creation writes the local zone only; CoreDNS auto sync stays off. Registrar NS remains on HOLD. <strong>Most customers should use Quick attach above instead.</strong></p><p id="invite-guidance" role="status">Load the dashboard to check invite capacity before creating a zone.</p><form id="zone-form"><label>Zone name <input name="zone" placeholder="example.com" required></label><label>Invite code <input name="invite_code" required></label><label>Edge IPv4 (optional) <input name="edge_ip" placeholder="192.0.2.10"></label><button id="create-zone" type="submit" disabled>Create zone</button></form><div id="zone-created" role="status"></div></section>
 <section class="panel"><h2>Zones</h2><ul id="zones"></ul><h3 id="zone-title">Select a zone to view records</h3><table><thead><tr><th>Name</th><th>Type</th><th>Content</th><th>TTL</th></tr></thead><tbody id="records"></tbody></table></section>
 <section class="panel"><h2>Tunnels</h2><ul id="agents"></ul></section>
+<section class="panel" id="verdict-panel"><h2>Verdict</h2>
+<p id="verdict-status">Load the dashboard to pull edge Verdict metrics (read-only).</p>
+<div class="strip" id="verdict-metrics"></div>
+<h3>Per-host modes</h3>
+<table><thead><tr><th>Host</th><th>Mode</th><th>Fail</th><th>Enabled</th></tr></thead><tbody id="verdict-hosts"></tbody></table>
+<h3>Top reasons</h3><ul id="verdict-reasons"></ul>
+<h3>Recent challenge / block</h3>
+<table><thead><tr><th>When</th><th>Action</th><th>Reason</th><th>Path</th></tr></thead><tbody id="verdict-recent"></tbody></table>
+<small>Proxied to VERDICT_EDGE_URL with VERDICT_API_KEY. No public admin endpoints.</small>
+</section>
 <section class="panel"><h2>Status and checkout</h2><p id="status-summary">Load dashboard for status summary.</p><p><a href="http://127.0.0.1:8787/status" target="_blank" rel="noopener">Status page on edge :8787</a> · <a href="http://127.0.0.1:8787/pricing" target="_blank" rel="noopener">Test Checkout on edge :8787</a></p><small>These links need a second SSH tunnel to edge port 8787 when connecting remotely.</small></section>
 <section class="panel"><h2>NS cut</h2><p><strong>Registrar NS is on HOLD.</strong> This checklist only queries DNS. It never flips nameservers.</p><button id="run-checklist">Run NS-cut checklist</button><div id="checklist-result" role="status"></div></section>
 </main><script src="/operator.js" defer></script></body></html>`;

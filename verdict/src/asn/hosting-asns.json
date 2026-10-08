@@ -1,0 +1,29 @@
+{
+  "_comment": "Modest curated hosting/cloud ASNs for the datacenter_asn signal (+0.12, never decisive alone). Excludes mobile carriers, residential ISPs, and consumer privacy relays (Cloudflare WARP/AS13335, iCloud Private Relay egress) so real users are not penalised.",
+  "asns": {
+    "16509": "Amazon.com / AWS",
+    "14618": "Amazon.com",
+    "15169": "Google LLC",
+    "396982": "Google Cloud",
+    "8075": "Microsoft / Azure",
+    "14061": "DigitalOcean",
+    "24940": "Hetzner Online",
+    "16276": "OVH SAS",
+    "63949": "Linode / Akamai",
+    "20473": "The Constant Company / Vultr",
+    "45102": "Alibaba",
+    "31898": "Oracle Cloud",
+    "12876": "Scaleway",
+    "141995": "Contabo Asia",
+    "51167": "Contabo GmbH",
+    "62563": "AS-CHOOPA (Vultr)",
+    "60068": "Datacamp / CDN77",
+    "16265": "LeaseWeb",
+    "8560": "IONOS SE",
+    "46606": "Unified Layer / Bluehost",
+    "26347": "New Dream Network / DreamHost",
+    "19551": "Incapsula",
+    "3223": "Voxility",
+    "9009": "M247"
+  }
+}

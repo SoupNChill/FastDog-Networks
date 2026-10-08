@@ -1,3 +1,13 @@
+import { isIP } from 'node:net';
+import { ipPrefix } from '../edge/security.js';
+
+/** Bucket key: IPv6 → /64, IPv4 → exact (or /32). */
+export function ipBucketKey(ip) {
+  if (!ip || !isIP(ip)) return String(ip || 'unknown');
+  const prefix = ipPrefix(ip);
+  return prefix || String(ip);
+}
+
 export function createRateLimiter({
   keyBy = req => req.apiKey?.id || req.ip || 'anonymous',
   headerPrefix = 'X-RateLimit',
