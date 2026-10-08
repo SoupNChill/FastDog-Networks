@@ -7,3 +7,7 @@ data/*
 *.log
 CODEX_LAST_MESSAGE.md
 coverage/
+CODEX_PROMPT*.txt
+CODEX_LAST_MESSAGE.md
+codex-*.log
+run-codex*.sh

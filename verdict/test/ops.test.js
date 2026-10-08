@@ -85,7 +85,7 @@ test('metrics are public, accept bearer, count errors and decisions; health matc
     }
     const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
     assert.equal((await (await fetch(`${base}/health`)).json()).version, pkg.version);
-  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await app.locals.flush(); }
 }));
 test('key CLI creates once, lists metadata, and persists revocation', () => temporary(async dir => {
   const env = { ...process.env, VERDICT_KEY_FILE: join(dir, 'keys.json') };

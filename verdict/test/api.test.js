@@ -20,6 +20,7 @@ async function withServer(fn, { rateLimit } = {}) {
     await fn(`http://127.0.0.1:${server.address().port}`, dir);
   } finally {
     await new Promise(resolve => server.close(resolve));
+    await app.locals.flush();
     await rm(dir, { recursive: true, force: true });
   }
 }
@@ -81,6 +82,7 @@ test('usage persists across app reload', async () => {
     const { key } = await (await post(`${base1}/v1/keys`, { name: 'persist' })).json();
     assert.equal((await post(`${base1}/v1/decide`, { path: '/login' }, key)).status, 200);
     await new Promise(resolve => server1.close(resolve));
+    await app1.locals.flush();
 
     const raw = JSON.parse(await readFile(usageFile, 'utf8'));
     assert.equal(Object.values(raw)[0].decisions, 1);
@@ -92,6 +94,7 @@ test('usage persists across app reload', async () => {
     const usage = await (await fetch(`${base2}/v1/usage`, { headers: { authorization: `Bearer ${key}` } })).json();
     assert.equal(usage.decisions, 1);
     await new Promise(resolve => server2.close(resolve));
+    await app2.locals.flush();
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

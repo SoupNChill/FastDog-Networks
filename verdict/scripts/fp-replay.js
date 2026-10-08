@@ -1,16 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { decide } from '../src/engine/jev.js';
-import { resetVelocity } from '../src/engine/heuristic.js';
-
-const requests = JSON.parse(await readFile(new URL('../fixtures/good-requests.json', import.meta.url), 'utf8'));
-resetVelocity();
-const counts = { allow: 0, challenge: 0, block: 0 };
-for (const state of requests) {
-  // Explicitly disable the paid engine regardless of the caller's environment.
-  const result = await decide(state, { apiKey: '' });
-  counts[result.action]++;
-}
-const allowRate = counts.allow / requests.length;
-console.log(JSON.stringify({ total: requests.length, ...counts, allow_rate: allowRate, allow_percent: allowRate * 100 }));
-assert.ok(allowRate >= 0.95, `Allow rate ${allowRate * 100}% is below 95%`);
+import { replayFixtures } from './replay-fixtures.js';
+const report = await replayFixtures();
+console.log(JSON.stringify(report));
+assert.ok(report.good.total >= 500 && report.bad.total >= 200, 'Fixture suite is too small');
+assert.ok(report.fp_rate <= 0.01, `FP ${report.fp_rate * 100}% exceeds 1%`);
+assert.ok(report.fn_rate <= 0.05, `FN ${report.fn_rate * 100}% exceeds 5%`);

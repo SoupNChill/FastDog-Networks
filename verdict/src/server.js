@@ -1,3 +1,4 @@
+import { demoPage } from './edge/demo.js';
 import express from 'express';
 import { readFileSync } from 'node:fs';
 import { createMetrics } from './metering/metrics.js';
@@ -18,6 +19,8 @@ export async function createApp({
   decisionFile = process.env.VERDICT_DECISION_FILE || join(dirname(usageFile), 'decisions.jsonl'),
   clearanceSecret = process.env.VERDICT_CLEARANCE_SECRET,
   clearanceTTL = Number(process.env.VERDICT_CLEARANCE_TTL_SECONDS || 300),
+  edgeGoodBotDNS = process.env.VERDICT_EDGE_GOODBOT_DNS === '1',
+  decisionWriter,
   demoForce = process.env.VERDICT_DEMO_FORCE === '1',
   allowBootstrap = process.env.VERDICT_ALLOW_BOOTSTRAP === '1',
   ipRateLimit = createRateLimiter({ max: Number(process.env.VERDICT_IP_RATE_LIMIT_MAX || 120), keyBy: req => req.socket.remoteAddress, headerPrefix: 'X-IP-RateLimit' }),
@@ -33,12 +36,18 @@ export async function createApp({
   app.use(metrics.middleware);
   app.get('/metrics', (_req, res) => res.set('Cache-Control', 'no-store').json(metrics.snapshot()));
   app.use(express.json({ limit: '256kb' }));
-  const appendDecision = createDecisionLog(decisionFile);
-  const logDecision = async record => {
-    await appendDecision(record);
+  const appendDecision = decisionWriter || createDecisionLog(decisionFile);
+  const logDecision = record => {
     metrics.decision(record.action);
+    // Disk failures must not affect auth responses or become unhandled rejections.
+    Promise.resolve().then(() => appendDecision(record)).catch(error => console.error('decision log failed:', error.message));
   };
-  app.use(edgeRouter({ secret: clearanceSecret, ttl: Number.isInteger(clearanceTTL) && clearanceTTL > 0 ? clearanceTTL : 300, demoForce, logDecision }));
+  app.locals.flush = async () => {
+    await Promise.resolve(); // Let queued fire-and-forget appends enter the writer.
+    await Promise.all([meter.ready(), appendDecision.ready?.()]);
+  };
+  app.use(edgeRouter({ secret: clearanceSecret, ttl: Number.isInteger(clearanceTTL) && clearanceTTL > 0 ? clearanceTTL : 300, demoForce, edgeGoodBotDNS, logDecision }));
+  app.get('/demo', (_req, res) => res.set('Cache-Control', 'no-store').type('html').send(demoPage(demoForce)));
   app.get('/health', (_req, res) => res.json({ ok: true, service: 'verdict', version }));
   app.get('/openapi.json', (_req, res) => res.json(openapi));
   app.use('/', express.static('public'));
@@ -57,5 +66,8 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   const port = Number(process.env.PORT || 8080);
   const app = await createApp();
   const bind = process.env.VERDICT_BIND || '127.0.0.1';
-  app.listen(port, bind, () => console.log(`verdict listening on ${bind}:${port}`));
+  const server = app.listen(port, bind, () => console.log(`verdict listening on ${bind}:${port}`));
+  const shutdown = () => server.close(async () => { await app.locals.flush(); });
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
 }

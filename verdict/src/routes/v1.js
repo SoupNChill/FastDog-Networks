@@ -59,9 +59,9 @@ export function v1Router(store, meter, { rateLimit, ipRateLimit, logDecision, al
     const state = 'state' in parsed.data ? parsed.data.state : parsed.data;
     try {
       const decision = await decide(state);
-      if (req.apiKey) await meter.record(req.apiKey.id, decision.engine);
+      if (req.apiKey) meter.record(req.apiKey.id, decision.engine);
       const request_id = randomUUID();
-      await logDecision({ ...decision, request_id, ip: req.socket.remoteAddress, path: state?.path, key_id: req.apiKey.id });
+      logDecision({ ...decision, request_id, ip: req.socket.remoteAddress, path: state?.path, key_id: req.apiKey.id });
       res.json({ ...decision, request_id });
     } catch (error) {
       next(error);
