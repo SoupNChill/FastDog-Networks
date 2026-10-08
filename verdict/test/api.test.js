@@ -99,7 +99,7 @@ test('usage persists across app reload', async () => {
 
 test('Jev errors fall back to heuristic', async () => {
   const result = await decide({ path: '/login' }, { apiKey: 'test', fetchImpl: async () => ({ ok: false, status: 503 }) });
-  assert.equal(result.engine, 'local_heuristic_v2');
+  assert.equal(result.engine, 'local_heuristic_v3');
 });
 
 test('Jev Choice request and response match System One schema', async () => {
@@ -114,3 +114,18 @@ test('Jev Choice request and response match System One schema', async () => {
   assert.equal(result.engine, 'typesafe_jev');
   assert.equal(result.action, 'challenge');
 });
+
+test('v3 API accepts header order arrays and returns fired signal IDs', async () => withServer(async base => {
+  const { key } = await (await post(`${base}/v1/keys`, { name: 'signals' })).json();
+  for (const orderKey of ['_order', 'header_order']) {
+    const response = await post(`${base}/v1/decide`, { ua: 'Mozilla/5.0 Firefox/130.0', headers: { 'user-agent': 'Mozilla/5.0 Firefox/130.0', accept: '*/*', 'accept-language': 'en', [orderKey]: ['accept-language', 'accept', 'user-agent'], 'sec-ch-ua': '"Chromium";v="130"' } }, key);
+    assert.equal(response.status, 200);
+    const decision = await response.json();
+    assert.equal(decision.action, 'challenge');
+    assert.ok(decision.reasons.includes('unusual_header_order'));
+    assert.ok(decision.reasons.includes('ua_client_hint_mismatch'));
+    for (const field of ['action', 'confidence', 'score', 'reason', 'reasons', 'engine', 'request_id']) assert.ok(field in decision);
+    assert.equal(decision.engine, 'local_heuristic_v3');
+  }
+  assert.equal((await post(`${base}/v1/decide`, { headers: { _order: [42] } }, key)).status, 400);
+}));

@@ -1,7 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
 import { Router } from 'express';
-import { localHeuristic } from '../engine/heuristic.js';
+import { localDecision } from '../engine/heuristic.js';
 
 export const cookieName = 'fd_verdict_clearance';
 export function safeNext(value) {
@@ -52,11 +52,11 @@ export function edgeRouter({ secret, ttl = 300, demoForce = false, logDecision }
       const token = (req.get('cookie') || '').split(';').map(value => value.trim()).find(value => value.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
       const path = req.get('x-forwarded-uri') || req.get('x-original-uri') || '/';
       let decision;
-      if (validClearance(token, secret, ip)) decision = { action: 'allow', reason: 'valid_clearance', engine: 'clearance' };
+      if (validClearance(token, secret, ip)) decision = { action: 'allow', confidence: 1, score: 0, reason: 'valid_clearance', reasons: ['valid_clearance'], engine: 'clearance' };
       else {
-        decision = localHeuristic({ ip, path, ua: req.get('user-agent'), method: req.get('x-forwarded-method') || req.get('x-original-method') || req.method });
+        decision = await localDecision({ ip, path, headers: req.headers, ua: req.get('user-agent'), method: req.get('x-forwarded-method') || req.get('x-original-method') || req.method });
         const forced = req.get('x-verdict-force');
-        if (demoForce && ['allow', 'challenge', 'block'].includes(forced)) decision = { ...decision, action: forced, reason: 'demo_force' };
+        if (demoForce && ['allow', 'challenge', 'block'].includes(forced)) decision = { ...decision, action: forced, reason: 'demo_force', reasons: [...decision.reasons, 'demo_force'] };
       }
       const request_id = randomUUID();
       await logDecision({ ...decision, request_id, ip, path });

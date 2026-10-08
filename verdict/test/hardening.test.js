@@ -183,3 +183,14 @@ test('server defaults to loopback and accepts explicit VERDICT_BIND', async () =
     }
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('edge passes visible language and client hints into v3', () => server(async base => {
+  const common = { accept: 'application/json', 'user-agent': 'Mozilla/5.0 Firefox/130.0', 'x-forwarded-uri': '/api/health' };
+  const clean = await (await fetch(`${base}/v1/edge-auth`, { headers: { ...common, 'accept-language': 'en-US' } })).json();
+  assert.equal(clean.action, 'allow'); assert.deepEqual(clean.reasons, []);
+  const response = await fetch(`${base}/v1/edge-auth`, { headers: { ...common, 'accept-language': '', 'sec-ch-ua': '"Chromium";v="130"' } });
+  assert.equal(response.status, 401);
+  const result = await response.json();
+  assert.ok(result.reasons.includes('missing_accept_language')); assert.ok(result.reasons.includes('ua_client_hint_mismatch'));
+  assert.equal(result.engine, 'local_heuristic_v3'); assert.ok(result.request_id);
+}));
