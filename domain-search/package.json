@@ -1,0 +1,10 @@
+{
+  "name": "fastdog-domain-search",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test test/",
+    "start": "node src/server.js"
+  }
+}
