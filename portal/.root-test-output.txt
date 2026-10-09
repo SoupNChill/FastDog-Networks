@@ -1,0 +1,626 @@
+
+> fastdog-edge@0.1.0 test
+> node --test test/*.test.js
+
+TAP version 13
+# Subtest: hostname attach onboarding
+    # Subtest: attaches a hostname with pending status
+    not ok 1 - attaches a hostname with pending status
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:32:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: returns existing pending attachment without error
+    not ok 2 - returns existing pending attachment without error
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:41:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: lists attached hostnames
+    not ok 3 - lists attached hostnames
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:47:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: rejects invalid hostname
+    not ok 4 - rejects invalid hostname
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:56:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: generates CNAME instructions
+    not ok 5 - generates CNAME instructions
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:61:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: adds apex note for apex domains
+    not ok 6 - adds apex note for apex domains
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:68:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: generates caddy block for hostname
+    not ok 7 - generates caddy block for hostname
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:74:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: detaches a hostname
+    not ok 8 - detaches a hostname
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:81:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: throws when detaching non-existent hostname
+    not ok 9 - throws when detaching non-existent hostname
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:90:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: gets attached host details
+    not ok 10 - gets attached host details
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:94:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: throws when getting non-existent host
+    not ok 11 - throws when getting non-existent host
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:100:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    1..11
+not ok 1 - hostname attach onboarding
+  ---
+  duration_ms: 56.491226
+  type: 'suite'
+  location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:7:1'
+  failureType: 'hookFailed'
+  error: |-
+    Cannot find package 'js-yaml' imported from /home/mranderson/wt-day1-b/src/lib/config.js
+    Did you mean to import js-yaml/index.js?
+  code: 'ERR_MODULE_NOT_FOUND'
+  stack: |-
+    new NodeError (node:internal/errors:405:5)
+    packageResolve (node:internal/modules/esm/resolve:916:9)
+    moduleResolve (node:internal/modules/esm/resolve:973:20)
+    defaultResolve (node:internal/modules/esm/resolve:1193:11)
+    ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+    ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+    ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+    ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+    link (node:internal/modules/esm/module_job:75:36)
+  ...
+# Subtest: DNS verification logic
+    # Subtest: checkDnsVerification returns expected structure for non-existent domain
+    not ok 1 - checkDnsVerification returns expected structure for non-existent domain
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:126:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: verification fails for hostname not attached
+    not ok 2 - verification fails for hostname not attached
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:132:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    1..2
+not ok 2 - DNS verification logic
+  ---
+  duration_ms: 0.952684
+  type: 'suite'
+  location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:105:1'
+  failureType: 'hookFailed'
+  error: |-
+    Cannot find package 'js-yaml' imported from /home/mranderson/wt-day1-b/src/lib/config.js
+    Did you mean to import js-yaml/index.js?
+  code: 'ERR_MODULE_NOT_FOUND'
+  stack: |-
+    new NodeError (node:internal/errors:405:5)
+    packageResolve (node:internal/modules/esm/resolve:916:9)
+    moduleResolve (node:internal/modules/esm/resolve:973:20)
+    defaultResolve (node:internal/modules/esm/resolve:1193:11)
+    ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+    ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+    ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+    ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+    link (node:internal/modules/esm/module_job:75:36)
+  ...
+# Subtest: attach API integration
+    # Subtest: rejects attach without token
+    not ok 1 - rejects attach without token
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:191:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: attaches hostname via API
+    not ok 2 - attaches hostname via API
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:196:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: lists attached hosts via API
+    not ok 3 - lists attached hosts via API
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:206:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: gets single attached host via API
+    not ok 4 - gets single attached host via API
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:214:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: verify-host returns pending for unverifiable DNS
+    not ok 5 - verify-host returns pending for unverifiable DNS
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:222:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: detaches hostname via API
+    not ok 6 - detaches hostname via API
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:231:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: returns 404 for non-existent attached host
+    not ok 7 - returns 404 for non-existent attached host
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:238:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: rejects attach for static route conflict
+    not ok 8 - rejects attach for static route conflict
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:243:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    1..8
+not ok 3 - attach API integration
+  ---
+  duration_ms: 49.983628
+  type: 'suite'
+  location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:140:1'
+  failureType: 'hookFailed'
+  error: "Cannot find package 'express' imported from /home/mranderson/wt-day1-b/src/edge/server.js"
+  code: 'ERR_MODULE_NOT_FOUND'
+  stack: |-
+    new NodeError (node:internal/errors:405:5)
+    packageResolve (node:internal/modules/esm/resolve:916:9)
+    moduleResolve (node:internal/modules/esm/resolve:973:20)
+    defaultResolve (node:internal/modules/esm/resolve:1193:11)
+    ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+    ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+    ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+    ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+    link (node:internal/modules/esm/module_job:75:36)
+  ...
+# Subtest: fail-closed behavior
+    # Subtest: pending attachment does not add to tunnel_hosts
+    not ok 1 - pending attachment does not add to tunnel_hosts
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:272:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: pending attachment does not issue credential
+    not ok 2 - pending attachment does not issue credential
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:281:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    # Subtest: verification failure keeps attachment pending
+    not ok 3 - verification failure keeps attachment pending
+      ---
+      duration_ms: 0
+      location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:291:3'
+      failureType: 'cancelledByParent'
+      error: 'test did not finish before its parent and was cancelled'
+      code: 'ERR_TEST_FAILURE'
+      ...
+    1..3
+not ok 4 - fail-closed behavior
+  ---
+  duration_ms: 0.778543
+  type: 'suite'
+  location: 'file:///home/mranderson/wt-day1-b/test/attach.test.js:251:1'
+  failureType: 'hookFailed'
+  error: |-
+    Cannot find package 'js-yaml' imported from /home/mranderson/wt-day1-b/src/lib/config.js
+    Did you mean to import js-yaml/index.js?
+  code: 'ERR_MODULE_NOT_FOUND'
+  stack: |-
+    new NodeError (node:internal/errors:405:5)
+    packageResolve (node:internal/modules/esm/resolve:916:9)
+    moduleResolve (node:internal/modules/esm/resolve:973:20)
+    defaultResolve (node:internal/modules/esm/resolve:1193:11)
+    ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+    ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+    ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+    ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+    link (node:internal/modules/esm/module_job:75:36)
+  ...
+# node:internal/process/esm_loader:40
+#       internalBinding('errors').triggerUncaughtException(
+#                                 ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'ws' imported from /home/mranderson/wt-day1-b/agent/index.js
+# Did you mean to import ws/index.js?
+#     at new NodeError (node:internal/errors:405:5)
+#     at packageResolve (node:internal/modules/esm/resolve:916:9)
+#     at moduleResolve (node:internal/modules/esm/resolve:973:20)
+#     at defaultResolve (node:internal/modules/esm/resolve:1193:11)
+#     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+#     at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+#     at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+#     at link (node:internal/modules/esm/module_job:75:36) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v18.19.1
+# Subtest: /home/mranderson/wt-day1-b/test/backoff.test.js
+not ok 2 - /home/mranderson/wt-day1-b/test/backoff.test.js
+  ---
+  duration_ms: 255.961801
+  location: '/home/mranderson/wt-day1-b/test/backoff.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/process/esm_loader:40
+#       internalBinding('errors').triggerUncaughtException(
+#                                 ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'js-yaml' imported from /home/mranderson/wt-day1-b/src/lib/config.js
+# Did you mean to import js-yaml/index.js?
+#     at new NodeError (node:internal/errors:405:5)
+#     at packageResolve (node:internal/modules/esm/resolve:916:9)
+#     at moduleResolve (node:internal/modules/esm/resolve:973:20)
+#     at defaultResolve (node:internal/modules/esm/resolve:1193:11)
+#     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+#     at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+#     at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+#     at link (node:internal/modules/esm/module_job:75:36) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v18.19.1
+# Subtest: /home/mranderson/wt-day1-b/test/billing.test.js
+not ok 3 - /home/mranderson/wt-day1-b/test/billing.test.js
+  ---
+  duration_ms: 259.440818
+  location: '/home/mranderson/wt-day1-b/test/billing.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/process/esm_loader:40
+#       internalBinding('errors').triggerUncaughtException(
+#                                 ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'js-yaml' imported from /home/mranderson/wt-day1-b/src/lib/config.js
+# Did you mean to import js-yaml/index.js?
+#     at new NodeError (node:internal/errors:405:5)
+#     at packageResolve (node:internal/modules/esm/resolve:916:9)
+#     at moduleResolve (node:internal/modules/esm/resolve:973:20)
+#     at defaultResolve (node:internal/modules/esm/resolve:1193:11)
+#     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+#     at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+#     at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+#     at link (node:internal/modules/esm/module_job:75:36) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v18.19.1
+# Subtest: /home/mranderson/wt-day1-b/test/config.test.js
+not ok 4 - /home/mranderson/wt-day1-b/test/config.test.js
+  ---
+  duration_ms: 243.748058
+  location: '/home/mranderson/wt-day1-b/test/config.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/process/esm_loader:40
+#       internalBinding('errors').triggerUncaughtException(
+#                                 ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'js-yaml' imported from /home/mranderson/wt-day1-b/src/lib/config.js
+# Did you mean to import js-yaml/index.js?
+#     at new NodeError (node:internal/errors:405:5)
+#     at packageResolve (node:internal/modules/esm/resolve:916:9)
+#     at moduleResolve (node:internal/modules/esm/resolve:973:20)
+#     at defaultResolve (node:internal/modules/esm/resolve:1193:11)
+#     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+#     at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+#     at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+#     at link (node:internal/modules/esm/module_job:75:36) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v18.19.1
+# Subtest: /home/mranderson/wt-day1-b/test/dns.test.js
+not ok 5 - /home/mranderson/wt-day1-b/test/dns.test.js
+  ---
+  duration_ms: 220.810713
+  location: '/home/mranderson/wt-day1-b/test/dns.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/process/esm_loader:40
+#       internalBinding('errors').triggerUncaughtException(
+#                                 ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'ws' imported from /home/mranderson/wt-day1-b/test/edge.test.js
+# Did you mean to import ws/index.js?
+#     at new NodeError (node:internal/errors:405:5)
+#     at packageResolve (node:internal/modules/esm/resolve:916:9)
+#     at moduleResolve (node:internal/modules/esm/resolve:973:20)
+#     at defaultResolve (node:internal/modules/esm/resolve:1193:11)
+#     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+#     at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+#     at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+#     at link (node:internal/modules/esm/module_job:75:36) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v18.19.1
+# Subtest: /home/mranderson/wt-day1-b/test/edge.test.js
+not ok 6 - /home/mranderson/wt-day1-b/test/edge.test.js
+  ---
+  duration_ms: 241.778018
+  location: '/home/mranderson/wt-day1-b/test/edge.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/process/esm_loader:40
+#       internalBinding('errors').triggerUncaughtException(
+#                                 ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'js-yaml' imported from /home/mranderson/wt-day1-b/src/lib/config.js
+# Did you mean to import js-yaml/index.js?
+#     at new NodeError (node:internal/errors:405:5)
+#     at packageResolve (node:internal/modules/esm/resolve:916:9)
+#     at moduleResolve (node:internal/modules/esm/resolve:973:20)
+#     at defaultResolve (node:internal/modules/esm/resolve:1193:11)
+#     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+#     at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+#     at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+#     at link (node:internal/modules/esm/module_job:75:36) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v18.19.1
+# Subtest: /home/mranderson/wt-day1-b/test/heartbeat.test.js
+not ok 7 - /home/mranderson/wt-day1-b/test/heartbeat.test.js
+  ---
+  duration_ms: 221.117541
+  location: '/home/mranderson/wt-day1-b/test/heartbeat.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/process/esm_loader:40
+#       internalBinding('errors').triggerUncaughtException(
+#                                 ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'js-yaml' imported from /home/mranderson/wt-day1-b/src/lib/config.js
+# Did you mean to import js-yaml/index.js?
+#     at new NodeError (node:internal/errors:405:5)
+#     at packageResolve (node:internal/modules/esm/resolve:916:9)
+#     at moduleResolve (node:internal/modules/esm/resolve:973:20)
+#     at defaultResolve (node:internal/modules/esm/resolve:1193:11)
+#     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+#     at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+#     at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+#     at link (node:internal/modules/esm/module_job:75:36) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v18.19.1
+# Subtest: /home/mranderson/wt-day1-b/test/invites.test.js
+not ok 8 - /home/mranderson/wt-day1-b/test/invites.test.js
+  ---
+  duration_ms: 263.114702
+  location: '/home/mranderson/wt-day1-b/test/invites.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# Subtest: tracks counters and connection gauges
+ok 12 - tracks counters and connection gauges
+  ---
+  duration_ms: 2.505762
+  ...
+# Subtest: prints SAFE_TO_FLIP only when both mocked PoPs agree on required mail records and SOA
+ok 13 - prints SAFE_TO_FLIP only when both mocked PoPs agree on required mail records and SOA
+  ---
+  duration_ms: 129.058665
+  ...
+# node:internal/process/esm_loader:40
+#       internalBinding('errors').triggerUncaughtException(
+#                                 ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'js-yaml' imported from /home/mranderson/wt-day1-b/src/lib/config.js
+# Did you mean to import js-yaml/index.js?
+#     at new NodeError (node:internal/errors:405:5)
+#     at packageResolve (node:internal/modules/esm/resolve:916:9)
+#     at moduleResolve (node:internal/modules/esm/resolve:973:20)
+#     at defaultResolve (node:internal/modules/esm/resolve:1193:11)
+#     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+#     at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+#     at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+#     at link (node:internal/modules/esm/module_job:75:36) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v18.19.1
+# Subtest: /home/mranderson/wt-day1-b/test/onboard.test.js
+not ok 11 - /home/mranderson/wt-day1-b/test/onboard.test.js
+  ---
+  duration_ms: 262.852499
+  location: '/home/mranderson/wt-day1-b/test/onboard.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/errors:496
+#     ErrorCaptureStackTrace(err);
+#     ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'express' imported from /home/mranderson/wt-day1-b/src/operator/server.js
+#     at new NodeError (node:internal/errors:405:5)
+#     at packageResolve (node:internal/modules/esm/resolve:916:9)
+#     at moduleResolve (node:internal/modules/esm/resolve:973:20)
+#     at defaultResolve (node:internal/modules/esm/resolve:1193:11)
+#     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+#     at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+#     at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+#     at link (node:internal/modules/esm/module_job:75:36) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v18.19.1
+# Subtest: /home/mranderson/wt-day1-b/test/operator.test.js
+not ok 12 - /home/mranderson/wt-day1-b/test/operator.test.js
+  ---
+  duration_ms: 257.880647
+  location: '/home/mranderson/wt-day1-b/test/operator.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/process/esm_loader:40
+#       internalBinding('errors').triggerUncaughtException(
+#                                 ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'js-yaml' imported from /home/mranderson/wt-day1-b/src/lib/config.js
+# Did you mean to import js-yaml/index.js?
+#     at new NodeError (node:internal/errors:405:5)
+#     at packageResolve (node:internal/modules/esm/resolve:916:9)
+#     at moduleResolve (node:internal/modules/esm/resolve:973:20)
+#     at defaultResolve (node:internal/modules/esm/resolve:1193:11)
+#     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+#     at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+#     at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+#     at link (node:internal/modules/esm/module_job:75:36) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v18.19.1
+# Subtest: /home/mranderson/wt-day1-b/test/status.test.js
+not ok 13 - /home/mranderson/wt-day1-b/test/status.test.js
+  ---
+  duration_ms: 240.855219
+  location: '/home/mranderson/wt-day1-b/test/status.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/process/esm_loader:40
+#       internalBinding('errors').triggerUncaughtException(
+#                                 ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'js-yaml' imported from /home/mranderson/wt-day1-b/src/lib/config.js
+# Did you mean to import js-yaml/index.js?
+#     at new NodeError (node:internal/errors:405:5)
+#     at packageResolve (node:internal/modules/esm/resolve:916:9)
+#     at moduleResolve (node:internal/modules/esm/resolve:973:20)
+#     at defaultResolve (node:internal/modules/esm/resolve:1193:11)
+#     at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:403:12)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:372:25)
+#     at ModuleLoader.getModuleJob (node:internal/modules/esm/loader:249:38)
+#     at ModuleWrap.<anonymous> (node:internal/modules/esm/module_job:76:39)
+#     at link (node:internal/modules/esm/module_job:75:36) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v18.19.1
+# Subtest: /home/mranderson/wt-day1-b/test/sync-coredns.test.js
+not ok 14 - /home/mranderson/wt-day1-b/test/sync-coredns.test.js
+  ---
+  duration_ms: 213.625088
+  location: '/home/mranderson/wt-day1-b/test/sync-coredns.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+1..17
+# tests 37
+# suites 4
+# pass 2
+# fail 11
+# cancelled 24
+# skipped 0
+# todo 0
+# duration_ms 623.974926

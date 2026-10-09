@@ -1,0 +1,93 @@
+.portal-body {
+  min-width: 0;
+  max-width: 760px;
+  overflow-wrap: anywhere;
+}
+.portal-body h1 {
+  font-size: clamp(36px, 5vw, 60px);
+  letter-spacing: -.04em;
+  margin-block: 16px 24px;
+}
+.portal-body h2 {
+  font-size: clamp(26px, 3vw, 36px);
+  margin-block: 28px 18px;
+}
+.portal-body section {
+  border-top: 1px solid var(--rule);
+  margin-top: 32px;
+}
+.portal-body form {
+  display: grid;
+  gap: 12px;
+  margin-block: 24px;
+}
+.portal-body label {
+  color: var(--ink);
+  font-weight: 600;
+}
+.portal-body input,
+.portal-body select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font: inherit;
+  border-radius: 0;
+}
+.portal-body button,
+.site-header button {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--rule);
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.portal-body button:hover,
+.site-header button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button:disabled {
+  color: var(--muted);
+  cursor: wait;
+}
+.portal-body a,
+.portal-body summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+}
+.portal-body pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+  padding: 16px;
+  border: 1px solid var(--rule);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 14px;
+}
+.portal-body article {
+  padding-block: 18px;
+  border-bottom: 1px solid var(--rule);
+}
+.portal-body article button,
+.portal-body article a {
+  margin: 8px 12px 0 0;
+}
+.portal-body dd { margin: 0 0 18px; color: var(--sub); }
+#message { min-height: 28px; color: var(--accent); }
+#connection { margin-top: 20px; }
+[hidden] { display: none !important; }
+@media (max-width: 420px) {
+  .portal-body button { width: 100%; }
+  .portal-body pre { padding: 12px; }
+  .site-header nav { gap: 8px 16px; }
+}
