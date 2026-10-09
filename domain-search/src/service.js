@@ -1,3 +1,4 @@
+import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 const DEFAULT_TLDS = Object.freeze(['com', 'net', 'org', 'dev', 'app', 'io', 'co']);
 const RATE_WINDOW = 10 * 60 * 1_000;
 
@@ -15,7 +16,7 @@ export function normalizeDomain(name, alternates = DEFAULT_TLDS) {
 
 export function createService({
   registrar, now = Date.now, cacheTTL = 3 * 60 * 60 * 1_000,
-  perIpLimit = 10, dailyCap = 300, alternates = DEFAULT_TLDS,
+  perIpLimit = 10, dailyCap = 300, alternates = DEFAULT_TLDS, statePath,
 } = {}) {
   const cache = new Map();
   const pending = new Map();
@@ -23,6 +24,19 @@ export function createService({
   const tlds = [...new Set(alternates)];
   let day;
   let calls = 0;
+  const today = () => new Date(now()).toISOString().slice(0, 10);
+  // Optional persistence of the daily counter; any bad or stale file resets to zero.
+  if (statePath) {
+    try {
+      const saved = JSON.parse(readFileSync(statePath, 'utf8'));
+      if (saved.day === today() && Number.isInteger(saved.calls) && saved.calls >= 0) { day = saved.day; calls = saved.calls; }
+    } catch { /* missing or unreadable: start from zero */ }
+  }
+  function save() {
+    if (!statePath) return;
+    try { writeFileSync(`${statePath}.tmp`, JSON.stringify({ day, calls })); renameSync(`${statePath}.tmp`, statePath); }
+    catch { /* persistence is best effort */ }
+  }
 
   function rateLimit(ip) {
     const time = Number(now());
@@ -42,11 +56,12 @@ export function createService({
   }
 
   async function upstream(method, ...args) {
-    const currentDay = new Date(now()).toISOString().slice(0, 10);
+    const currentDay = today();
     if (day !== currentDay) { day = currentDay; calls = 0; }
     if (calls >= dailyCap) throw 'daily_cap';
     // Reserve synchronously before awaiting, including failed calls.
     calls++;
+    save();
     try { return await registrar[method](...args); }
     catch { throw 'upstream_unavailable'; }
   }

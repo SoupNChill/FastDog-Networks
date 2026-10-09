@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { join } from 'node:path';
 import { createRegistrar } from './registrar.js';
 import { createService } from './service.js';
 
@@ -30,7 +31,10 @@ export function truncateIp(value) {
 }
 
 export function createServer({
-  service = createService({ registrar: createRegistrar() }),
+  service = createService({
+    registrar: createRegistrar(),
+    statePath: process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, 'daily-count.json') : undefined,
+  }),
   trustProxy = process.env.TRUST_PROXY === '1',
   logger = (line) => console.log(line),
 } = {}) {
