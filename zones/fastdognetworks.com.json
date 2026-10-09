@@ -6,7 +6,7 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026100801 3600 600 604800 300",
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026100902 3600 600 604800 300",
       "comment": "Serial: YYYYMMDDNN \u2014 bump NN on each edit"
     },
     {
