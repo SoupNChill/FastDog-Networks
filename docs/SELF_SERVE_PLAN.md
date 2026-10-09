@@ -12,6 +12,8 @@ Found while reading the code. All are read-only observations; none has been chan
 2. **`GET /_fastdog/agents`, `/routes`, `/metrics` are also unauthenticated and public.** They return every agent's hostname and `localUpstream` (internal addresses) and tunnel host list. Confirmed via `attach.fastdognetworks.com`.
 3. **One shared secret does everything.** `AGENT_TOKEN` is the operator key for onboard, billing status and the operator UI, and `registerAgent` (`src/control/tunnels.js`) also accepts it for *any* hostname. Production has a custom 64-char value (checked by length only), but code defaults to `fastdog-local-dev-token` when unset.
 
+**Status (2026-10-09, 2:5x PM MT): Step 0 is done at the Caddy layer** (backup `/etc/caddy/Caddyfile.bak-ctlblock-20261009-205237`): every public host that proxies to the edge now returns 404 for `/_fastdog/*` except `/_fastdog/tunnel` and `/_fastdog/agents/register`. Forensics found no sign of tampering, though no request logs exist for those hosts, so that is not proof of absence (see the Step 0 report). The in-app token checks below are still worth adding as defence in depth and are folded into the tenant-primitives lane. Original recommendation, for the record:
+
 **Recommended Step 0 (small, ship before anything else, needs Pete's OK because it touches the edge):** require the token on all of `/_fastdog/dns`, `/agents`, `/routes`, `/metrics` and `/routes/reload` (keep `/_fastdog/tunnel` and `/agents/register` working), plus a Caddy rule returning 404 for `/_fastdog/*` on customer hostnames. Add a test. Back up first, per the usual rules.
 
 ## 1. v1 screens and flows
@@ -21,7 +23,7 @@ Five screens, one column, calm. No dashboards, no charts.
 1. **Sign up / log in (invite-gated).** Email + password + invite code. The invite is bound to an email at mint time. Wrong or used code gives one generic message. A "forgot password" link sends a one-time link.
 2. **Add hostname.** Enter `app.example.com`. The portal shows the exact record, with a copy button:
    `app  300  CNAME  attach.fastdognetworks.com.`
-   plus a TXT ownership record (see section 5). Apex names get the existing apex note (use a subdomain, or ALIAS/ANAME). A **Verify** button and an automatic re-check every 30 s for 10 min show live status: `waiting for DNS` → `DNS verified` → `certificate issued` → `serving`. Failure shows what we found and what we expected (the API already returns `found`/`expected`).
+   plus a TXT ownership record (see section 8). Apex names get the existing apex note (use a subdomain, or ALIAS/ANAME). A **Verify** button and an automatic re-check every 30 s for 10 min show live status: `waiting for DNS` → `DNS verified` → `certificate issued` → `serving`. Failure shows what we found and what we expected (the API already returns `found`/`expected`).
 3. **Connect origin.** After verify, shows one copy-paste command that runs the agent (Docker one-liner; see sizing), with the token embedded once. A **connected** indicator driven by the tunnel state (`connected`, last seen) and a final check that `https://<host>/` answers. Token is shown once; **Rotate token** is one button.
 4. **Domains.** The existing search box (`/api/domains/search`), but each available result has **Request this name** instead of "Email us". That creates a request record (name, tenant, price shown, status `requested`) and notifies the operator. Pete registers it by hand and marks it done; the customer then sees it as `registered` with the attach instructions. No checkout, no card, no registrar write path anywhere in code.
 5. **Plan and billing.** Shows the plan Pete assigned (Hobby / Pro / Agency, matching the site) and a link out. Stripe stays **test mode only** until a real outside buyer exists; for now this screen says "Billing is arranged by email" and shows the operator-set plan and hostname limit.
@@ -35,7 +37,7 @@ Out of scope for v1: teams, API tokens for users, multiple origins per hostname,
 | Invites | Random `fd-…` codes, max uses, expiry, atomic 0600 file | `src/onboard/invites.js`, `docs/INVITES.md` | **Reuse**; add `email` binding and redeem-at-signup. Today consumed only by `create-zone`. |
 | Attach / verify host | `attachHost`, `verifyHost`, CNAME/A/chain check, fail-closed, detach | `src/onboard/attach.js`, `docs/HOSTNAME_ATTACH.md` | **Reuse the logic**; add tenant owner, TXT challenge, reserved-name rules, claim expiry. |
 | Agent credentials | 32-byte random, sha256 stored, hostname-bound, shown once | `issueCredential`/`validCredential` in `src/onboard/store.js` | **Reuse**; add tenant id, revoke, last-used. Stop accepting the operator token for tenant hosts. |
-| Agent + tunnel | Outbound WS agent, JSON frames | `agent/index.js`, `src/control/tunnels.js` | **Reuse**; needs packaging as a Docker image (today needs the repo + `npm install`). Limits in section 5. |
+| Agent + tunnel | Outbound WS agent, JSON frames | `agent/index.js`, `src/control/tunnels.js` | **Reuse**; needs packaging as a Docker image (today needs the repo + `npm install`). Limits in section 8. |
 | Status page | `/status`, `/status.json`, probes for edge and both NS | `src/status/*`, `docs/STATUS.md` | **Reuse** as a footer link/summary. Per-hostname status is new. |
 | Operator UI | Loopback-only dashboard: zones, invites, attach, tunnels | `src/operator/*`, `docs/operator-ui.md` | **Keep as is** (SSH tunnel only). Add a Tenants/Requests panel. |
 | Domain search | Read-only LOOKUP + GET_PRICE, 10/IP/10 min, 300/day, cache | `domain-search/`, `site/js/domain-search.js` | **Reuse**; the request flow is new and calls our own portal, not the registrar. |
@@ -86,25 +88,73 @@ Match the new site: calm, sparse, no template look. Concretely:
 - One screen per task, left marker "01 / Hostname", right the content, like the marketing sections. Copy buttons are plain text buttons. No animation. 44 px touch targets and the 390 px dark/light checks used for the site.
 - **No frameworks, no build step, no CDN.** Static HTML plus one small vanilla JS file per page, matching `domain-search.js`. Server-side templates are plain template strings. This also keeps the CSP strict.
 
-## 5. Sizing and build order
+## 5. Acceptance criteria that apply to every step
 
-Each step ships something usable. "S" is under a day, "M" a day or two, "L" several days of focused work. Codex is a good fit for steps marked (C): well-specified, test-heavy, standalone code. Anything touching the live edge, Caddy or DNS I would do by hand, with backups.
+**Tenant-agnostic, no exceptions.** Nothing in code, config, schema, copy or tests may hardcode or special-case any specific tenant or host: not Pete, not Postiz, not Punch Clock, not Summit Lease, not FastDog's own sites. Everything is data per tenant/hostname. Pete's Postiz is just tenant #1 created through the same path as tenant #2.
+- **Isolation tests use 3 synthetic tenants** (`t-alpha`, `t-beta`, `t-gamma`) with awkward hostnames: a 63-label-char name, a 253-char total name, punycode (`xn--bcher-kva.example`), mixed case (`App.Example.COM` vs `app.example.com` must be the same host), a trailing dot, wildcard-like input (`*.example.com`, `a*.example.com`), a name that is a suffix of another tenant's name (`app.example.com` vs `myapp.example.com` vs `x.app.example.com`), and a reserved FastDog name. Every API call is tried as every other tenant and must fail.
+- **CI-style grep check** (a test that runs in `npm test`): fail the build if any file under `portal/`, the tenant code in `src/`, and `test/` contains a deny-list of real names (`postiz`, `punchclock`/`punch-clock`, `summitlease`/`lease.`, `spelic`, `pete`, real customer domains), except an explicit allowlist file (this plan, marketing pages, the existing legacy dogfood config) that is itself reviewed. A second check fails on any literal hostname outside `example.com`/`example.test`/`*.invalid` in tenant tests.
+- **Review checklist item:** "would this still work unchanged if the first customer were someone else?"
 
-| # | Step | Ships | Size |
+## 6. Build order and schedule (compressed)
+
+Goal: a usable invite-only portal in about **7 working days** once Step 0 and the contract are done, with something shippable each day or two. This is faster than the earlier 2 to 3 weeks because the lanes are parallel and Codex does the bulk. It assumes Pete or I can review quickly. Realistic risk: review and the live-edge steps are the bottleneck, not code.
+
+**Serial first (about 1 day):**
+- **Step 0**: lock down `/_fastdog/*`. Done at Caddy; add in-app auth in lane B.
+- **Contract (Day 1, serial, small)**: write the tenant-primitives API contract and data shapes as one reviewed file (`docs/TENANT_API.md`: internal edge routes, request/response, error codes, tenant_id rules, JSON schemas for tenant/user/hostname/credential/request). Lanes A to D all code against it. Nothing else starts until it is merged.
+- **Postiz attach by hand** (any time after Step 0; Pete present): fills section 9 and is the spec check for lane C.
+
+**Parallel lanes (Codex, one git worktree each, from the contract commit):**
+
+| Lane | Scope | Depends on | Touches |
 | --- | --- | --- | --- |
-| 0 | Lock down `/_fastdog/*` (section 0) | Closes the open control routes | S, by hand |
-| 1 | Postiz attach by hand, logging every step (section 7) | The spec for step 5, and a live first customer | S, by hand with Pete |
-| 2 | Edge internal listener + tenant ownership on attach/credentials + reserved-name rules + TXT challenge | Safe multi-tenant primitives, tested | M (C) |
-| 3 | Caddy on-demand TLS with `ask` endpoint (active hostnames only), tested on a throwaway name | No more per-host Caddy edits | M, by hand |
-| 4 | `portal/` skeleton: accounts, sessions, scrypt, invite redeem, rate limits, email-link mechanism (manual send first) | Log in to an empty portal | M (C) |
-| 5 | Add hostname + live verify + connect-origin screens, agent Docker image | Self-serve attach: Postiz re-done through the portal | L (C for code; image/test by hand) |
-| 6 | Domain request flow + operator Requests panel | Customers ask for names | S (C) |
-| 7 | Plan screen (operator-set) | Customer sees plan and limits | S (C) |
-| 8 | Stripe live, only when an outside buyer exists | Real billing | M, not before |
+| A. Edge tenant primitives | Internal loopback listener + `PORTAL_KEY`; tenant ownership on attach/credentials; TXT challenge; reserved-name rules; claim expiry; revoke/rotate; token checks on `/_fastdog/dns|agents|routes|metrics`; operator token no longer registers tenant hosts | Contract | `src/onboard/*`, `src/control/*`, `src/edge/server.js`, `test/` |
+| B. Portal skeleton | `portal/`: accounts, scrypt, sessions, CSRF, invite redeem, rate limits, mail-link mechanism, screens 1 to 5 as static pages on `site.css` | Contract (mocks lane A's API) | `portal/` only, `site/css/portal.css` |
+| C. On-demand TLS | Caddy `on_demand_tls` with `ask` endpoint (active hostnames only), tested on a throwaway name; replaces manual blocks | Contract + a stub of `ask` | edge Caddy, small endpoint in lane A's listener. **Hand-applied** on the live edge, with backups |
+| D. Tests and security review | The 3-tenant isolation suite, the grep check, abuse tests (rate limits, verification abuse), written from the contract before the code lands | Contract | `test/`, `portal/test/` |
+| E. Agent packaging | Docker image / single file for the agent, copy-paste command | Contract | `agent/`, new `deploy/agent-image/` |
 
-Order is deliberate: 0 and 1 are needed regardless and teach us the most. A usable portal is steps 2 to 5, roughly 2 to 3 weeks of part-time work, most of it reviewable in small PRs.
+**Milestones:**
 
-## 6. Security risks and mitigations
+| Day | Ships | Gate |
+| --- | --- | --- |
+| 0 (done/now) | Step 0 at Caddy; plan | Forensics clean |
+| 1 | Contract merged; Postiz attach run by hand and logged (if Pete is ready) | Pete reviews contract |
+| 2 | Lane A internals + lane D tests red-then-green on A; lane B login/signup pages against a mock | Isolation suite passes with 3 tenants |
+| 3 | Lane A merged to master (not yet deployed); lane B accounts/sessions merged; lane E image builds | Review by the second agent (below) |
+| 4 | Deploy lane A to the edge (backup, restart, check agents reconnect); lane C `ask` endpoint live behind a flag, tested on a throwaway name | Prod agents (Punch Clock, lease) still connected |
+| 5 | Portal live behind invite for Pete only: add hostname, live verify status, connect origin command | Pete signs up as tenant #1 |
+| 6 | Domain request flow + operator Requests panel; plan screen | Pete requests a name end to end |
+| 7 | Re-do the Postiz attach through the portal; fill the log; fix what it exposed | Self-serve attach works with zero edge SSH |
+
+**Serial points and safe merging:**
+- The contract is serial and first; A, B, D and E only merge after it. Changing the contract after Day 1 needs a note in the PR and rebases of the other lanes.
+- Lane A is the dependency for B's real integration and for C's `ask` endpoint; B ships against a mock until A merges.
+- Merge order: contract, D (tests, expected failing and marked), A, then B and E in either order, then C. Each PR touches mostly disjoint directories; the only shared file is `src/edge/server.js` (lane A owns it; others do not edit it) and `site/css/site.css` (nobody edits it; portal styles go in `portal.css`).
+- One lane per worktree on its own branch; rebase on master before the PR, merge by squash, and run the full `npm test` plus the grep check on master before any deploy. No live edge change merges without a backup plan and a rollback line in the PR.
+- Deploys are always by hand, one at a time, with backups; the edge restart is announced, and agent reconnection is verified (agent list over the loopback with the token).
+
+Where Codex helps: lanes A, B, D, E (clear contract, test-heavy code). Where it should not drive: lane C and every live edge/Caddy/DNS step; I do those with Pete's go.
+
+## 7. Claude Code on server3
+
+Checked read-only on server3 today: **Claude Code is not installed** (`claude` not found, no `~/.claude`). Codex is (`codex-cli 0.156.0`, `~/.codex`), plus Node 18.19.1, npm with a user-level prefix (`~/.npm-global`), git, tmux, 8 cores, 15 GB RAM, 430 GB free disk, and existing git worktrees. server3 can reach claude.ai and api.anthropic.com. Nothing was installed.
+
+What it adds beyond Codex:
+- **Independent reviewer.** A different model and harness reviewing each Codex PR against the contract and the isolation checklist catches different mistakes. This is the main value: every lane PR gets a second-agent review before merge.
+- **Second parallel lane** when Codex usage limits bite or a lane is blocked; lanes B and D are good candidates.
+- **Long-context refactors and repo-wide reading**, e.g. moving the edge's shared-token auth to scoped credentials across `src/` and tests in one pass.
+- **Adversarial testing:** have it write attack tests for the isolation and verification-abuse risks while Codex writes the features.
+It does not replace judgement on live-edge steps; those stay manual.
+
+What Pete needs to do (about 15 minutes, once):
+1. Choose the plan: Claude Pro or Max, or an API key with a spend limit. Max is the realistic choice for several parallel lanes; Pro limits would bite quickly. (No spend happens until Pete decides.)
+2. I install the CLI on server3 under his user, user-level (`npm install -g @anthropic-ai/claude-code` into `~/.npm-global`, or the native installer). Node 18 is the minimum; upgrading Node is optional.
+3. Pete runs the login once, interactively in a tmux session on server3 (browser OAuth or paste a code; he types the credentials, I never see them). If he uses an API key instead, it goes into a mode-600 env file, never in the repo.
+4. Agree on a working rule: it runs in worktrees under `~/projects/` with no deploy credentials, read access to the repo only, no SSH keys for the edge in its environment, and no network beyond git and its API.
+Usage limits: plan limits are per account and shared with Pete's own use; I would run at most 1 to 2 Claude lanes at once and tell Pete when a limit is hit rather than switching plans.
+
+## 8. Security risks and mitigations
 
 | Risk | Mitigation |
 | --- | --- |
@@ -119,7 +169,7 @@ Order is deliberate: 0 and 1 are needed regardless and teach us the most. A usab
 | **Blast radius** | The edge VPS is also ns1 and the CA/proxy for every site. The portal gets its own user, low memory/CPU caps and its own listener; no shell-outs; no access to zone files. Longer term, consider a separate small host. |
 | **Billing mismatch** | Test Stripe plans differ from the site. Do not enable billing code paths in v1. |
 
-## 7. Postiz attach log (to fill)
+## 9. Postiz attach log (to fill)
 
 This is the spec for the **connect origin** flow. **The attach has not happened yet; nothing below is a measurement from Postiz.** Do not run it against prod1 until Pete says so.
 
@@ -161,9 +211,9 @@ Record one row per manual action, in order. Include failures and retries. No sec
 
 Totals to record: wall-clock start to first 200; operator-minutes versus waiting time; number of copy-pastes; anything that required SSH to the edge (each is a thing the portal must do for the customer).
 
-## 8. Questions for Pete
+## 10. Questions for Pete
 
-1. **Step 0 now?** May I lock down the unauthenticated `/_fastdog/*` routes (token required, plus Caddy 404 on customer hosts) before anything else? It touches the live edge (with backups).
+1. **Step 0 follow-up:** the Caddy lockdown is done. OK to also add in-app token checks on `/_fastdog/dns|agents|routes|metrics` (needs an edge restart; agents reconnect)?
 2. **Portal hostname:** `app.fastdognetworks.com`, `portal.`, or `my.`? (Separate host keeps cookies away from the marketing site.)
 3. **Who is customer #1's account:** Pete as a tenant on his own portal, with Postiz as the first hostname, after the manual attach?
 4. **Email:** which sender and provider for verification and reset mail (the repo has none), and is a small monthly cost acceptable? Until then I would send links by hand.
@@ -173,3 +223,5 @@ Totals to record: wall-clock start to first 200; operator-minutes versus waiting
 8. **Postiz tunnel risk:** should the manual attach test media upload and any websocket features first, and are you willing to wait for a better tunnel if they fail?
 9. **Where it runs:** the portal on the edge VPS with strict limits (cheapest), or a separate small server later (needs spend approval)?
 10. **Agent distribution:** Docker image on a public registry, or a single download file? (Either needs a place to host it.)
+11. **Claude Code:** which plan (Pro, Max, or API key with a limit), and can you do the one-time interactive login on server3?
+12. **Schedule:** is a roughly 7-working-day target realistic for your review time, and who reviews lane PRs besides the second agent?
