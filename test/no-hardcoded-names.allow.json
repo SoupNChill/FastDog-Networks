@@ -1,0 +1,84 @@
+{
+  "test/deny-names.json": {
+    "reason": "Required deny-list data is the sole intentional source of forbidden name literals.",
+    "data": true
+  },
+  "docs/TENANT_API.md": {
+    "reason": "Binding contract documentation is explicitly permitted by the lane instructions.",
+    "documentation": true
+  },
+  "docs/SELF_SERVE_PLAN.md": {
+    "reason": "Pre-existing planning documentation is explicitly permitted by the lane instructions.",
+    "documentation": true
+  },
+  "src/onboard/attach.js": {
+    "reason": "Existing legacy attach target defaults; only the original two lines are exempt.",
+    "lines": {
+      "75b6bb89402c7001c53e182268329d7051eae2b88625dbc0500c0c4ddbe0ca79": 1,
+      "06da1fd71ea74cc62aa3f5bfe4bde7c38fc70e385849db7c115fcec222c0aa30": 1
+    }
+  },
+  "src/onboard/store.js": {
+    "reason": "Existing legacy nameserver defaults; only the original configuration line is exempt.",
+    "lines": {
+      "195c424d07bc07052544ab22b4ba792fa2a8ed897d75d7846b8c0079ddac198a": 1
+    }
+  },
+  "src/edge/server.js": {
+    "reason": "Existing legacy dogfood deployment comment; only this original comment is exempt pending lane A cleanup.",
+    "lines": {
+      "0615b7cdbe7f27d0223245ed966f47689f2642e1631de127bfee0298bef4705c": 1
+    }
+  },
+  "test/attach.test.js": {
+    "reason": "Existing legacy attach tests assert the configured default target.",
+    "lines": {
+      "9d4e093f778b7cafd97d0308de047800fae2fb0474f3c7cb6d0b0be5780bc775": 4,
+      "fe1867cc87195b6dfe68bfe74bf6babec12730b389f211121b34659c355ce468": 1,
+      "5cc1b98423bdef036c94702b2118d3dda535da191d5883b24c5dbf9b8636424c": 1,
+      "f7dacd4d9e54ff1f91b7bde2809e80533fb85a2f73f49785899591649a0d77c6": 1
+    }
+  },
+  "test/dns.test.js": {
+    "reason": "Existing zone fixture tests inspect shipped legacy zones and mail records.",
+    "lines": {
+      "90a6afefb46fa1533be7db8a02cab35a4968b4a2070ef5697d878436c9dab3c0": 1,
+      "5e63bcdfd706770eb3218050d7c7a943eeed9e69f94a545ed570ae1e9a0255ed": 1,
+      "fe2285e49b27937d2ba546c9146f274c3d5153ffa139bc8b8ebeb05d8937efc6": 1,
+      "e5b18a75afc737e33c8ef18c6c0a849f0c6ddbacc17132867afaa5b71f7d879a": 1,
+      "8e81caa5dbce462fdfda3a1745c67500e2b1e03e23d388869472a7573e904753": 1,
+      "0fb0248dffbccd64b4ef2eb5cc414e7ebcbfdb356cb31d8e1d87894c3a25d021": 1,
+      "a7784869e8955860a36acf0d5941654a18fe3d9a1b5dcd69e11d04581ffb1519": 1,
+      "1f14e4c06a6ae128b24d1fd51a85daf5df87f4bcb37cd7eab5132f760b322a0b": 1,
+      "1b621ff0534343b190c9cc6d58e226288ce54eb32ee289783c7a19d60624ec14": 1,
+      "c7e763b71a579bc5103023e6d26aef304aad3612e35d67b9ae3a7d6fd91ce4ac": 1
+    }
+  },
+  "test/edge.test.js": {
+    "reason": "Existing edge test checks the shipped legacy zone list.",
+    "lines": {
+      "ab1e49f9c201d385062ff17562e60e146322039bb12f6193fc6f1a2dd5990c48": 1,
+      "8e7e618055b6172280f724e11644b2e93924e395c48dca430ce16f1d3be7c738": 1
+    }
+  },
+  "test/ns-cut-checklist.test.js": {
+    "reason": "Existing checklist test stubs DNS answers for the shipped legacy zone.",
+    "lines": {
+      "20621fb608fdc4143d9d4694b614ecf375ef623c289b2dc1ba9574216436bd65": 1,
+      "e86f15c478629ec28841305cf8ef6652f37d5e11ce6d8d574c35cb6bf0c9926c": 1,
+      "105556da3df722178ee83f8cdde4de14fd18c3ca7bf930a2b0ac48c989328827": 1,
+      "77ea1f812b6e9605c6a0fb303bf6108c6d3827c531efd04c93a700e1783d6c8a": 1,
+      "9050e07d0e4a312ff01b30d4e0655cb27ecf80aa34ca4864ad78524b52a10acd": 1,
+      "4c158bb4c93b353c7cf22b3a9d7a64dc1c8ad16d659b2eb9272a7b04a07c064b": 1,
+      "ebaef679d40c6cb362d474b9b8c2575d5be56ab73ad1bfc3f4a330d388df4aae": 1
+    }
+  },
+  "test/sync-coredns.test.js": {
+    "reason": "Existing export validation tests exercise the shipped legacy mail zone.",
+    "lines": {
+      "17a60aea584f2b852aced68702d01a251dd3190f737ea0da940ee1723cb20b4a": 2,
+      "b435079e34fec2be332db000cd55c9099ce8e08e325e2251ad613ce3830f2f4a": 2,
+      "bbcc8ec339d04a5c1b4c423a14adb92e5dcd83d8c34f39832f31a92505498ea1": 1
+    }
+  }
+}
