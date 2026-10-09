@@ -74,7 +74,7 @@ describe('stranger onboarding', () => {
       const registered = await post('/_fastdog/agents/register', { hostname: 'web.api.example', localUpstream: 'http://127.0.0.1:8080' }, issued.token);
       assert.equal(registered.status, 201);
       assert.equal((await post('/_fastdog/onboard/hosts', { zone: 'api.example', hostname: 'web.api.example' })).status, 201);
-      const routes = await (await fetch(`${base}/_fastdog/routes`)).json();
+      const routes = await (await fetch(`${base}/_fastdog/routes`, { headers: { 'x-fastdog-token': 'onboard-test-master' } })).json();
       assert.ok(routes.tunnelHosts.includes('web.api.example'));
       const instructions = await fetch(`${base}/_fastdog/onboard/zones/api.example/ns-instructions`, { headers: { 'x-fastdog-token': 'onboard-test-master' } });
       assert.equal(instructions.status, 200);

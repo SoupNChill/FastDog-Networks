@@ -1,4 +1,3 @@
-import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
 import { env } from '../lib/config.js';
 import { readZone, writeZone } from '../dns/store.js';
@@ -56,24 +55,7 @@ export function nsInstructions(zone) {
   };
 }
 
-export function issueCredential({ name, hostname } = {}) {
-  const host = hostname ? domain(hostname) : undefined;
-  const token = randomBytes(32).toString('hex');
-  const id = randomUUID();
-  const credentials = readJson('agent-credentials.json', []);
-  credentials.push({ id, name: name || undefined, hostname: host, token_hash: createHash('sha256').update(token).digest('hex'), created_at: new Date().toISOString() });
-  writeJson('agent-credentials.json', credentials, 0o600);
-  return { id, token, agent_env: { AGENT_TOKEN: token, ...(name ? { AGENT_NAME: name } : {}), ...(host ? { AGENT_HOSTNAME: host } : {}) } };
-}
-
-export function validCredential(token, hostname) {
-  if (typeof token !== 'string' || !token) return false;
-  const hash = createHash('sha256').update(token).digest();
-  return readJson('agent-credentials.json', []).some((item) => {
-    const stored = Buffer.from(item.token_hash, 'hex');
-    return (!item.hostname || item.hostname === String(hostname).toLowerCase()) && stored.length === hash.length && timingSafeEqual(stored, hash);
-  });
-}
+export { issueCredential, validCredential } from './credentials.js';
 
 export function tunnelHosts() { return readJson('tunnel_hosts.json', []); }
 

@@ -1,0 +1,40 @@
+# Import this file once, then inside each site block use:
+# import fdlog app.example.com
+# One file per host: /var/log/caddy/<hostname>.log (pass the literal site hostname).
+(fdlog) {
+    log {
+        output file /var/log/caddy/{args[0]}.log {
+            roll_size 5MiB
+            roll_keep 5
+            roll_keep_for 168h
+        }
+        format filter {
+            wrap json
+            fields {
+                level delete
+                ts delete
+                logger delete
+                msg delete
+                request>remote_ip delete
+                request>remote_port delete
+                request>client_ip ip_mask {
+                    ipv4 24
+                    ipv6 48
+                }
+                request>proto delete
+                request>host delete
+                request>uri regexp "[?].*$" ""
+                request>headers delete
+                request>cookies delete
+                request>tls delete
+                resp_headers delete
+                bytes_read delete
+                user_id delete
+                size delete
+                err_id delete
+                err_trace delete
+                error delete
+            }
+        }
+    }
+}
