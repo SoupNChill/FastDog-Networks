@@ -22,6 +22,8 @@
   };
   const message = (text) => results.append(element('p', text, 'domain-search-message'));
   const validPrice = (price) => typeof price === 'string' && /^\d{1,9}\.\d{2}$/.test(price);
+  // Thousands separators without locale dependence: '2400.00' -> '2,400.00'.
+  const formatPrice = (price) => price.replace(/^\d+/, (whole) => whole.replace(/\B(?=(\d{3})+$)/g, ','));
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -69,9 +71,9 @@
         if (result.status === 'available') {
           const prices = element('div', '', 'domain-result-prices');
           prices.append(element('p', validPrice(result.price_year)
-            ? `$${result.price_year} / yr first year` : 'First-year price unavailable'));
+            ? `$${formatPrice(result.price_year)} / yr first year` : 'First-year price unavailable'));
           prices.append(element('p', validPrice(result.price_renewal)
-            ? `Renews at $${result.price_renewal} / yr` : 'Renewal price unavailable'));
+            ? `Renews at $${formatPrice(result.price_renewal)} / yr` : 'Renewal price unavailable'));
           const link = element('a', 'Email us to register', 'text-link');
           link.href = `mailto:support@fastdognetworks.com?subject=${encodeURIComponent(`Register ${result.domain}`)}&body=${encodeURIComponent(`I'd like to register ${result.domain}. Please confirm availability and the registration and renewal prices.`)}`;
           row.append(prices, link);

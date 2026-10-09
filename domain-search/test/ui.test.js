@@ -92,3 +92,14 @@ test('429, degraded, 5xx, malformed data, and network failures show the specifie
   await limited.submit('example');
   assert.equal(limited.results.textContent, 'Too many searches. Try again in a few minutes, or email us.');
 });
+
+test('large prices use thousands separators', async () => {
+  const ui = setup({ ok: true, status: 200, json: async () => ({ results: [
+    { domain: 'example.io', status: 'available', premium: true, price_year: '2400.00', price_renewal: '60.00' },
+    { domain: 'example.co', status: 'available', premium: true, price_year: '123456789.50', price_renewal: '1000.00' },
+  ] }) });
+  await ui.submit('example.io');
+  const [first, second] = ui.results.children;
+  assert.match(first.textContent, /\$2,400\.00 \/ yr first year.*Renews at \$60\.00 \/ yr/);
+  assert.match(second.textContent, /\$123,456,789\.50 \/ yr first year.*Renews at \$1,000\.00 \/ yr/);
+});
