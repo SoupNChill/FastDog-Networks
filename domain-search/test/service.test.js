@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createService, normalizeDomain } from '../src/service.js';
 import { mockRegistrar, available, taken, invalid, price, username, apiKey } from './fixtures.js';
 
@@ -143,4 +146,19 @@ test('failures and timeouts become unknown, no raw fields/secrets; failures cons
     assert.equal(response.results[0].status, 'unknown');
     assert.equal(response.degraded, 'upstream_unavailable');
   }
+});
+
+test('daily cap counter persists across restarts; bad file or new day resets', async () => {
+  const statePath = join(mkdtempSync(join(tmpdir(), 'ds-')), 'daily-count.json');
+  let time = Date.UTC(2026, 9, 9, 12);
+  const make = () => createService({ registrar: mockRegistrar(), alternates: ['com'], now: () => time, dailyCap: 3, statePath });
+  await make().search('a.com'); // 3 upstream calls (lookup + new + renewal price)
+  assert.deepEqual(JSON.parse(readFileSync(statePath, 'utf8')), { day: '2026-10-09', calls: 3 });
+  assert.equal((await make().search('b.com')).degraded, 'daily_cap'); // restarted service resumes at 3 of 3
+  writeFileSync(statePath, '{not json');
+  assert.equal((await make().search('c.com')).degraded, undefined); // corrupt file resets
+  writeFileSync(statePath, JSON.stringify({ day: '2026-10-08', calls: 3 }));
+  assert.equal((await make().search('d.com')).degraded, undefined); // stale day resets
+  writeFileSync(statePath, JSON.stringify({ day: '2026-10-09', calls: -5 }));
+  assert.equal((await make().search('e.com')).degraded, undefined); // invalid count resets
 });
