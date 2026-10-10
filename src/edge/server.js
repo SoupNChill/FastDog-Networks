@@ -23,6 +23,7 @@ import { operatorAuth } from '../control/auth.js';
 import { createInternalServer, assertLoopbackBind } from '../internal/server.js';
 import { dataDir } from '../onboard/json.js';
 import { watchTunnel } from '../control/heartbeat.js';
+import { assertSafeStartup } from '../lib/startup-guard.js';
 import { dnsRouter } from '../dns/api.js';
 import { onboardRouter } from '../onboard/api.js';
 import { statusService, intervalMs as statusIntervalMs } from '../status/service.js';
@@ -31,7 +32,7 @@ import { billingRouter, billingWebhook } from '../billing/api.js';
 import { createOperatorServer, OPERATOR_BIND, OPERATOR_PORT } from '../operator/server.js';
 
 const PORT = Number(env('EDGE_PORT', '8787'));
-const BIND = env('EDGE_BIND', '0.0.0.0');
+const BIND = env('EDGE_BIND', '127.0.0.1');
 const AGENT_TOKEN = env('AGENT_TOKEN', 'fastdog-local-dev-token');
 
 let routeConfig = loadRoutes();
@@ -202,6 +203,7 @@ wss.on('connection', (ws, req) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
+  assertSafeStartup();
   if (OPERATOR_BIND !== '127.0.0.1' && OPERATOR_BIND !== '::1') throw new Error('OPERATOR_BIND must be a loopback address');
   if (!Number.isSafeInteger(OPERATOR_PORT) || OPERATOR_PORT < 1 || OPERATOR_PORT > 65535) throw new Error('invalid OPERATOR_PORT');
   if (OPERATOR_PORT === PORT && OPERATOR_BIND === BIND) throw new Error('operator and edge listeners conflict');

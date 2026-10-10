@@ -75,7 +75,9 @@ describe('hostname attach onboarding', () => {
     const block = attachModule.generateCaddyBlock('app.customer.com');
     assert.ok(block.includes('app.customer.com'));
     assert.ok(block.includes('reverse_proxy localhost:8787'));
-    assert.ok(block.includes('/var/log/caddy/app.customer.com.log'));
+    assert.ok(block.includes('import fdlog app.customer.com'));
+    assert.ok(!/\blog\s*\{/.test(block), 'no bare log block: it would record the tunnel token and query strings');
+    assert.ok(!block.includes('/var/log/caddy'));
   });
 
   it('detaches a hostname', () => {

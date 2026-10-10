@@ -122,14 +122,13 @@ export async function checkDnsVerification(hostname, opts = {}) {
   return { verified: false, error: 'no_dns_record', expected: target };
 }
 
+// Requires the filtered `fdlog` snippet (deploy/caddy/access-logs.snippet) to be imported once at the top of the Caddyfile.
+// Without it Caddy refuses the config, so a block can never fall back to the default logger (which records ?token= and headers).
 export function generateCaddyBlock(hostname) {
-  const block = `${hostname} {
+  return `${hostname} {
+    import fdlog ${hostname}
     reverse_proxy localhost:8787
-    log {
-        output file /var/log/caddy/${hostname}.log
-    }
 }`;
-  return block;
 }
 
 function addToTunnelHosts(hostname) {
