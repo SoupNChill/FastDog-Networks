@@ -35,7 +35,7 @@ test('portal derives tenant scope and hostname limit exclusively from each sessi
       assert.ok(!result.text.includes(other.tenantId));
       if (edgeMethod === 'listHostnames') {
         assert.ok(result.body.hostnames.every((record) => record.hostname === hosts[i]));
-        assert.ok(!result.text.includes(hosts[1 - i]));
+        assert.ok(!result.body.hostnames.some((record) => record.hostname === hosts[1 - i])); // exact match: names may be suffixes of each other
       }
     }
   }
@@ -62,7 +62,7 @@ test('session cookies have every required attribute; Origin and CSRF independent
   ]) {
     const count = h.edge.calls.length;
     const result = await account.client.request(path, { method, headers, body: { hostname: 'app.example.com' } });
-    assert.equal(result.status, 403);
+    assert.equal(result.status, 401); // contract error table has no 403; CSRF/Origin failures are `unauthorized`
     assert.equal(typeof result.body.error, 'string');
     assert.deepEqual(Object.keys(result.body), ['error']);
     assert.equal(h.edge.calls.length, count);

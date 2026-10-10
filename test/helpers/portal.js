@@ -77,19 +77,15 @@ export async function portalHarness(t) {
 export async function twoAccounts(t) {
   if (!existsSync(invitesFile)) { t.skip('lane B invite store absent: signup cannot be seeded through its public API'); return; }
   const invites = await import(invitesFile.href);
-  const mint = invites.generateInvite || invites.mintInvite || invites.createInvite;
-  if (typeof mint !== 'function') {
-    t.skip('lane B invite mint export absent; adapt helper after reading the merged invite store');
-    return;
-  }
+  if (typeof invites.createInvites !== 'function') { t.skip('lane B createInvites export absent'); return; }
+  const { createInvites } = invites;
   const h = await portalHarness(t);
   h.accounts = [];
   for (let i = 0; i < 2; i++) {
     const email = `${i === 0 ? 'a' : 'b'}@example.test`;
     const password = fakeSecret();
     // This adapter is the only invite-store integration point; no hand-written storage records.
-    const invite = await mint({ dataDir: h.dataDir, email, tenant_id: tenants[i], hostname_limit: 3,
-      max_uses: 1, now: h.clock.now, expires_in_hours: 1 });
+    const invite = createInvites({ dataDir: h.dataDir, now: h.clock.now }).mint({ email, hostnameLimit: 3 });
     const inviteCode = typeof invite === 'string' ? invite : invite.code;
     assert.equal(typeof inviteCode, 'string');
     const client = browser(h.server);
