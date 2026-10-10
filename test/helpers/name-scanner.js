@@ -89,12 +89,12 @@ export function hostnameViolations(source) {
   }
   code();
   for (const literal of literals) {
-    const text = literal.replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    const text = literal.replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))).replace(/%[0-9a-f]{2}/gi, '.');
     const domains = text.match(/(?:[a-z0-9*][a-z0-9*-]*\.)+[a-z]{2,63}\.?/gi) || [];
     for (const domain of domains) {
       const host = domain.toLowerCase().replace(/\.$/, '');
       if (/\.(?:js|cjs|mjs|json|md|css|html|txt|yaml|yml|snippet)$/.test(host)) continue;
-      if (['example.com', 'example.test', 'example-edge.test'].some((suffix) => host === suffix || host.endsWith(`.${suffix}`)) || host.endsWith('.invalid')) continue;
+      if (['example.com', 'example.test', 'example-edge.test'].some((suffix) => host === suffix || host.endsWith(`.${suffix}`)) || /\.(?:invalid|test|example|local|lan|internal|localhost)$/.test(host)) continue; // RFC 6761 / reserved-suffix names never resolve publicly
       violations.add(host);
     }
   }

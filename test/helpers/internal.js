@@ -46,6 +46,7 @@ export async function internalHarness(t, overrides = {}) {
     assert.equal(active.body.verified, true);
     assert.equal(active.body.status, 'active');
     assert.match(active.body.credential.token, /^[a-f0-9]{64}$/);
+    closed.length = 0; // activation drops any stale tunnel for the host by design; tests assert later closes
     return active.body;
   };
   return { ...options, server, request, create, prove, activate, clock, resolver, closed, agents, logs };

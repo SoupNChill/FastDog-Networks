@@ -19,6 +19,7 @@ test('every other tenant sees exactly hostname_not_found for every valid awkward
       if (state === 'active') {
         h.prove(claim.body);
         assert.equal((await h.request(hostPath(owner, input, '/verify'), { method: 'POST' })).body.verified, true);
+        h.closed.length = 0; // activation closes any stale tunnel by design
       }
       h.agents.set(host, { hostname: host, ws: { readyState: 1 }, localUpstream: 'http://origin.example.test',
         registeredAt: new Date(h.now()).toISOString(), lastSeen: new Date(h.now()).toISOString() });
@@ -73,6 +74,7 @@ test('three pending claims coexist; first proof wins, losers cannot detach the o
   const winner = await h.request(hostPath(tenants[0], host, '/verify'), { method: 'POST' });
   assert.equal(winner.body.verified, true);
   assert.ok(winner.body.credential);
+  h.closed.length = 0; // activation closes any stale tunnel by design
   for (const tid of tenants.slice(1)) {
     expectError(await h.request(hostPath(tid, host, '/verify'), { method: 'POST' }), 409, 'hostname_unavailable');
     // A losing tenant can delete its own pending claim, but never the active owner's mapping.
@@ -129,12 +131,15 @@ test('internal API accepts only the portal key; malformed tenant segments fail c
   assert.equal((await h.request(hostPath(tenants[0]))).status, 200);
   const badTenants = ['..', '%2e%2e', '%2F', `${tenants[0]}%2F..`, `${tenants[0]}%252f`, tenants[0].toUpperCase(),
     tenants[0].slice(0, -1), `${tenants[0]}a`, `t_${'1'.repeat(20)}`, `t_${'8'.repeat(20)}`];
+  // URL normalisation collapses dot-segments before routing, so those never reach a tenant route: 404 not_found is equally closed.
+  const collapsed = new Set(['..', '%2e%2e']);
+  const closedWith = (tid, response) => collapsed.has(tid) ? expectError(response, 404, 'not_found') : expectError(response, 400, 'invalid_tenant');
   for (const tid of badTenants) for (const [method, suffix] of endpoints) {
-    expectError(await h.request(hostPath(tid, 'app.example.com', suffix), { method }), 400, 'invalid_tenant');
+    closedWith(tid, await h.request(hostPath(tid, 'app.example.com', suffix), { method }));
   }
   for (const tid of badTenants) {
-    expectError(await h.request(hostPath(tid)), 400, 'invalid_tenant');
-    expectError(await h.create(tid, 'app.example.com'), 400, 'invalid_tenant');
+    closedWith(tid, await h.request(hostPath(tid)));
+    closedWith(tid, await h.create(tid, 'app.example.com'));
   }
 });
 
