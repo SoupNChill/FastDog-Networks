@@ -24,6 +24,9 @@ export async function init(required = false) {
   csrf = me.csrf;
   if (required && !me.tenant) { location.assign('/login'); throw new Error('Please sign in.'); }
   const logout = document.querySelector('#logout');
+  const signin = document.querySelector('#signin');
+  if (logout) logout.hidden = !me.tenant;
+  if (signin) signin.hidden = Boolean(me.tenant);
   if (logout) logout.onclick = async () => {
     try { await api('/api/logout', 'POST'); location.assign('/login'); } catch (error) { message(error.message); }
   };

@@ -12,3 +12,7 @@ coverage/
 logs/
 *.pid
 zones/dogfood-lan-*.test.json
+
+portal/.test-cache/
+portal/.root-test-output.txt
+portal/test/.state-*/
