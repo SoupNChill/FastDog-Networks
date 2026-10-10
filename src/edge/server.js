@@ -2,7 +2,6 @@
  * Fastdog Edge — Phase 1 reverse proxy + control/DNS API + WS tunnel hub.
  *
  * LAN local-prod only. Do NOT expose EDGE_PORT to the public internet.
- * Summit Lease / Cloudflare on prod1 is untouched; this runs in parallel.
  */
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +11,7 @@ import { env, loadRoutes, defaultUpstream, ROOT } from '../lib/config.js';
 import { forwardHttp } from '../lib/http-forward.js';
 import { inc, get as getMetrics } from '../lib/metrics.js';
 import {
+  closeHost,
   listAgents,
   registerAgent,
   attachWs,
@@ -19,7 +19,11 @@ import {
   getAgentByHost,
   proxyViaTunnel,
 } from '../control/tunnels.js';
+import { operatorAuth } from '../control/auth.js';
+import { createInternalServer, assertLoopbackBind } from '../internal/server.js';
+import { dataDir } from '../onboard/json.js';
 import { watchTunnel } from '../control/heartbeat.js';
+import { assertSafeStartup } from '../lib/startup-guard.js';
 import { dnsRouter } from '../dns/api.js';
 import { onboardRouter } from '../onboard/api.js';
 import { statusService, intervalMs as statusIntervalMs } from '../status/service.js';
@@ -28,7 +32,7 @@ import { billingRouter, billingWebhook } from '../billing/api.js';
 import { createOperatorServer, OPERATOR_BIND, OPERATOR_PORT } from '../operator/server.js';
 
 const PORT = Number(env('EDGE_PORT', '8787'));
-const BIND = env('EDGE_BIND', '0.0.0.0');
+const BIND = env('EDGE_BIND', '127.0.0.1');
 const AGENT_TOKEN = env('AGENT_TOKEN', 'fastdog-local-dev-token');
 
 let routeConfig = loadRoutes();
@@ -64,6 +68,7 @@ app.post('/_fastdog/billing/webhook', express.raw({ type: 'application/json', li
 const jsonParser = express.json({ limit: '1mb' });
 app.use('/_fastdog', jsonParser);
 app.use(billingRouter());
+const requireOperator = operatorAuth(AGENT_TOKEN);
 
 const VERSION = '0.1.0';
 
@@ -99,7 +104,7 @@ app.get('/status.json', async (req, res) => {
   res.json(await statusService.get({ force: req.query.refresh === '1' }));
 });
 
-app.get('/_fastdog/metrics', (_req, res) => {
+app.get('/_fastdog/metrics', requireOperator, (_req, res) => {
   const agents = listAgents();
   res.json(getMetrics({
     agentsRegistered: agents.length,
@@ -108,7 +113,7 @@ app.get('/_fastdog/metrics', (_req, res) => {
 });
 
 // --- Control API (agents) ---
-app.get('/_fastdog/agents', (_req, res) => {
+app.get('/_fastdog/agents', requireOperator, (_req, res) => {
   res.json({ agents: listAgents() });
 });
 
@@ -127,11 +132,11 @@ app.post('/_fastdog/agents/register', (req, res) => {
   }
 });
 
-app.post('/_fastdog/routes/reload', (_req, res) => {
+app.post('/_fastdog/routes/reload', requireOperator, (_req, res) => {
   res.json(reloadRoutes());
 });
 
-app.get('/_fastdog/routes', (_req, res) => {
+app.get('/_fastdog/routes', requireOperator, (_req, res) => {
   res.json({
     file: routeConfig.file,
     routes: Object.fromEntries(routeConfig.routes),
@@ -141,7 +146,7 @@ app.get('/_fastdog/routes', (_req, res) => {
 });
 
 // --- DNS control plane ---
-app.use('/_fastdog/dns', dnsRouter());
+app.use('/_fastdog/dns', requireOperator, dnsRouter());
 app.use('/_fastdog/onboard', onboardRouter({ reloadRoutes, staticRouteForHost: (host) => routeConfig.routes.has(host) }));
 
 // Catch-all reverse proxy (after control routes)
@@ -168,6 +173,15 @@ app.use((req, res) => {
 
 const server = http.createServer(app);
 const operatorServer = createOperatorServer({ edgeHealthy: () => server.listening });
+const internalEnabled = env('INTERNAL_ENABLED', '0') === '1';
+const internalBind = internalEnabled ? assertLoopbackBind(env('INTERNAL_BIND', '127.0.0.1')) : null;
+const internalPort = Number(env('INTERNAL_PORT', '8789'));
+if (internalEnabled && (!Number.isInteger(internalPort) || internalPort < 1 || internalPort > 65535)) throw new Error('invalid INTERNAL_PORT');
+const internalServer = internalEnabled ? createInternalServer({
+  portalKey: env('PORTAL_KEY', ''), agentToken: AGENT_TOKEN, dataDir: dataDir(),
+  registry: { getAgentByHost, closeHost },
+}) : null;
+internalServer?.on('routesChanged', reloadRoutes);
 
 const wss = new WebSocketServer({ server, path: '/_fastdog/tunnel' });
 
@@ -189,12 +203,14 @@ wss.on('connection', (ws, req) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
+  assertSafeStartup();
   if (OPERATOR_BIND !== '127.0.0.1' && OPERATOR_BIND !== '::1') throw new Error('OPERATOR_BIND must be a loopback address');
   if (!Number.isSafeInteger(OPERATOR_PORT) || OPERATOR_PORT < 1 || OPERATOR_PORT > 65535) throw new Error('invalid OPERATOR_PORT');
   if (OPERATOR_PORT === PORT && OPERATOR_BIND === BIND) throw new Error('operator and edge listeners conflict');
   if (statusIntervalMs > 0) setInterval(() => {
     statusService.refresh().catch((error) => console.warn(`status: periodic check failed: ${error.message}`));
   }, statusIntervalMs).unref();
+  internalServer?.listen(internalPort, internalBind);
   server.listen(PORT, BIND, () => {
     console.log(`fastdog-edge listening on http://${BIND}:${PORT}`);
     console.log(`  health:  GET /health`);
@@ -210,4 +226,4 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
-export { app, server, operatorServer, resolveUpstream, reloadRoutes, PORT, BIND };
+export { app, server, operatorServer, internalServer, resolveUpstream, reloadRoutes, PORT, BIND };

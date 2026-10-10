@@ -1,6 +1,8 @@
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { inc } from '../lib/metrics.js';
-import { validCredential } from '../onboard/store.js';
+import { validCredential, tenantOwner } from '../onboard/credentials.js';
+import { normalizeHostname } from '../onboard/hostname.js';
+import { equalToken } from './auth.js';
 
 /**
  * In-memory tunnel registry for Phase 1.
@@ -28,8 +30,10 @@ export function getAgentByHost(hostname) {
   return agents.get(id) || null;
 }
 
-export function registerAgent({ name, hostname, localUpstream, token, expectedToken }) {
-  if (!token || !(expectedToken && token === expectedToken) && !validCredential(token, hostname)) {
+export function registerAgent({ name, hostname, localUpstream, token, expectedToken, dataDir }) {
+  const owner = tenantOwner(hostname, dataDir);
+  const operator = equalToken(token, expectedToken);
+  if (!token || (operator && owner) || (!operator && !validCredential(token, hostname, dataDir))) {
     const err = new Error('unauthorized');
     err.status = 401;
     throw err;
@@ -39,7 +43,7 @@ export function registerAgent({ name, hostname, localUpstream, token, expectedTo
     err.status = 400;
     throw err;
   }
-  const host = hostname.toLowerCase();
+  const host = owner ? normalizeHostname(hostname) : hostname.toLowerCase();
   // Replace existing agent for same hostname
   const existingId = hostIndex.get(host);
   if (existingId) {
@@ -177,6 +181,17 @@ export function proxyViaTunnel(agent, req, res) {
       res.end(JSON.stringify({ error: 'request_body_error', detail: err.message }));
     }
   });
+}
+
+export function closeHost(hostname) {
+  const host = String(hostname).toLowerCase();
+  const id = hostIndex.get(host);
+  const agent = agents.get(id);
+  hostIndex.delete(host);
+  agents.delete(id);
+  if (agent?.ws) {
+    try { agent.ws.terminate ? agent.ws.terminate() : agent.ws.close(); } catch { /* Already closed. */ }
+  }
 }
 
 export function _resetForTests() {

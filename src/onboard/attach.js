@@ -66,9 +66,9 @@ export function attachHost({ hostname } = {}) {
   };
 }
 
-async function resolveCname(hostname) {
+async function resolveCname(hostname, resolver) {
   try {
-    const records = await dns.resolveCname(hostname);
+    const records = await resolver.resolveCname(hostname);
     return { type: 'cname', records };
   } catch (error) {
     if (error.code === 'ENODATA' || error.code === 'ENOTFOUND') {
@@ -78,9 +78,9 @@ async function resolveCname(hostname) {
   }
 }
 
-async function resolveA(hostname) {
+async function resolveA(hostname, resolver) {
   try {
-    const records = await dns.resolve4(hostname);
+    const records = await resolver.resolve4(hostname);
     return { type: 'a', records };
   } catch (error) {
     if (error.code === 'ENODATA' || error.code === 'ENOTFOUND') {
@@ -90,19 +90,20 @@ async function resolveA(hostname) {
   }
 }
 
-export async function checkDnsVerification(hostname) {
-  const target = attachTarget().toLowerCase().replace(/\.$/, '');
-  const altTarget = altAttachTarget().toLowerCase().replace(/\.$/, '');
-  const edgeAddress = edgeIp();
-  const cname = await resolveCname(hostname);
+export async function checkDnsVerification(hostname, opts = {}) {
+  const resolver = opts.resolver || dns;
+  const target = (opts.attachTarget ?? attachTarget()).toLowerCase().replace(/\.$/, '');
+  const altTarget = (opts.altAttachTarget ?? altAttachTarget()).toLowerCase().replace(/\.$/, '');
+  const edgeAddress = opts.edgePublicIp ?? edgeIp();
+  const cname = await resolveCname(hostname, resolver);
   if (cname.type === 'cname' && cname.records.length > 0) {
     const found = cname.records[0].toLowerCase().replace(/\.$/, '');
     if (found === target || found === altTarget) {
       return { verified: true, method: 'cname', target: found };
     }
     let chainTarget = found;
-    for (let i = 0; i < 5; i++) {
-      const chain = await resolveCname(chainTarget);
+    for (let i = 0; i < 4; i++) {
+      const chain = await resolveCname(chainTarget, resolver);
       if (chain.type !== 'cname' || chain.records.length === 0) break;
       chainTarget = chain.records[0].toLowerCase().replace(/\.$/, '');
       if (chainTarget === target || chainTarget === altTarget) {
@@ -111,7 +112,7 @@ export async function checkDnsVerification(hostname) {
     }
     return { verified: false, error: 'cname_wrong_target', found, expected: target };
   }
-  const aRecord = await resolveA(hostname);
+  const aRecord = await resolveA(hostname, resolver);
   if (aRecord.type === 'a' && aRecord.records.length > 0) {
     if (aRecord.records.includes(edgeAddress)) {
       return { verified: true, method: 'a_record', target: edgeAddress };
@@ -121,14 +122,13 @@ export async function checkDnsVerification(hostname) {
   return { verified: false, error: 'no_dns_record', expected: target };
 }
 
+// Requires the filtered `fdlog` snippet (deploy/caddy/access-logs.snippet) to be imported once at the top of the Caddyfile.
+// Without it Caddy refuses the config, so a block can never fall back to the default logger (which records ?token= and headers).
 export function generateCaddyBlock(hostname) {
-  const block = `${hostname} {
+  return `${hostname} {
+    import fdlog ${hostname}
     reverse_proxy localhost:8787
-    log {
-        output file /var/log/caddy/${hostname}.log
-    }
 }`;
-  return block;
 }
 
 function addToTunnelHosts(hostname) {

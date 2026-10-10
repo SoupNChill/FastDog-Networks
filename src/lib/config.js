@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import yaml from 'js-yaml';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, '../..');
@@ -18,7 +20,7 @@ export function loadRoutes(filePath = env('ROUTES_FILE', path.join(ROOT, 'config
   if (abs.endsWith('.json')) {
     data = JSON.parse(raw);
   } else {
-    data = yaml.load(raw) || {};
+    data = require('js-yaml').load(raw) || {};
   }
   const routes = data.routes || data || {};
   const map = new Map();
@@ -40,4 +42,11 @@ export function loadRoutes(filePath = env('ROUTES_FILE', path.join(ROOT, 'config
 
 export function defaultUpstream() {
   return env('DEFAULT_UPSTREAM', 'http://127.0.0.1:9999').replace(/\/$/, '');
+}
+
+export function reservedSuffixes(attachTarget, altAttachTarget, configured = process.env.RESERVED_SUFFIXES) {
+  if (configured !== undefined) return configured.split(',').map((s) => s.trim().toLowerCase().replace(/\.$/, '')).filter(Boolean);
+  // Reserving the final two labels is conservative for multi-label public suffixes.
+  const domains = [attachTarget, altAttachTarget].filter(Boolean).map((host) => host.toLowerCase().replace(/\.$/, '').split('.').slice(-2).join('.'));
+  return [...new Set([...domains, 'localhost', 'local', 'lan', 'internal', 'test', 'invalid', 'example'])];
 }

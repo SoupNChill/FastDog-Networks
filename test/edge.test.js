@@ -104,14 +104,14 @@ describe('health endpoint (live server)', () => {
   });
 
   it('GET /_fastdog/routes returns config', async () => {
-    const res = await fetch(`http://127.0.0.1:${port}/_fastdog/routes`);
+    const res = await fetch(`http://127.0.0.1:${port}/_fastdog/routes`, { headers: { 'x-fastdog-token': 'test-token' } });
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.ok(body.routes['demo.fastdog.local']);
   });
 
   it('DNS list zones includes trysummitlease.com', async () => {
-    const res = await fetch(`http://127.0.0.1:${port}/_fastdog/dns/zones`);
+    const res = await fetch(`http://127.0.0.1:${port}/_fastdog/dns/zones`, { headers: { 'x-fastdog-token': 'test-token' } });
     const body = await res.json();
     assert.ok(body.zones.includes('trysummitlease.com'));
   });
@@ -128,12 +128,12 @@ describe('health endpoint (live server)', () => {
       }),
     });
     assert.equal(reg.status, 201);
-    const agents = await (await fetch(`http://127.0.0.1:${port}/_fastdog/agents`)).json();
+    const agents = await (await fetch(`http://127.0.0.1:${port}/_fastdog/agents`, { headers: { 'x-fastdog-token': 'test-token' } })).json();
     assert.ok(agents.agents.some((a) => a.hostname === 'tunnel.example.local'));
   });
 
   it('GET /_fastdog/metrics includes registration and proxy counters', async () => {
-    const before = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`)).json();
+    const before = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`, { headers: { 'x-fastdog-token': 'test-token' } })).json();
     assert.ok(before.registerCount >= 1);
     assert.ok(before.agentsRegistered >= 1);
     assert.equal(before.tunnelConnected, false);
@@ -143,7 +143,7 @@ describe('health endpoint (live server)', () => {
         res.on('end', resolve);
       }).on('error', reject);
     });
-    const after = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`)).json();
+    const after = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`, { headers: { 'x-fastdog-token': 'test-token' } })).json();
     assert.equal(after.requestsProxied, before.requestsProxied + 1);
     assert.equal(after.requestsStatic, before.requestsStatic + 1);
     assert.equal(after.registerCount, before.registerCount);
@@ -156,12 +156,12 @@ describe('health endpoint (live server)', () => {
       ws.once('message', resolve);
       ws.once('error', reject);
     });
-    const connected = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`)).json();
+    const connected = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`, { headers: { 'x-fastdog-token': 'test-token' } })).json();
     assert.equal(connected.tunnelConnected, true);
     assert.equal(connected.agentsConnected, 1);
     ws.close();
     await new Promise((resolve) => ws.once('close', resolve));
-    const before = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`)).json();
+    const before = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`, { headers: { 'x-fastdog-token': 'test-token' } })).json();
     assert.equal(before.tunnelConnected, false);
     await new Promise((resolve, reject) => {
       http.get({ hostname: '127.0.0.1', port, path: '/test', headers: { Host: 'tunnel.example.local' } }, (res) => {
@@ -169,7 +169,7 @@ describe('health endpoint (live server)', () => {
         res.on('end', resolve);
       }).on('error', reject);
     });
-    const after = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`)).json();
+    const after = await (await fetch(`http://127.0.0.1:${port}/_fastdog/metrics`, { headers: { 'x-fastdog-token': 'test-token' } })).json();
     assert.equal(after.requestsProxied, before.requestsProxied + 1);
     assert.equal(after.requestsTunnel, before.requestsTunnel + 1);
   });
