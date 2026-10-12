@@ -6,7 +6,7 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026100902 3600 600 604800 300",
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026101201 3600 600 604800 300",
       "comment": "Serial: YYYYMMDDNN \u2014 bump NN on each edit"
     },
     {
@@ -50,6 +50,13 @@
       "ttl": 300,
       "content": "157.230.57.32",
       "comment": "CNAME target for hostname-attach onboarding"
+    },
+    {
+      "name": "portal",
+      "type": "A",
+      "ttl": 300,
+      "content": "157.230.57.32",
+      "comment": "Self-serve portal (gated, invite-only)"
     },
     {
       "name": "@",
@@ -136,5 +143,5 @@
       "comment": "Verdict antibot decide / demo (FastDog edge)"
     }
   ],
-  "updated_at": "2026-10-08T17:42:58Z"
+  "updated_at": "2026-10-12T15:32:19Z"
 }
