@@ -78,3 +78,9 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE: deploy, rollback, DNS sync, Caddy certificates, agent attach, portal invites/outbox and Verdict runbooks under `runbooks/`.
 - DONE: dated decisions with repository/git provenance in `DECISIONS.md`.
 - DONE: per-box inventory and secret-location/owner skeleton in `INVENTORY.md`; unverified live facts remain `TODO(operator)`. No live deployment or outstanding security finding is marked complete by this lane.
+
+## Open after the Day 3 reviews (flags stay off)
+- MEDIUM (re-check): a tenant that controls its own authoritative DNS can answer conclusively once every few checks and so never reach the inconclusive cap. Consider a cumulative inconclusive ratio over a window instead of a streak.
+- MEDIUM (suspension): suspending a tenant does not yet remove its edge hosts, tunnels or credentials. Until that ships, the operator revokes them per host (runbooks/portal-invites.md).
+- MEDIUM (outbox): files in the outbox hold live verify and reset links and are never swept. Add a TTL sweep, or delete each file after delivery.
+- MEDIUM (agent): the agent token still travels in the WebSocket query string. Move it to a header and confirm access logs drop the query string (they already do).

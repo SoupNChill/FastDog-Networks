@@ -81,3 +81,10 @@ Documented LAN address `192.168.200.7`. [Parallel deployment](../deploy/PARALLEL
 | Existing application/tunnel secret paths: TODO(operator) | TODO(operator) |
 
 Operator completion checklist: confirm managers/users, release revisions, binds/firewalls, effective data paths, backup destinations/retention/restore test date and secret-file ownership without exposing values. Reconcile historical deployment notes with current records before any operational action.
+
+## Live edge facts (operator-verified 2026-10-12)
+
+Edge facts (live, Oct 12): units: caddy, fastdog-edge (:8787, plus :8788 and :8789 in the same process), fastdog-portal (:8790), domain-search, fastdog-coredns (53 tcp/udp, 8053, 9153 metrics), verdict-edge, verdict-shadow, verdict-asn-refresh.timer, verdict-shadow-summary.timer, fail2ban, droplet-agent. Unknown node listeners: :8791, :8089.
+Caddy: :80, :443 tcp+udp, admin on 127.0.0.1:2019. Caddyfile: /etc/caddy/Caddyfile, with backups in /etc/caddy/Caddyfile.bak-* and /root/backups/.
+Secrets (path, owner, mode 600): /opt/fastdog-edge/.env (fastdog); /etc/fastdog/{domain-search,opensrs,opensrs_live_registrant_profile,opensrs_test_registrant,portal,verdict}.env and verdict-panel.key (root); /root/portal-review-credentials.txt, /root/portal-invites.txt, /root/*-invite*.txt (root); edge data /opt/fastdog-edge/data/agent-credentials.json (fastdog). Portal state: /var/lib/fastdog-portal (fdportal, 700).
+Backups: /root/backups (edge-d2-*, Caddyfile.pre-edgeph-20261012-154808, edge.env.pre-internal-*, domain-search-*).
