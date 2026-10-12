@@ -13,7 +13,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
     const raw = token();
     data.links = data.links.filter((item) => item.expires_at > now() && !(item.user_id === user.id && item.kind === kind));
     data.links.push({ token_hash: digest(raw), user_id: user.id, kind, expires_at: now() + 3600000 });
-    return `${config.origin}/login#${new URLSearchParams({ kind, token: raw })}`;
+    return `${config.origin}/${kind === 'verify-email' ? 'verify-email' : 'login'}#${new URLSearchParams({ kind, token: raw })}`;
   }
   function findLink(data, body, kind) {
     return typeof body.token === 'string' && data.links.find((item) => item.token_hash === digest(body.token)

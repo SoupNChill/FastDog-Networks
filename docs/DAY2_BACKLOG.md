@@ -48,14 +48,39 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 ## Lane C (on-demand TLS ask)
 - DONE: default-off `TLS_ASK_ENABLED`; direct-loopback-only ask, rejecting forwarded headers including empty values.
 - DONE: normalized verified active claim / explicit active legacy attachment approval; reserved, malformed, pending, expired and unknown names denied. Ambiguous tunnel lists do not independently authorize issuance.
-- DONE: bounded in-memory limits of 30 successful approvals/minute/client and 300/minute globally, with 429 and retry timing.
+- DONE (M1 follow-up): bounded in-memory deny budgets of 30/minute per normalized name and 300/minute globally, with 429 and retry timing; approved names bypass both budgets and no client budget applies.
 - DONE: offline handler tests for flag, authorization, normalization, spoofing, limits, resets and current-storage reads; existing ask fixtures explicitly opt in.
 - DONE: unapplied Caddy global on-demand TLS snippet and operator documentation; deployment validation remains an operator step.
-- DONE: review MEDIUM — denied/unknown SNI consumes neither approval budget; regression tests cover shared-loopback exhaustion.
+- DONE: review MEDIUM (superseded by M1) — all denied/unknown SNI now consumes ask budgets; regression tests cover exhaustion.
 - DONE: review MEDIUM — deny multiple active records and legacy/tenant coexistence; regression tests cover duplicate owners, invalid competing owners and pending claims.
 
 ## Open after Day 2 reviews (must fix before enabling the flag)
-- MEDIUM (TLS ask, PR #38): deny path is unmetered and does synchronous disk reads per ask; meter denies and cache the owner index. Blocks enabling TLS_ASK_ENABLED.
+- DONE (M1, TLS ask, PR #38): meter only denied asks after owner lookup; cache the owner index, invalidate on local store writes and check external changes at most once per second. Unknown-name floods perform no hot-path disk reads; activation and flag-off regressions covered.
 - MEDIUM (claim re-check, PR #39): inconclusive DNS results are skipped forever; cap consecutive inconclusive checks so a stale tenant cannot hold a hostname. Blocks enabling RECHECK_ENABLED.
+- MEDIUM — DONE (M3, name scan, PR #36): removed whole-doc exemptions (planning doc pins 34 hashes; API contract needs none), pruned stale legacy hash, grouped paths by directory; only deny-names.json has a whole-file exemption. Stale hashes/files and unused occurrences fail; exact reviewed baselines are 61 files, 350 hashes and 398 line occurrences. Test header documents exemption review.
+- Edge access logs: top-level `level`, `ts`, `logger`, `msg` fields still appear in fdlog output (Caddy adds them outside the filter); harmless, but the snippet comment should say so.
+
+- DONE (M1 review HIGH/MEDIUM): active verified owners always bypass deny budgets without consuming them. Single-loopback-client regressions cover unknown floods followed by approval, repeated approvals, activation after budget exhaustion, and unknown-flood 429s without hot-path disk reads. `TLS_ASK_ENABLED` remains default-off.
+- MEDIUM (TLS ask, PR #38): deny path is unmetered and does synchronous disk reads per ask; meter denies and cache the owner index. Blocks enabling TLS_ASK_ENABLED.
+- DONE (M2, claim re-check, PR #39): persist `recheck_inconclusive`; the eighth consecutive inconclusive check (~48h at 6h intervals) and each later check advance the suspend failure counter. Configure `inconclusiveBeforeFailure` in claims/server options or per recheck run (default 8, positive integer). Any conclusive result or explicit activation resets the streak. With at least 10 active claims checked, more than 50% inconclusive tenant votes freezes all inconclusive counters for that run (one vote per tenant, inconclusive only when a strict majority of its checked claims are inconclusive); conclusive results still apply. Fake resolver/clock coverage includes three-tenant isolation and the exact 50% boundary.
 - MEDIUM (name scan, PR #36): about 60 legacy files exempt by line hash and three whole-file exemptions (two docs and deny-names.json); move docs to per-line exemptions and shrink the legacy list.
 - Edge access logs: top-level `level`, `ts`, `logger`, `msg` fields still appear in fdlog output (Caddy adds them outside the filter); harmless, but the snippet comment should say so.
+
+- DONE (M2 follow-up): minimum outage sample defaults to `MIN_OUTAGE_SAMPLE = 10`, configurable via `minOutageSample` claims/server options or per run (positive integer). Smaller samples advance normally. Tests cover single-claim suspension, noisy-tenant isolation, strict majority boundaries and broad outages. Default suspension is the tenth inconclusive check (~60h); `RECHECK_ENABLED` remains off by default.
+- DONE (M2 follow-up): untracked and deleted committed generated test state; ignore `test/**/.internal-*/` and `test/**/.tmp-*/`.
+- MEDIUM — DONE (M3 follow-up): baseline counts require exact equality for increases and decreases. Tracked binary/NUL, invalid UTF-8, symlink and sensitive files fail unless explicitly exempted by path; only three existing site PNG assets, four fonts and three environment templates are exempted, each with a reason. Temporary Git fixtures cover rejection and exact-path exemptions; sensitive files are never read.
+## Lane P (portal login and branding)
+- DONE: standalone branded login, invite-only signup and email verification; shared site palette, local fonts, responsive header/footer, accessible labels and focus styles.
+- DONE: active-session gates on every app page and business API, including domain search; noindex response headers and HTML metadata. Invalid invitations create no accounts.
+- DONE: portal-local branding assets remove the sibling-directory deployment dependency; meaningful HTML and noscript guidance on every page, with page/MIME/CSP/asset regression tests. Root-origin proxy requirement documented.
+## Lane H (handover documentation)
+- DONE: source-based architecture, ASCII request flows, stores, feature defaults and trust boundaries in `ARCHITECTURE.md`.
+- DONE: deploy, rollback, DNS sync, Caddy certificates, agent attach, portal invites/outbox and Verdict runbooks under `runbooks/`.
+- DONE: dated decisions with repository/git provenance in `DECISIONS.md`.
+- DONE: per-box inventory and secret-location/owner skeleton in `INVENTORY.md`; unverified live facts remain `TODO(operator)`. No live deployment or outstanding security finding is marked complete by this lane.
+
+## Open after the Day 3 reviews (flags stay off)
+- MEDIUM (re-check): a tenant that controls its own authoritative DNS can answer conclusively once every few checks and so never reach the inconclusive cap. Consider a cumulative inconclusive ratio over a window instead of a streak.
+- MEDIUM (suspension): suspending a tenant does not yet remove its edge hosts, tunnels or credentials. Until that ships, the operator revokes them per host (runbooks/portal-invites.md).
+- MEDIUM (outbox): files in the outbox hold live verify and reset links and are never swept. Add a TTL sweep, or delete each file after delivery.
+- MEDIUM (agent): the agent token still travels in the WebSocket query string. Move it to a header and confirm access logs drop the query string (they already do).

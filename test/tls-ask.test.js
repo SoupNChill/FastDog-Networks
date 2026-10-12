@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { readFileSync } from 'node:fs';
+import fs, { readFileSync } from 'node:fs';
 import { createInternalServer } from '../src/internal/server.js';
+import { createClaims } from '../src/internal/claims.js';
 import { writeJson } from '../src/onboard/json.js';
 import { tempDir } from './helpers/temp-dir.js';
 
@@ -31,7 +32,7 @@ function setup(t, overrides = {}) {
     assert.equal(res.writableEnded, true);
     return res;
   }
-  return { ask, save, claim, logs, advance: () => { time += 60000; } };
+  return { ask, save, claim, logs, directory, advance: (ms = 60000) => { time += ms; } };
 }
 
 test('TLS ask defaults off; only TLS_ASK_ENABLED=1 enables the environment flag', async (t) => {
@@ -94,26 +95,29 @@ test('TLS ask rejects non-loopback and any forwarded header, including empty hea
   for (const address of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) assert.equal((await h.ask(undefined, { address })).statusCode, 200);
 });
 
-test('TLS ask limits each client across host queries and IPv4 mapped forms, then resets', async (t) => {
+test('TLS ask meters only denied names and resets with retry timing', async (t) => {
   const h = setup(t);
-  h.save([h.claim('app.example.test')]);
-  for (let i = 0; i < 30; i++) assert.equal((await h.ask()).statusCode, 200);
-  const limited = await h.ask(undefined, { address: '::ffff:127.0.0.1' });
+  for (let i = 0; i < 30; i++) assert.equal((await h.ask()).statusCode, 404);
+  const limited = await h.ask(' APP.EXAMPLE.TEST. ');
   assert.equal(limited.statusCode, 429);
   assert.equal(limited.headers['retry-after'], '60');
   assert.deepEqual(JSON.parse(limited.body), { error: 'rate_limited', retry_after: 60 });
-  assert.equal((await h.ask(undefined, { address: '127.0.0.2' })).statusCode, 200);
+  assert.equal((await h.ask('other.example.test')).statusCode, 404);
   h.advance();
-  assert.equal((await h.ask()).statusCode, 200);
+  assert.equal((await h.ask()).statusCode, 404);
 });
 
-test('TLS ask limits all clients to 300 approvals per minute', async (t) => {
+test('TLS ask approved floods neither consume deny budgets nor block approvals', async (t) => {
   const h = setup(t);
   h.save([h.claim('app.example.test')]);
-  for (let i = 0; i < 300; i++) assert.equal((await h.ask(undefined, { address: `127.0.0.${Math.floor(i / 30) + 1}` })).statusCode, 200);
-  assert.equal((await h.ask(undefined, { address: '::1' })).statusCode, 429);
+  for (let i = 0; i < 310; i++) assert.equal((await h.ask()).statusCode, 200);
+  for (let i = 0; i < 300; i++) {
+    assert.equal((await h.ask(`unknown-${i}.example.test`)).statusCode, 404);
+  }
+  assert.equal((await h.ask('another.example.test')).statusCode, 429);
+  for (let i = 0; i < 310; i++) assert.equal((await h.ask()).statusCode, 200);
   h.advance();
-  assert.equal((await h.ask(undefined, { address: '::1' })).statusCode, 200);
+  assert.equal((await h.ask('another.example.test')).statusCode, 404);
 });
 
 test('Caddy snippet places ask inside global on_demand_tls and leaves site commented', () => {
@@ -123,17 +127,73 @@ test('Caddy snippet places ask inside global on_demand_tls and leaves site comme
   assert.match(snippet, /#\s+on_demand/);
 });
 
-test('TLS ask denied queries cannot consume approval budgets', async (t) => {
+test('TLS ask meters unknown-name floods without hot-path disk reads', async (t) => {
   const h = setup(t);
-  h.save([h.claim('app.example.test'), h.claim('pending.example.test', { status: 'pending' })]);
-  for (let i = 0; i < 310; i++) {
-    for (const host of [`unknown-${i}.example.test`, 'pending.example.test', '*.example.test', 'reserved.example.test']) {
-      assert.equal((await h.ask(host)).statusCode, 404);
-    }
+  h.save([h.claim('app.example.test')]);
+  assert.equal((await h.ask('warm.example.test')).statusCode, 404);
+  const read = t.mock.method(fs, 'readFileSync');
+  const stat = t.mock.method(fs, 'statSync');
+  for (let i = 1; i < 300; i++) {
+    assert.equal((await h.ask(`unknown-${i}.example.test`)).statusCode, 404);
   }
-  for (let i = 0; i < 30; i++) assert.equal((await h.ask()).statusCode, 200);
-  assert.equal((await h.ask()).statusCode, 429);
-  assert.equal((await h.ask('unknown.example.test')).statusCode, 404);
+  assert.equal((await h.ask('another.example.test')).statusCode, 429);
+  assert.equal((await h.ask()).statusCode, 200);
+  assert.equal(read.mock.callCount(), 0);
+  assert.equal(stat.mock.callCount(), 0);
+});
+
+test('TLS ask meters denied names, malformed inputs and reserved names', async (t) => {
+  for (const host of ['unknown.example.test', '*.example.test', 'reserved.example.test']) {
+    const h = setup(t);
+    for (let i = 0; i < 30; i++) assert.equal((await h.ask(host)).statusCode, 404);
+    assert.equal((await h.ask(host, { address: '::1' })).statusCode, 429);
+    h.advance();
+    assert.equal((await h.ask(host)).statusCode, 404);
+  }
+});
+
+test('TLS ask refreshes immediately when a claim activates', async (t) => {
+  const h = setup(t);
+  const host = 'activation.example.test';
+  const tid = 't_aaaaaaaaaaaaaaaaaaaa';
+  let proof;
+  const claims = createClaims({ dataDir: h.directory, attachTarget: 'attach.example.test',
+    altAttachTarget: 'edge.example.test', reservedSuffixes: [],
+    resolver: { resolveCname: async () => ['attach.example.test'], resolveTxt: async () => [[proof]] },
+  }, () => {});
+  proof = claims.create(tid, { hostname: host, hostname_limit: 5 }).body.dns.txt.value;
+  for (let i = 0; i < 300; i++) {
+    assert.equal((await h.ask(host)).statusCode, i < 30 ? 404 : 429);
+  }
+  await claims.verify(tid, host);
+  assert.equal((await h.ask(host)).statusCode, 200);
+});
+
+test('TLS ask checks external changes once per second and only rereads changed stores', async (t) => {
+  const h = setup(t);
+  h.save([]);
+  assert.equal((await h.ask()).statusCode, 404);
+  const read = t.mock.method(fs, 'readFileSync');
+  const stat = t.mock.method(fs, 'statSync');
+  h.advance(1000);
+  assert.equal((await h.ask()).statusCode, 404);
+  assert.equal(read.mock.callCount(), 0);
+  assert.equal(stat.mock.callCount(), 2);
+  fs.writeFileSync(`${h.directory}/tenant_hostnames.json`, JSON.stringify([h.claim('app.example.test')]));
+  assert.equal((await h.ask()).statusCode, 404);
+  assert.equal(stat.mock.callCount(), 2);
+  h.advance(1000);
+  assert.equal((await h.ask()).statusCode, 200);
+  assert.equal(read.mock.callCount(), 1);
+});
+
+test('TLS ask flag off avoids all store reads and metering', async (t) => {
+  const h = setup(t, { tlsAskEnabled: false });
+  const read = t.mock.method(fs, 'readFileSync');
+  const stat = t.mock.method(fs, 'statSync');
+  for (let i = 0; i < 310; i++) assert.equal((await h.ask()).statusCode, 404);
+  assert.equal(read.mock.callCount(), 0);
+  assert.equal(stat.mock.callCount(), 0);
 });
 
 test('TLS ask requires one active owner and denies legacy/tenant coexistence', async (t) => {

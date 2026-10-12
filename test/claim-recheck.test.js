@@ -7,12 +7,13 @@ import { issueCredential, validCredential } from '../src/onboard/credentials.js'
 import { tempDir } from './helpers/temp-dir.js';
 import { fixedClock } from './helpers/clock.js';
 
-function harness(t) {
+function harness(t, options = {}) {
   const dataDir = tempDir(t);
   const clock = fixedClock();
   const closed = [], calls = [], answers = new Map();
   let changes = 0;
-  const records = ['a', 'b', 'c'].map((letter, i) => {
+  const records = Array.from({ length: options.claimCount ?? 3 }, (_, i) => {
+    const letter = String.fromCharCode(97 + i);
     const hostname = `${letter}.example.test`, tenant_id = `t_${letter.repeat(20)}`;
     const credential = issueCredential({ hostname, tenant_id }, dataDir, clock.now);
     return { hostname, tenant_id, status: 'active', method: i === 1 ? 'a_record' : 'cname',
@@ -30,7 +31,7 @@ function harness(t) {
   }]));
   const claims = createClaims({ dataDir, now: clock.now, resolver, attachTarget: 'attach.example.test',
     altAttachTarget: 'edge.example.test', edgePublicIp: '192.0.2.1', reservedSuffixes: [],
-    registry: { closeHost: (host) => closed.push(host) } }, () => changes++);
+    registry: { closeHost: (host) => closed.push(host) }, ...options }, () => changes++);
   return { claims, clock, resolver, records, answers, closed, calls, dataDir, save,
     read: () => readJson('tenant_hostnames.json', [], dataDir), changes: () => changes };
 }
@@ -176,7 +177,7 @@ test('chained proofs use one A lookup; a stalled lookup is bounded and skipped',
 });
 
 test('resolver outages preserve counters and timestamps across repeated runs', async (t) => {
-  const h = harness(t);
+  const h = harness(t, { claimCount: 10 });
   h.answers.set(h.records[0].hostname, []);
   await h.claims.recheckActiveClaims();
   const before = h.read();
@@ -225,4 +226,160 @@ test('first to prove wins among suspended and pending claims regardless of file 
     assert.equal(h.read().filter((row) => row.status === 'active').length, 1);
     assert.equal(h.read()[winner].status, 'active');
   }
+});
+
+
+test('three tenants: default inconclusive cap suspends only the stale owner and restore resets streak', async (t) => {
+  const h = harness(t), [a, b, c] = h.records;
+  for (let run = 1; run <= 10; run++) {
+    h.answers.set(a.hostname, Object.assign(new Error('resolver failure'), { code: run % 2 ? 'ETIMEOUT' : 'SERVFAIL' }));
+    h.clock.advance(21600000);
+    await h.claims.recheckActiveClaims();
+    const [row, ...others] = h.read();
+    assert.equal(row.recheck_inconclusive, run);
+    assert.equal(row.recheck_failures ?? 0, Math.max(0, run - 7));
+    assert.equal(row.status, run === 10 ? 'suspended' : 'active');
+    assert.equal(row.last_rechecked_at, new Date(h.clock.now()).toISOString());
+    for (const other of others) {
+      assert.equal(other.status, 'active');
+      assert.equal(other.recheck_inconclusive, 0);
+      assert.equal(other.recheck_failures, 0);
+    }
+  }
+  assert.deepEqual(h.closed, [a.hostname]);
+  assert.equal(h.changes(), 1);
+  assert.equal(h.claims.ask(a.hostname), false);
+  assert.equal(validCredential(a.credential.token, a.hostname, h.dataDir), false);
+  for (const row of [b, c]) assert.equal(validCredential(row.credential.token, row.hostname, h.dataDir), true);
+  assert.deepEqual(readJson('tunnel_hosts.json', [], h.dataDir), [b.hostname, c.hostname]);
+  h.answers.clear();
+  h.resolver.resolveTxt = async () => [[a.txt_value]];
+  await h.claims.verify(a.tenant_id, a.hostname);
+  assert.equal(h.read()[0].recheck_inconclusive, 0);
+  assert.equal(h.read()[0].recheck_failures, 0);
+});
+
+test('configured cap and conclusive results reset the inconclusive streak', async (t) => {
+  const h = harness(t, { inconclusiveBeforeFailure: 2 }), [a] = h.records;
+  const error = Object.assign(new Error('timeout'), { code: 'ETIMEOUT' });
+  h.answers.set(a.hostname, error);
+  await h.claims.recheckActiveClaims();
+  await h.claims.recheckActiveClaims();
+  assert.equal(h.read()[0].recheck_failures, 1);
+  h.answers.set(a.hostname, []);
+  await h.claims.recheckActiveClaims();
+  assert.equal(h.read()[0].recheck_inconclusive, 0);
+  assert.equal(h.read()[0].recheck_failures, 2);
+  h.answers.set(a.hostname, error);
+  await h.claims.recheckActiveClaims();
+  assert.equal(h.read()[0].recheck_inconclusive, 1);
+  assert.equal(h.read()[0].recheck_failures, 2);
+  h.answers.clear();
+  await h.claims.recheckActiveClaims();
+  assert.equal(h.read()[0].recheck_inconclusive, 0);
+  assert.equal(h.read()[0].recheck_failures, 0);
+  h.answers.set(a.hostname, error);
+  await h.claims.recheckActiveClaims({ inconclusiveBeforeFailure: 1 });
+  assert.equal(h.read()[0].recheck_failures, 1);
+  for (const value of [0, -1, 1.5, '2', null, NaN, Infinity]) {
+    await assert.rejects(h.claims.recheckActiveClaims({ inconclusiveBeforeFailure: value }), RangeError);
+  }
+});
+
+test('majority outage freezes existing streaks but still applies conclusive results', async (t) => {
+  const h = harness(t, { inconclusiveBeforeFailure: 2, minOutageSample: 3 }), [a, b, c] = h.records;
+  const error = Object.assign(new Error('resolver failure'), { code: 'SERVFAIL' });
+  h.answers.set(a.hostname, error);
+  await h.claims.recheckActiveClaims();
+  const before = h.read()[0];
+  h.answers.set(b.hostname, error);
+  h.answers.set(c.hostname, []);
+  h.clock.advance(21600000);
+  await h.claims.recheckActiveClaims();
+  assert.deepEqual(h.read()[0], before);
+  assert.equal(h.read()[1].recheck_inconclusive, 0);
+  assert.equal(h.read()[2].recheck_failures, 1);
+  h.answers.delete(b.hostname);
+  await h.claims.recheckActiveClaims();
+  assert.equal(h.read()[0].recheck_inconclusive, 2);
+  assert.equal(h.read()[0].recheck_failures, 1);
+});
+
+test('exactly half inconclusive advances counters; pending claims do not dilute outage ratio', async (t) => {
+  const h = harness(t, { minOutageSample: 2 }), [a, b] = h.records;
+  const rows = h.read();
+  rows[2].status = 'pending';
+  rows[2].expires_at = new Date(h.clock.now() + 86400000).toISOString();
+  h.save(rows);
+  const error = Object.assign(new Error('timeout'), { code: 'ETIMEOUT' });
+  h.answers.set(a.hostname, error);
+  await h.claims.recheckActiveClaims({ inconclusiveBeforeFailure: 1 });
+  assert.equal(h.read()[0].recheck_inconclusive, 1);
+  assert.equal(h.read()[0].recheck_failures, 1);
+  h.answers.set(b.hostname, error);
+  const before = h.read();
+  await h.claims.recheckActiveClaims({ inconclusiveBeforeFailure: 1 });
+  assert.deepEqual(h.read(), before);
+});
+
+
+test('single claim reaches the default cap and suspension despite resolver failures', async (t) => {
+  const h = harness(t, { claimCount: 1 }), [a] = h.records;
+  h.answers.set(a.hostname, Object.assign(new Error('timeout'), { code: 'ETIMEOUT' }));
+  for (let run = 1; run <= 10; run++) {
+    await h.claims.recheckActiveClaims();
+    assert.equal(h.read()[0].recheck_inconclusive, run);
+    assert.equal(h.read()[0].recheck_failures ?? 0, Math.max(0, run - 7));
+    assert.equal(h.read()[0].status, run === 10 ? 'suspended' : 'active');
+  }
+  assert.equal(validCredential(a.credential.token, a.hostname, h.dataDir), false);
+  assert.deepEqual(h.closed, [a.hostname]);
+});
+
+test('fewer than ten checked claims advance even when all are inconclusive', async (t) => {
+  for (const claimCount of [3, 9]) {
+    const h = harness(t, { claimCount });
+    const rows = h.read();
+    h.save([...rows, { ...rows[0], hostname: 'pending.example.test', status: 'pending',
+      expires_at: new Date(h.clock.now() + 86400000).toISOString() }]);
+    for (const row of rows) h.answers.set(row.hostname, new Error('resolver failure'));
+    await h.claims.recheckActiveClaims();
+    assert.equal(h.calls.length, claimCount);
+    for (const row of h.read().slice(0, claimCount)) assert.equal(row.recheck_inconclusive, 1);
+  }
+});
+
+test('one noisy tenant cannot freeze other tenants at the minimum sample', async (t) => {
+  const h = harness(t, { claimCount: 10 });
+  const rows = h.read();
+  // Eight failed claims contribute one vote; the other tenant has a tied vote.
+  for (const row of rows.slice(0, 8)) row.tenant_id = rows[0].tenant_id;
+  rows[9].tenant_id = rows[8].tenant_id;
+  h.save(rows);
+  for (const row of rows.slice(0, 9)) h.answers.set(row.hostname, new Error('resolver failure'));
+  await h.claims.recheckActiveClaims();
+  for (const row of h.read().slice(0, 9)) assert.equal(row.recheck_inconclusive, 1);
+  assert.equal(h.read()[9].recheck_inconclusive, 0);
+});
+
+test('broad tenant majority freezes at ten checked claims and still applies conclusive results', async (t) => {
+  const h = harness(t, { claimCount: 10 });
+  for (const row of h.records.slice(0, 5)) h.answers.set(row.hostname, new Error('resolver failure'));
+  await h.claims.recheckActiveClaims();
+  for (const row of h.read().slice(0, 5)) assert.equal(row.recheck_inconclusive, 1);
+  const before = h.read();
+  h.answers.set(h.records[5].hostname, new Error('resolver failure'));
+  h.answers.set(h.records[9].hostname, []);
+  h.clock.advance(21600000);
+  await h.claims.recheckActiveClaims();
+  assert.deepEqual(h.read().slice(0, 6), before.slice(0, 6));
+  assert.equal(h.read()[9].recheck_failures, 1);
+});
+
+test('outage sample must be a positive integer', async (t) => {
+  const h = harness(t);
+  for (const minOutageSample of [0, -1, 1.5, '10', null, NaN, Infinity]) {
+    await assert.rejects(h.claims.recheckActiveClaims({ minOutageSample }), RangeError);
+  }
+  assert.equal(h.calls.length, 0);
 });

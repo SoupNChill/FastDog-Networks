@@ -1,0 +1,19 @@
+# Portal invitations and private outbox
+
+Portal invitations are email-bound and single-use, separate from the legacy zone invite CLI in [INVITES.md](../INVITES.md). There is no browser mint/list endpoint. The handover target runs as `fdportal` with `STATE_DIRECTORY=/var/lib/fastdog-portal` and outbox `/var/lib/fastdog-portal/outbox/`; actual unit and secret-file path are `TODO(operator)` until recorded in [inventory](../INVENTORY.md).
+
+1. Confirm the approved email, operator-assigned plan, hostname limit (1–1000), expiry and correct state directory. Stop the portal using its confirmed unit/manager before minting: CLI and server must not write the same JSON concurrently. Make a private state backup.
+2. From the installed release root, run the CLI as the state owner. The following synthetic example redirects the one-time code into a private handoff file instead of printing it:
+
+   ```sh
+   sudo -u fdportal sh -c 'umask 077; STATE_DIRECTORY=/var/lib/fastdog-portal node portal/bin/mint-invite.js user@example.test assigned 3 > /var/lib/fastdog-portal/invite-handoff.txt'
+   ```
+
+   Choose an unused private handoff filename per invitation. Syntax is `node portal/bin/mint-invite.js <email> [plan] [hostname limit] [expiry ISO date]`; the fourth argument can be an ISO timestamp such as `2026-11-01T12:00:00Z` (choose an actual future time). Default expiry is seven days. Check exit status; a usage error creates no valid invitation. Only the invite hash is stored in `accounts.json`.
+3. Deliver the code through the approved private channel to its intended recipient, remove the handoff file after delivery, and restart the portal. Do not put codes in URLs, shared logs or tickets. Signup returns generic success even for invalid invites/existing accounts; this protects account privacy and is not evidence of redemption.
+4. The recipient opens the HTTPS portal, bootstraps CSRF through `/api/me`, submits signup and receives an email-verification link. The file mailer queues a private JSON message in `/var/lib/fastdog-portal/outbox/`; it does not send email. An authorized operator delivers the link privately. Verification/reset tokens are one-use, expire after one hour and travel in a URL fragment; browser JS clears it before posting the token.
+5. Remove delivered or expired outbox messages under the operator's retention policy. Automatic outbox TTL/deletion is not implemented and remains a backlog item. Restrict the directory to 0700 and files to 0600 owned by `fdportal`; never expose it through static serving or include raw links in diagnostics.
+
+Portal state comprises `accounts.json`, `sessions.json`, `rate_limits.json`, `domain_requests.json` and outbox messages. Plan/status/request edits require the service stopped and a coherent backup. Default plan text is `assigned`, limit three; public pricing is not an automatic billing integration. Domain requests notify the operator and permit at most three open requests; no registrar purchase occurs.
+
+For login trouble, check exact HTTPS origin, Secure cookie, fresh CSRF after login, email verification, invite email/expiry and rate-limit response. Password reset revokes all sessions; do not recover access by restoring old sessions. Repeated signup/login at capacity can return 429. Do not disable tenant or invite checks to recover a user. Tenant suspension currently lacks coordinated edge-host/credential deletion; treat that as an open operational gap.

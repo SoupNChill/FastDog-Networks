@@ -4,6 +4,23 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 const sensitiveFile = /^\.env(?:\.|$)|\.(?:pem|key|p12|pfx)$/i;
+// Exact paths only; each unscannable exemption must explain why it is required.
+export const unscannableAllow = Object.freeze({
+  '.env.example': 'Existing environment template; never read environment files.',
+  'deploy/prod1-fastdog-agent/.env.example': 'Existing agent environment template; never read environment files.',
+  'site/apple-touch-icon.png': 'Existing PNG touch icon used by the site.',
+  'site/favicon-32.png': 'Existing PNG favicon used by the site.',
+  'site/fonts/Mulish-Regular.ttf': 'Existing binary font used by the site typography.',
+  'site/fonts/Mulish-SemiBold.ttf': 'Existing binary font used by the site typography.',
+  'site/fonts/SpaceGrotesk-Bold.ttf': 'Existing binary font used by the site typography.',
+  'site/fonts/SpaceGrotesk-Medium.ttf': 'Existing binary font used by the site typography.',
+  'portal/public/fonts/Mulish-Regular.ttf': 'Portal copy of the site font.',
+  'portal/public/fonts/Mulish-SemiBold.ttf': 'Portal copy of the site font.',
+  'portal/public/fonts/SpaceGrotesk-Bold.ttf': 'Portal copy of the site font.',
+  'portal/public/fonts/SpaceGrotesk-Medium.ttf': 'Portal copy of the site font.',
+  'site/og/og.png': 'Existing PNG social preview image used by the site.',
+  'verdict/.env.example': 'Existing service environment template; never read environment files.',
+});
 export const lineHash = (line) => createHash('sha256').update(line).digest('hex');
 
 export function* filesUnder(root, path = root) {
@@ -26,7 +43,7 @@ export function deniedLines(source, denyNames) {
 export function scanText(path, source, denyNames, allow = {}) {
   const hits = deniedLines(source, denyNames);
   const rule = allow[path];
-  if (rule?.data || rule?.documentation) return [];
+  if (path === 'test/deny-names.json' && rule?.data === true) return [];
   const remaining = { ...rule?.lines };
   return hits.filter(({ hash }) => {
     if (remaining[hash] > 0) { remaining[hash]--; return false; }
@@ -34,15 +51,38 @@ export function scanText(path, source, denyNames, allow = {}) {
   }).map(({ line }) => ({ path, line }));
 }
 
-export function scanRepository(root, denyNames, allow) {
+export function scanRepository(root, denyNames, allow, fileAllow = unscannableAllow) {
   const errors = [];
+  const remaining = new Map(Object.entries(allow).filter(([, rule]) => rule.lines)
+    .map(([path, rule]) => [path, { ...rule.lines }]));
   for (const name of execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)) {
     const file = join(root, name);
-    if (sensitiveFile.test(basename(file)) || !existsSync(file) || lstatSync(file).isSymbolicLink()) continue;
-    const buffer = readFileSync(file);
-    if (buffer.includes(0)) continue;
     const path = relative(root, file).split(sep).join('/');
-    errors.push(...scanText(path, buffer.toString('utf8'), denyNames, allow));
+    const stat = lstatSync(file, { throwIfNoEntry: false });
+    let reason = stat?.isSymbolicLink() ? 'symlink' :
+      sensitiveFile.test(basename(file)) ? 'sensitive file' : null;
+    let source;
+    if (!reason && stat?.isFile()) {
+      const buffer = readFileSync(file);
+      if (buffer.includes(0)) reason = 'binary/NUL file';
+      else {
+        try { source = new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
+        catch { reason = 'binary/invalid UTF-8 file'; }
+      }
+    }
+    if (reason) {
+      if (!Object.hasOwn(fileAllow, path)) errors.push({ path, reason });
+      continue;
+    }
+    if (source === undefined) continue;
+    const counts = remaining.get(path);
+    if (counts) for (const { hash } of deniedLines(source, denyNames)) {
+      if (counts[hash] > 0) counts[hash]--;
+    }
+    errors.push(...scanText(path, source, denyNames, allow));
+  }
+  for (const [path, counts] of remaining) for (const [hash, count] of Object.entries(counts)) {
+    if (count > 0) errors.push({ path, hash, unused: count });
   }
   return errors;
 }

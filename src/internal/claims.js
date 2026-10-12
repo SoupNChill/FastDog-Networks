@@ -9,6 +9,7 @@ import { reservedSuffixes as defaultSuffixes } from '../lib/config.js';
 
 export const fail = (status, code, extra = {}) => Object.assign(new Error(code), { status, code, ...extra });
 const DAY = 86400000;
+const MIN_OUTAGE_SAMPLE = 10;
 
 export function createClaims(opts, changed) {
   const directory = opts.dataDir ?? defaultDataDir();
@@ -68,12 +69,17 @@ export function createClaims(opts, changed) {
     } finally { clearTimeout(timer); }
   }
   let rechecking = false;
-  async function recheckActiveClaims({ now: time = now(), resolver: lookup = resolver, failuresBeforeDemote = 3 } = {}) {
+  async function recheckActiveClaims({ now: time = now(), resolver: lookup = resolver, failuresBeforeDemote = 3,
+    inconclusiveBeforeFailure = opts.inconclusiveBeforeFailure ?? 8,
+    minOutageSample = opts.minOutageSample ?? MIN_OUTAGE_SAMPLE } = {}) {
     if (!Number.isInteger(failuresBeforeDemote) || failuresBeforeDemote < 1) throw new RangeError('invalid failure threshold');
+    if (!Number.isInteger(inconclusiveBeforeFailure) || inconclusiveBeforeFailure < 1) throw new RangeError('invalid inconclusive threshold');
+    if (!Number.isInteger(minOutageSample) || minOutageSample < 1) throw new RangeError('invalid outage sample');
     if (rechecking) return;
     rechecking = true;
     try {
       const stamp = new Date(typeof time === 'function' ? time() : time).toISOString();
+      const results = [];
       for (const initial of claims().filter((c) => c.status === 'active')) {
         // Use the original proof's record type. Chained CNAMEs use a recursive A
         // answer to check the edge address without walking the chain again.
@@ -91,14 +97,31 @@ export function createClaims(opts, changed) {
         const ok = await timed(() => checkDnsVerification(initial.hostname, {
           resolver: boundedResolver, attachTarget, altAttachTarget, edgePublicIp: opts.edgePublicIp ?? edgeIp(),
         })).then((result) => result.verified, () => null);
-        // Resolver failures are inconclusive, not evidence that routing changed.
-        if (ok === null) continue;
+        results.push({ initial, ok });
+      }
+      // Require enough checked claims and cap each tenant at one majority vote.
+      const tenants = new Map();
+      for (const { initial, ok } of results) {
+        const vote = tenants.get(initial.tenant_id) ?? { checked: 0, inconclusive: 0 };
+        vote.checked++;
+        if (ok === null) vote.inconclusive++;
+        tenants.set(initial.tenant_id, vote);
+      }
+      const inconclusiveTenants = [...tenants.values()].filter((vote) => vote.inconclusive > vote.checked / 2).length;
+      const outage = results.length >= minOutageSample && inconclusiveTenants > tenants.size / 2;
+      for (const { initial, ok } of results) {
+        if (ok === null && outage) continue;
         // DNS yields: never resurrect a deleted/replaced claim or overwrite another owner.
         const records = claims();
         const record = records.find((c) => c.tenant_id === initial.tenant_id && c.hostname === initial.hostname);
         if (!record || record.txt_value !== initial.txt_value || record.credential_id !== initial.credential_id ||
             record.status !== initial.status) continue;
         record.last_rechecked_at = stamp;
+        record.recheck_inconclusive = ok === null ? (record.recheck_inconclusive ?? 0) + 1 : 0;
+        if (ok === null && record.recheck_inconclusive < inconclusiveBeforeFailure) {
+          save(records);
+          continue;
+        }
         record.recheck_failures = ok ? 0 : (record.recheck_failures ?? 0) + 1;
         const previous = record.status;
         if (!ok && record.recheck_failures >= failuresBeforeDemote) {
@@ -163,7 +186,7 @@ export function createClaims(opts, changed) {
       registry?.closeHost(host);
       if (record.status === 'suspended') revoke(tid, host);
       const credential = issueCredential({ tenant_id: tid, hostname: host, name: host }, directory, now);
-      Object.assign(record, { status: 'active', verified_at: new Date(now()).toISOString(), method: routing.method, credential_id: credential.id, recheck_failures: 0 });
+      Object.assign(record, { status: 'active', verified_at: new Date(now()).toISOString(), method: routing.method, credential_id: credential.id, recheck_failures: 0, recheck_inconclusive: 0 });
       save(records);
       write('tunnel_hosts.json', [...new Set([...read('tunnel_hosts.json'), host])]);
       changed();
