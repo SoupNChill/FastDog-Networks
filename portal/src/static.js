@@ -7,7 +7,7 @@ const publicRoot = resolve(root, '../public');
 const siteRoot = resolve(root, '../../site');
 const pages = { '/': 'hostname.html', '/login': 'login.html', '/signup': 'signup.html', '/hostname': 'hostname.html',
   '/connect': 'connect.html', '/domains': 'domains.html', '/plan': 'plan.html' };
-const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.ttf': 'font/ttf' };
+const types = { '.svg': 'image/svg+xml', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.ttf': 'font/ttf' };
 export function safePath(raw) {
   if (typeof raw !== 'string' || !raw.startsWith('/') || raw.startsWith('//')) throw fail('not_found');
   let path;
@@ -19,7 +19,7 @@ export function serveStatic(path, response) {
   let base = publicRoot;
   let relative = pages[path.replace(/\/$/, '') || '/'];
   if (/^\/js\/[a-z-]+\.js$/.test(path)) relative = path.slice(1);
-  if (path === '/css/site.css' || path === '/css/portal.css' || /^\/fonts\/[A-Za-z-]+\.ttf$/.test(path)) {
+  if (['/favicon.svg', '/logos/hound-dark.svg', '/logos/hound-light.svg'].includes(path) || path === '/css/site.css' || path === '/css/portal.css' || /^\/fonts\/[A-Za-z-]+\.ttf$/.test(path)) {
     base = siteRoot;
     relative = path.slice(1);
   }
