@@ -1,0 +1,22 @@
+# Deploy a reviewed release
+
+Use [architecture](../ARCHITECTURE.md), [inventory](../INVENTORY.md) and the binding [tenant API](../TENANT_API.md). This is an operator procedure for a separately scheduled deployment; the handover itself performs no deployment. Fill `TODO(operator)` facts first, including release path, manager/unit, service account, backup destination and recovery owner. prod1 remains read-only; do not provision resources or change registrar delegation.
+
+1. Record the current revision and chosen release, intended services and acceptance checks. Use Node 18/20 for edge/portal, Node 20 for domain search. Edge retains existing dependencies; portal needs no install/build and new modules use built-ins only. Prepare dependencies from an approved local cache/artifact when offline; do not fetch them during this procedure's offline checks.
+2. Run both mandatory suites from the reviewed checkout with the existing offline preload (loopback fixture servers are allowed):
+
+   ```sh
+   NODE_OPTIONS="--require=$PWD/test/helpers/offline.cjs" npm test
+   NODE_OPTIONS="--require=$PWD/test/helpers/offline.cjs" npm run test:portal
+   ```
+
+   Require zero failures and zero skips, including the name scanner. Do not run `npm start`, status probes, DNS sync or live domain searches as offline validation.
+3. Identify whether the target edge is systemd-managed or script-managed. The shipped edge/agent units are LAN templates with installation-specific paths; do not install them unchanged on the public box. Use exactly one manager and one writer. For the script deployment, `deploy/restart-edge.sh` is the existing restart entry; it sources the local environment file and is not an offline check.
+4. Stop affected writers and make restricted, coherent backups of their state plus release/configuration. Preserve portal accounts/sessions/invites, edge claims/credentials/maps, domain-search daily budget, and Verdict keys/usage if affected. Record the actual backup path, owner and timestamp privately; never print environment files or secret contents. Use [Caddy backup naming](cert-caddy.md).
+5. Stage the release without overwriting state or environment files. Verify path ownership. The portal target is `fdportal`, `127.0.0.1:8790`, `STATE_DIRECTORY=/var/lib/fastdog-portal`, outbox `/var/lib/fastdog-portal/outbox/`. Provision the portal unit separately: no unit exists in this repo. Its command is `node portal/server.js` from the release root. Required origin must be an exact HTTPS origin; supply the separate portal key via a restricted service environment, never command arguments.
+6. Confirm loopback binds for edge/operator/internal/portal/search. Enable `INTERNAL_ENABLED=1` only if deploying the tenant integration with matching portal key; keep `TLS_ASK_ENABLED` and `RECHECK_ENABLED` off while their backlog blockers remain. Keep automatic DNS sync off unless DNS deployment is explicitly in scope. Keep bootstrap/demo forcing off. Preserve the public control-route block and existing guardrail hosts.
+7. Start/restart only the selected services using their confirmed manager. Validate the candidate Caddyfile before any reload using [cert-caddy.md](cert-caddy.md). Caddy forwards portal to `8790`, edge to `8787`, search to `8791` without stripping its API prefix. If trusting proxies, explicitly replace `X-Forwarded-For` with the direct client IP.
+8. During the authorized online acceptance window, check listeners, edge `/health`, internal `/health`, portal `/api/me` and domain-search `/api/domains/health`. The anonymous portal response should provide CSRF and a Secure cookie; it is not a login. Confirm unauthenticated control requests fail, internal is unreachable externally, and HTTPS serves the intended host. Exercise a synthetic tenant with an operator-controlled test domain for invite, ownership verification, agent connection and detach; `example.test` is only a placeholder and cannot obtain public TLS.
+9. Compare before/after health, agent connectivity and sanitized logs. On failure use [rollback](rollback.md). Record release, tests, service restart times and backup paths; do not record credentials. Let the operator commit/publish separately.
+
+Status endpoints may perform external probes. Domain search health is local-only, while a search can consume upstream budget. A successful `/health` response alone does not prove tenant routing, DNS, tunnel or certificate correctness.

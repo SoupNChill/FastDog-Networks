@@ -1,0 +1,21 @@
+# Verdict shadow, demo enforcement and recovery
+
+Sources: [Verdict README](../../verdict/README.md), [edge deployment](../../verdict/deploy/EDGE.md), `verdict/src/config/hosts.js` and `verdict/src/edge/routes.js`. Verdict is an independent process; use the public-edge `verdict-edge` service, never the unrelated LAN `verdict` service.
+
+| Mode | Effect |
+| --- | --- |
+| off / disabled | No enforcement for an explicitly configured host |
+| shadow | Tail approved Caddy access logs, score hypothetical actions, write summaries; no challenge/block response |
+| enforce | Caddy forward-auth can allow/challenge/block; operationally limited to the existing designated demo host |
+
+Per-host defaults are disabled/off with `fail=open`. Guardrail hosts are the canonical names in `ENFORCE_DENYLIST` in `verdict/src/config/hosts.js`; refer to that list without copying customer names into new docs/config. Apex/www can be shadowed where `SHADOW_ALLOWED` permits, never enforced. The API/CLI/store reject enforce for guardrails and runtime early-allows them even if wired accidentally. Do not weaken that list or add forward-auth to guardrail blocks. Unconfigured hosts can retain heuristic behavior if manually wired, so missing host config is not a safe enforcement gate.
+
+1. Confirm the edge deployment, current per-host policy and approved demo host. Keep `VERDICT_ALLOW_BOOTSTRAP=0`, `VERDICT_DEMO_FORCE=0`, `VERDICT_EDGE_GOODBOT_DNS=0` in production. Credential material belongs in `/etc/fastdog/verdict.env` (root-owned) and private key stores, not commands or logs. Do not bootstrap through a public reverse proxy.
+2. Start with shadow on an approved host. The templates use `verdict-shadow.service`, `verdict-shadow-summary.timer` and `verdict-asn-refresh.timer`; confirm which are installed before managing them. Inputs are approved Caddy logs, output `/opt/verdict/data/shadow.jsonl` and dated summaries. Ensure reader permissions and rotation; sanitized summaries are observations, not a measured universal false-positive guarantee.
+3. For an authorized policy update against an isolated local service, CLI syntax is `node scripts/verdict-hosts.js set demo.example.test enable=1 mode=shadow fail=open` from `verdict/`. This is a synthetic example, not the hardcoded live demo identity. This CLI calls the management API at `VERDICT_URL` (default loopback port 8089) and requires `VERDICT_API_KEY` in its private environment; it is not an offline file editor. Use it only in an authorized service window, never as an offline test. Direct file edits require stopping the writer and restarting afterward because the host store is loaded in memory.
+4. Enforcement remains demo-host-only. Use the approved demo Caddy integration from the edge deployment guide, preserve challenge routes and private trusted headers, and follow [Caddy backup/validate/reload](cert-caddy.md). Generated `caddy-apply-hosts.js` output includes upstream placeholders and is not deployment-ready; review it rather than auto-applying. The generic host-config API is broader than this operational restriction.
+5. Verify on the demo only: normal requests allowed, expected challenge/block behavior, trusted demo forcing unavailable on other hosts, and auth 5xx/dial failure/timeout returning the independent application handler. Fail-open is limited to auth-stage failures; challenge-route errors and application errors are not blanket successes. Confirm guardrail blocks have no enforcement path.
+
+ASN enrichment uses the free public-domain iptoasn feed and compact local `asn.bin`. The refresh script downloads data; it is not an offline test. Do not buy databases, enable paid enrichment or supply external paid API keys. Keep scheduled refresh off during offline validation. Missing data should be assessed using the existing heuristic path, not replaced with a paid service.
+
+On latency/errors or unintended enforcement, restore the reviewed Caddy application handler without demo auth, validate/reload, then investigate Verdict independently. Preserve keys, revocations, usage and logs; restoring stale keys may revive access. Restore only the edge release/unit if necessary. Clearance-secret rotation invalidates existing clearance cookies. Record sanitized incident evidence and follow [rollback.md](rollback.md).
