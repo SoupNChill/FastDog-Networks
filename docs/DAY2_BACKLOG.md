@@ -3,7 +3,7 @@
 No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy block, AGENT_TOKEN/EDGE_BIND startup guard, committed portal test artifacts, portal nav. Everything below is deliberately not built yet.
 
 ## Lane A (edge)
-- MEDIUM: active claims are never re-verified or expired (`internal/claims.js`). Re-check routing and TXT periodically or on `/tls/ask`; demote after N failures; document an operator override.
+- DONE (E1): active claims are re-checked for routing every 6h when opted in; suspend after 3 consecutive failures and recover on success without deleting credentials. One DNS lookup per claim per run; operator recovery documented in `INTERNAL_API_OPS.md`. TXT remains part of explicit verification.
 - LOW: `RESERVED_SUFFIXES=""` empties the reserved list; always union with built-ins, treat empty as unset.
 - LOW: `create` has no rate limit though the contract lists 429.
 - LOW: credential lost if the verify response is dropped; first rotate after activation should not count against 5/day.

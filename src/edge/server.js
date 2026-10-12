@@ -179,7 +179,7 @@ const internalPort = Number(env('INTERNAL_PORT', '8789'));
 if (internalEnabled && (!Number.isInteger(internalPort) || internalPort < 1 || internalPort > 65535)) throw new Error('invalid INTERNAL_PORT');
 const internalServer = internalEnabled ? createInternalServer({
   portalKey: env('PORTAL_KEY', ''), agentToken: AGENT_TOKEN, dataDir: dataDir(),
-  registry: { getAgentByHost, closeHost },
+  registry: { getAgentByHost, closeHost }, recheckEnabled: env('RECHECK_ENABLED', '0') === '1',
 }) : null;
 internalServer?.on('routesChanged', reloadRoutes);
 

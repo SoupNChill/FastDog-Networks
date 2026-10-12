@@ -30,7 +30,7 @@ Rules that apply to everything below:
 
 ## 3. Hostname lifecycle
 
-States: `pending` -> `active` -> (`detached`: record removed). `pending` expires after 24 h (`expired`, treated as absent, not shown).
+States: `pending` -> `active` <-> `suspended` -> (`detached`: record removed). `pending` expires after 24 h (`expired`, treated as absent, not shown).
 
 Rules:
 1. A hostname may have **at most one `active` owner**. Any number of tenants may hold a `pending` claim for the same name; pending claims do not block anyone.
