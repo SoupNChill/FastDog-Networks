@@ -20,7 +20,7 @@ export function createClaims(opts, changed) {
   const registry = opts.registry;
   const read = (name) => readJson(name, [], directory);
   const write = (name, data) => writeJson(name, data, 0o600, directory);
-  const claims = () => read('tenant_hostnames.json').filter((c) => ['active', 'suspended'].includes(c.status) || Date.parse(c.expires_at) > now());
+  const claims = () => read('tenant_hostnames.json').filter((c) => c.status === 'active' || Date.parse(c.expires_at) > now());
   const save = (records) => write('tenant_hostnames.json', records);
   const legacy = (host) => read('attached_hosts.json').find((c) => c.hostname === host && !c.tenant_id);
   const unavailable = (records, tid, host) => Boolean(legacy(host) || records.some((c) => c.hostname === host && c.status === 'active' && c.tenant_id !== tid));
@@ -74,7 +74,7 @@ export function createClaims(opts, changed) {
     rechecking = true;
     try {
       const stamp = new Date(typeof time === 'function' ? time() : time).toISOString();
-      for (const initial of claims().filter((c) => ['active', 'suspended'].includes(c.status))) {
+      for (const initial of claims().filter((c) => c.status === 'active')) {
         // Use the original proof's record type. Chained CNAMEs use a recursive A
         // answer to check the edge address without walking the chain again.
         const useA = ['a_record', 'cname_chain'].includes(initial.method);
@@ -90,7 +90,9 @@ export function createClaims(opts, changed) {
         };
         const ok = await timed(() => checkDnsVerification(initial.hostname, {
           resolver: boundedResolver, attachTarget, altAttachTarget, edgePublicIp: opts.edgePublicIp ?? edgeIp(),
-        })).then((result) => result.verified, () => false);
+        })).then((result) => result.verified, () => null);
+        // Resolver failures are inconclusive, not evidence that routing changed.
+        if (ok === null) continue;
         // DNS yields: never resurrect a deleted/replaced claim or overwrite another owner.
         const records = claims();
         const record = records.find((c) => c.tenant_id === initial.tenant_id && c.hostname === initial.hostname);
@@ -99,14 +101,16 @@ export function createClaims(opts, changed) {
         record.last_rechecked_at = stamp;
         record.recheck_failures = ok ? 0 : (record.recheck_failures ?? 0) + 1;
         const previous = record.status;
-        if (!ok && record.recheck_failures >= failuresBeforeDemote) record.status = 'suspended';
-        if (ok && !unavailable(records, record.tenant_id, record.hostname)) record.status = 'active';
+        if (!ok && record.recheck_failures >= failuresBeforeDemote) {
+          record.status = 'suspended';
+          record.expires_at = new Date(Date.parse(stamp) + DAY).toISOString();
+          revoke(record.tenant_id, record.hostname);
+        }
         save(records);
         if (previous !== record.status) {
           const hosts = read('tunnel_hosts.json');
-          write('tunnel_hosts.json', record.status === 'active'
-            ? [...new Set([...hosts, record.hostname])] : hosts.filter((h) => h !== record.hostname));
-          if (record.status === 'suspended') registry?.closeHost(record.hostname);
+          write('tunnel_hosts.json', hosts.filter((h) => h !== record.hostname));
+          registry?.closeHost(record.hostname);
           changed();
         }
       }
@@ -157,12 +161,13 @@ export function createClaims(opts, changed) {
       if (!routing.ok || !ownership.ok) return { hostname: host, status: record.status, verified: false, checks: { routing, ownership } };
       // Single writer: there are no awaits between the ownership check and these writes.
       registry?.closeHost(host);
-      const credential = record.status === 'suspended' ? null : issueCredential({ tenant_id: tid, hostname: host, name: host }, directory, now);
-      Object.assign(record, { status: 'active', verified_at: new Date(now()).toISOString(), method: routing.method, credential_id: credential?.id ?? record.credential_id, recheck_failures: 0 });
+      if (record.status === 'suspended') revoke(tid, host);
+      const credential = issueCredential({ tenant_id: tid, hostname: host, name: host }, directory, now);
+      Object.assign(record, { status: 'active', verified_at: new Date(now()).toISOString(), method: routing.method, credential_id: credential.id, recheck_failures: 0 });
       save(records);
       write('tunnel_hosts.json', [...new Set([...read('tunnel_hosts.json'), host])]);
       changed();
-      return { ...activeResult(record), ...(credential ? { credential } : {}) };
+      return { ...activeResult(record), credential };
     },
     rotate(tid, host) {
       const records = claims();

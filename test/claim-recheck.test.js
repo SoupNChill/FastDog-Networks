@@ -35,10 +35,9 @@ function harness(t) {
     read: () => readJson('tenant_hostnames.json', [], dataDir), changes: () => changes };
 }
 
-test('three tenants: failures suspend only one claim; recovery preserves credentials after expiry', async (t) => {
+test('three tenants: suspension revokes credentials and routing alone cannot restore', async (t) => {
   const h = harness(t), [a, b, c] = h.records;
   h.answers.set(a.hostname, ['wrong.example.test']);
-  const credentialBytes = readJson('agent-credentials.json', [], h.dataDir);
   for (let run = 1; run <= 3; run++) {
     h.calls.length = 0;
     await h.claims.recheckActiveClaims({ now: h.clock.now(), resolver: h.resolver });
@@ -58,20 +57,20 @@ test('three tenants: failures suspend only one claim; recovery preserves credent
   assert.equal(h.claims.get(a.tenant_id, a.hostname).dns, undefined);
   assert.equal(h.claims.list(a.tenant_id).hostnames.length, 1);
   assert.equal(validCredential(a.credential.token, a.hostname, h.dataDir), false);
-  assert.deepEqual(readJson('agent-credentials.json', [], h.dataDir), credentialBytes);
+  assert.ok(readJson('agent-credentials.json', [], h.dataDir)[0].revoked_at);
   for (const row of [b, c]) assert.equal(validCredential(row.credential.token, row.hostname, h.dataDir), true);
   assert.deepEqual(readJson('tunnel_hosts.json', [], h.dataDir), [b.hostname, c.hostname]);
   h.answers.delete(a.hostname);
   await h.claims.recheckActiveClaims();
-  assert.equal(h.read()[0].status, 'active');
-  assert.equal(h.read()[0].recheck_failures, 0);
-  assert.equal(validCredential(a.credential.token, a.hostname, h.dataDir), true);
-  assert.equal(h.claims.ask(a.hostname), true);
-  assert.equal(h.changes(), 2);
+  assert.equal(h.read()[0].status, 'suspended');
+  assert.equal(h.read()[0].recheck_failures, 3);
+  assert.equal(validCredential(a.credential.token, a.hostname, h.dataDir), false);
+  assert.equal(h.claims.ask(a.hostname), false);
+  assert.equal(h.changes(), 1);
   assert.equal(readJson('agent-credentials.json', [], h.dataDir).length, 3);
 });
 
-test('success resets consecutive failures; DNS errors and missing A records count once', async (t) => {
+test('success resets consecutive failures; authoritative absence and missing A records count once', async (t) => {
   const h = harness(t), [a, b] = h.records;
   h.answers.set(a.hostname, Object.assign(new Error('missing'), { code: 'ENODATA' }));
   h.answers.set(b.hostname, []);
@@ -81,7 +80,7 @@ test('success resets consecutive failures; DNS errors and missing A records coun
   h.answers.clear();
   await h.claims.recheckActiveClaims();
   assert.deepEqual(h.read().map((r) => r.recheck_failures), [0, 0, 0]);
-  h.answers.set(a.hostname, new Error('timeout'));
+  h.answers.set(a.hostname, Object.assign(new Error('missing'), { code: 'ENOTFOUND' }));
   await h.claims.recheckActiveClaims({ failuresBeforeDemote: 1 });
   assert.equal(h.read()[0].status, 'suspended');
   await assert.rejects(h.claims.recheckActiveClaims({ failuresBeforeDemote: 0 }), RangeError);
@@ -91,6 +90,7 @@ test('recovery cannot take another tenant active host; pending claims are not ch
   const h = harness(t);
   const rows = h.read();
   rows[0].status = 'suspended';
+  rows[0].expires_at = new Date(h.clock.now() + 86400000).toISOString();
   rows[1].hostname = rows[0].hostname;
   rows[2].status = 'pending';
   rows[2].expires_at = new Date(h.clock.now() + 86400000).toISOString();
@@ -122,11 +122,12 @@ test('in-flight checks cannot resurrect deleted claims; overlapping runs do no e
   assert.equal(h.read().length, 2);
 });
 
-test('manual verify restores suspended claim without replacing its credential', async (t) => {
+test('manual restore requires both proofs and issues a new credential', async (t) => {
   const h = harness(t), [a] = h.records;
   h.answers.set(a.hostname, []);
   await h.claims.recheckActiveClaims({ failuresBeforeDemote: 1 });
-  h.resolver.resolveTxt = async () => [];
+  h.answers.delete(a.hostname);
+  h.resolver.resolveTxt = async () => [['wrong-proof']];
   const failed = await h.claims.verify(a.tenant_id, a.hostname);
   assert.equal(failed.status, 'suspended');
   assert.equal(failed.verified, false);
@@ -135,9 +136,10 @@ test('manual verify restores suspended claim without replacing its credential', 
   h.resolver.resolveTxt = async () => [[a.txt_value]];
   const result = await h.claims.verify(a.tenant_id, a.hostname);
   assert.equal(result.status, 'active');
-  assert.equal(result.credential, undefined);
-  assert.equal(h.read()[0].credential_id, a.credential_id);
-  assert.equal(validCredential(a.credential.token, a.hostname, h.dataDir), true);
+  assert.notEqual(result.credential.id, a.credential_id);
+  assert.equal(h.read()[0].credential_id, result.credential.id);
+  assert.equal(validCredential(a.credential.token, a.hostname, h.dataDir), false);
+  assert.equal(validCredential(result.credential.token, a.hostname, h.dataDir), true);
 });
 
 test('scheduler defaults off, runs every six hours when enabled, and clears on close', (t) => {
@@ -158,7 +160,7 @@ test('scheduler defaults off, runs every six hours when enabled, and clears on c
   assert.deepEqual(cleared, [scheduled[0].timer]);
 });
 
-test('chained proofs use one A lookup; a stalled lookup is bounded and counts as failure', async (t) => {
+test('chained proofs use one A lookup; a stalled lookup is bounded and skipped', async (t) => {
   const h = harness(t);
   const rows = h.read();
   rows[0].method = 'cname_chain';
@@ -168,6 +170,59 @@ test('chained proofs use one A lookup; a stalled lookup is bounded and counts as
   assert.equal(h.read()[0].recheck_failures, 0);
   h.resolver.resolveCname = async () => new Promise(() => {});
   await h.claims.recheckActiveClaims({ failuresBeforeDemote: 1 });
-  assert.equal(h.read()[2].status, 'suspended');
+  assert.equal(h.read()[2].status, 'active');
+  assert.equal(h.read()[2].recheck_failures, 0);
   assert.deepEqual(h.read().slice(0, 2).map((r) => r.status), ['active', 'active']);
+});
+
+test('resolver outages preserve counters and timestamps across repeated runs', async (t) => {
+  const h = harness(t);
+  h.answers.set(h.records[0].hostname, []);
+  await h.claims.recheckActiveClaims();
+  const before = h.read();
+  for (const code of ['SERVFAIL', 'ESERVFAIL', 'ETIMEOUT', 'dns_timeout', 'ECONNREFUSED']) {
+    for (const row of h.records) h.answers.set(row.hostname, Object.assign(new Error(code), { code }));
+    h.clock.advance(21600000);
+    await h.claims.recheckActiveClaims();
+    assert.deepEqual(h.read(), before);
+  }
+  assert.equal(h.changes(), 0);
+  assert.deepEqual(h.closed, []);
+});
+
+test('suspended claims expire after 24 hours and cannot verify even with valid proofs', async (t) => {
+  const h = harness(t), [a] = h.records;
+  h.answers.set(a.hostname, []);
+  await h.claims.recheckActiveClaims({ failuresBeforeDemote: 1 });
+  assert.equal(Date.parse(h.read()[0].expires_at), h.clock.now() + 86400000);
+  h.clock.advance(86400000 - 1);
+  assert.equal(h.claims.get(a.tenant_id, a.hostname).status, 'suspended');
+  h.clock.advance(1);
+  h.answers.clear();
+  h.resolver.resolveTxt = async () => [[a.txt_value]];
+  assert.deepEqual(h.claims.list(a.tenant_id).hostnames, []);
+  await assert.rejects(h.claims.verify(a.tenant_id, a.hostname), { code: 'hostname_not_found' });
+  assert.equal(validCredential(a.credential.token, a.hostname, h.dataDir), false);
+  const fresh = h.claims.create(a.tenant_id, { hostname: a.hostname, hostname_limit: 1 });
+  assert.equal(fresh.status, 201);
+  assert.notEqual(fresh.body.dns.txt.value, a.txt_value);
+});
+
+test('first to prove wins among suspended and pending claims regardless of file order', async (t) => {
+  for (const winner of [1, 2]) {
+    const h = harness(t), [a] = h.records;
+    const rows = h.read().map((row, i) => ({ ...row, hostname: a.hostname,
+      status: i === 2 ? 'pending' : 'suspended', expires_at: new Date(h.clock.now() + 86400000).toISOString() }));
+    h.save(rows);
+    await h.claims.recheckActiveClaims();
+    assert.equal(h.calls.length, 0);
+    assert.deepEqual(h.read(), rows);
+    h.resolver.resolveTxt = async () => [[rows[winner].txt_value]];
+    const result = await h.claims.verify(rows[winner].tenant_id, a.hostname);
+    assert.equal(result.verified, true);
+    assert.ok(result.credential);
+    await assert.rejects(h.claims.verify(a.tenant_id, a.hostname), { code: 'hostname_unavailable' });
+    assert.equal(h.read().filter((row) => row.status === 'active').length, 1);
+    assert.equal(h.read()[winner].status, 'active');
+  }
 });

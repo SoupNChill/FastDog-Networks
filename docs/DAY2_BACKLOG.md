@@ -3,7 +3,9 @@
 No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy block, AGENT_TOKEN/EDGE_BIND startup guard, committed portal test artifacts, portal nav. Everything below is deliberately not built yet.
 
 ## Lane A (edge)
-- DONE (E1): active claims are re-checked for routing every 6h when opted in; suspend after 3 consecutive failures and recover on success without deleting credentials. One DNS lookup per claim per run; operator recovery documented in `INTERNAL_API_OPS.md`. TXT remains part of explicit verification.
+- DONE (E1): opt-in routing re-checks every 6h; suspend after 3 authoritative mismatches, skipping resolver errors/timeouts. One lookup per active claim per run; defaults remain off.
+- DONE (E1 review HIGH/MEDIUM): no automatic restoration of suspended claims; expire after 24h, require explicit routing + TXT proof, and preserve first-to-prove ownership across pending/suspended contenders.
+- DONE (E1 review MEDIUM): revoke credentials on suspension and issue a fresh credential on restoration; regression coverage includes resolver outages, expiry and competing claims.
 - LOW: `RESERVED_SUFFIXES=""` empties the reserved list; always union with built-ins, treat empty as unset.
 - LOW: `create` has no rate limit though the contract lists 429.
 - LOW: credential lost if the verify response is dropped; first rotate after activation should not count against 5/day.
