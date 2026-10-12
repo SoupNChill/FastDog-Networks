@@ -30,7 +30,7 @@ Rules that apply to everything below:
 
 ## 3. Hostname lifecycle
 
-States: `pending` -> `active` -> (`detached`: record removed). `pending` expires after 24 h (`expired`, treated as absent, not shown).
+States: `pending` -> `active` <-> `suspended` -> (`detached`: record removed). `pending` expires after 24 h (`expired`, treated as absent, not shown). `suspended` expires 24 h after suspension and is then also treated as absent. Suspension revokes claim credentials; restoration requires explicit routing and TXT verification and issues a new credential. Scheduled routing checks never restore suspended claims.
 
 Rules:
 1. A hostname may have **at most one `active` owner**. Any number of tenants may hold a `pending` claim for the same name; pending claims do not block anyone.
@@ -41,7 +41,7 @@ Rules:
 4. `DELETE` removes the claim, the tunnel host mapping and all credentials for that claim, and closes the live tunnel.
 5. Legacy operator-attached hosts (records in `attached_hosts.json` without `tenant_id`) are unchanged and cannot be claimed or modified by any tenant (`hostname_unavailable`).
 
-Per-tenant limit: the portal sends `hostname_limit` (integer 1-1000, from the plan) on create. The edge counts the tenant's non-expired `pending` + `active` claims and returns `409 hostname_limit_reached` when full.
+Per-tenant limit: the portal sends `hostname_limit` (integer 1-1000, from the plan) on create. The edge counts the tenant's non-expired `pending` + `suspended` claims plus `active` claims and returns `409 hostname_limit_reached` when full.
 
 ## 4. Edge internal endpoints
 

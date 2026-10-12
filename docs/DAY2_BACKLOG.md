@@ -4,7 +4,9 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy block, AGENT_TOKEN/EDGE_BIND startup guard, committed portal test artifacts, portal nav. Items marked DONE have been implemented; remaining items are not built yet.
 
 ## Lane A (edge)
-- MEDIUM: active claims are never re-verified or expired (`internal/claims.js`). Re-check routing and TXT periodically or on `/tls/ask`; demote after N failures; document an operator override.
+- DONE (E1): opt-in routing re-checks every 6h; suspend after 3 authoritative mismatches, skipping resolver errors/timeouts. One lookup per active claim per run; defaults remain off.
+- DONE (E1 review HIGH/MEDIUM): no automatic restoration of suspended claims; expire after 24h, require explicit routing + TXT proof, and preserve first-to-prove ownership across pending/suspended contenders.
+- DONE (E1 review MEDIUM): revoke credentials on suspension and issue a fresh credential on restoration; regression coverage includes resolver outages, expiry and competing claims.
 - LOW: `RESERVED_SUFFIXES=""` empties the reserved list; always union with built-ins, treat empty as unset.
 - LOW: `create` has no rate limit though the contract lists 429.
 - LOW: credential lost if the verify response is dropped; first rotate after activation should not count against 5/day.

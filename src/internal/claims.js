@@ -46,7 +46,7 @@ export function createClaims(opts, changed) {
   }
   function present(c) {
     const record = { hostname: c.hostname, status: c.status, created_at: c.created_at };
-    if (c.status === 'active') return { ...record, verified_at: c.verified_at, agent: agent(c.hostname) };
+    if (['active', 'suspended'].includes(c.status)) return { ...record, verified_at: c.verified_at, agent: c.status === 'active' ? agent(c.hostname) : null };
     return { ...record, expires_at: c.expires_at, agent: null, dns: {
       cname: { name: c.hostname, type: 'CNAME', value: attachTarget, ttl: 300 },
       txt: { name: `_fastdog-challenge.${c.hostname}`, type: 'TXT', value: c.txt_value, ttl: 300 },
@@ -67,7 +67,57 @@ export function createClaims(opts, changed) {
       })]);
     } finally { clearTimeout(timer); }
   }
+  let rechecking = false;
+  async function recheckActiveClaims({ now: time = now(), resolver: lookup = resolver, failuresBeforeDemote = 3 } = {}) {
+    if (!Number.isInteger(failuresBeforeDemote) || failuresBeforeDemote < 1) throw new RangeError('invalid failure threshold');
+    if (rechecking) return;
+    rechecking = true;
+    try {
+      const stamp = new Date(typeof time === 'function' ? time() : time).toISOString();
+      for (const initial of claims().filter((c) => c.status === 'active')) {
+        // Use the original proof's record type. Chained CNAMEs use a recursive A
+        // answer to check the edge address without walking the chain again.
+        const useA = ['a_record', 'cname_chain'].includes(initial.method);
+        let used = false;
+        const once = (fn) => {
+          if (used) return Promise.resolve([]);
+          used = true;
+          return fn();
+        };
+        const boundedResolver = {
+          resolveCname: (host) => useA ? Promise.resolve([]) : once(() => lookup.resolveCname(host)),
+          resolve4: (host) => useA ? once(() => lookup.resolve4(host)) : Promise.resolve([]),
+        };
+        const ok = await timed(() => checkDnsVerification(initial.hostname, {
+          resolver: boundedResolver, attachTarget, altAttachTarget, edgePublicIp: opts.edgePublicIp ?? edgeIp(),
+        })).then((result) => result.verified, () => null);
+        // Resolver failures are inconclusive, not evidence that routing changed.
+        if (ok === null) continue;
+        // DNS yields: never resurrect a deleted/replaced claim or overwrite another owner.
+        const records = claims();
+        const record = records.find((c) => c.tenant_id === initial.tenant_id && c.hostname === initial.hostname);
+        if (!record || record.txt_value !== initial.txt_value || record.credential_id !== initial.credential_id ||
+            record.status !== initial.status) continue;
+        record.last_rechecked_at = stamp;
+        record.recheck_failures = ok ? 0 : (record.recheck_failures ?? 0) + 1;
+        const previous = record.status;
+        if (!ok && record.recheck_failures >= failuresBeforeDemote) {
+          record.status = 'suspended';
+          record.expires_at = new Date(Date.parse(stamp) + DAY).toISOString();
+          revoke(record.tenant_id, record.hostname);
+        }
+        save(records);
+        if (previous !== record.status) {
+          const hosts = read('tunnel_hosts.json');
+          write('tunnel_hosts.json', hosts.filter((h) => h !== record.hostname));
+          registry?.closeHost(record.hostname);
+          changed();
+        }
+      }
+    } finally { rechecking = false; }
+  }
   return {
+    recheckActiveClaims,
     list(tid) { return { hostnames: claims().filter((c) => c.tenant_id === tid).sort((a, b) => a.created_at.localeCompare(b.created_at)).map(present) }; },
     get(tid, host) { return present(find(claims(), tid, host)); },
     create(tid, body) {
@@ -108,11 +158,12 @@ export function createClaims(opts, changed) {
       if (record.txt_value !== initial.txt_value || signal?.aborted) throw fail(404, 'hostname_not_found');
       if (unavailable(records, tid, host)) throw fail(409, 'hostname_unavailable');
       if (record.status === 'active') return activeResult(record);
-      if (!routing.ok || !ownership.ok) return { hostname: host, status: 'pending', verified: false, checks: { routing, ownership } };
+      if (!routing.ok || !ownership.ok) return { hostname: host, status: record.status, verified: false, checks: { routing, ownership } };
       // Single writer: there are no awaits between the ownership check and these writes.
       registry?.closeHost(host);
+      if (record.status === 'suspended') revoke(tid, host);
       const credential = issueCredential({ tenant_id: tid, hostname: host, name: host }, directory, now);
-      Object.assign(record, { status: 'active', verified_at: new Date(now()).toISOString(), method: routing.method, credential_id: credential.id });
+      Object.assign(record, { status: 'active', verified_at: new Date(now()).toISOString(), method: routing.method, credential_id: credential.id, recheck_failures: 0 });
       save(records);
       write('tunnel_hosts.json', [...new Set([...read('tunnel_hosts.json'), host])]);
       changed();

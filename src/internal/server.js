@@ -55,6 +55,17 @@ export function createInternalServer(opts = {}) {
   const tlsAskEnabled = opts.tlsAskEnabled ?? (process.env.TLS_ASK_ENABLED === '1');
   const tlsAsk = createTlsAsk({ ...opts, tlsAskEnabled });
 
+  if (opts.recheckEnabled) {
+    let timer;
+    server.once('listening', () => {
+      timer = setInterval(() => {
+        claims.recheckActiveClaims().catch(() => server.emit('recheckError'));
+      }, 6 * 60 * 60 * 1000);
+      timer.unref();
+    });
+    server.once('close', () => clearInterval(timer));
+  }
+
   async function handle(req, res) {
     const started = performance.now();
     const abort = new AbortController();
