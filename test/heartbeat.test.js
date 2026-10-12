@@ -25,10 +25,15 @@ it('edge replies to ping and updates registered lastSeen', () => {
   stop(); _resetForTests();
 });
 
-it('agent terminates a connection after missed pongs', async () => {
+it('agent terminates a connection after missed pongs', async (t) => {
   const ws = new FakeSocket();
   const stop = startHeartbeat(ws, { intervalMs: 5, maxMissed: 2 });
-  await new Promise((resolve) => setTimeout(resolve, 25));
+  t.after(stop);
+  await new Promise((resolve, reject) => {
+    const deadline = setTimeout(() => reject(new Error('heartbeat did not close the socket')), 2000);
+    t.after(() => clearTimeout(deadline));
+    ws.once('close', resolve);
+  });
   assert.equal(ws.readyState, 3);
   assert.equal(ws.sent.length, 2);
   stop();

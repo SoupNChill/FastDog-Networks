@@ -1,3 +1,4 @@
+import { laneSkip } from './lanes.js';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { fixedClock } from './clock.js';
@@ -75,9 +76,9 @@ export async function portalHarness(t) {
 }
 
 export async function twoAccounts(t) {
-  if (!existsSync(invitesFile)) { t.skip('lane B invite store absent: signup cannot be seeded through its public API'); return; }
+  if (!existsSync(invitesFile)) { t.skip(laneSkip(false, 'lane B invite store absent: signup cannot be seeded through its public API')); return; }
   const invites = await import(invitesFile.href);
-  if (typeof invites.createInvites !== 'function') { t.skip('lane B createInvites export absent'); return; }
+  if (typeof invites.createInvites !== 'function') { t.skip(laneSkip(false, 'lane B createInvites export absent')); return; }
   const { createInvites } = invites;
   const h = await portalHarness(t);
   h.accounts = [];

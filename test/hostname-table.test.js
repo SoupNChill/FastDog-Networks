@@ -1,3 +1,4 @@
+import { laneSkip } from './helpers/lanes.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -9,7 +10,7 @@ import { fixedClock } from './helpers/clock.js';
 
 const edgeFile = new URL('../src/onboard/hostname.js', import.meta.url);
 const portalFile = new URL('../portal/src/hostname.js', import.meta.url);
-const skip = existsSync(edgeFile) ? false : 'lane A not merged: hostname normalizer absent';
+const skip = laneSkip(existsSync(edgeFile), 'lane A not merged: hostname normalizer absent');
 
 test('hostname fixtures exercise the exact length boundaries', () => {
   assert.equal(longestHost.length, 253);
@@ -61,7 +62,7 @@ test('hostname normalization contract table', { skip }, async (t) => {
 });
 
 test('portal and edge hostname tables cannot drift', {
-  skip: skip || (existsSync(portalFile) ? false : 'lane B has no separate hostname copy'),
+  skip: skip || (laneSkip(existsSync(portalFile), 'lane B has no separate hostname copy')),
 }, async () => {
   const edge = await import(edgeFile.href);
   const portal = await import(portalFile.href);

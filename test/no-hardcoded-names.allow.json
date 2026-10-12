@@ -80,5 +80,552 @@
       "b435079e34fec2be332db000cd55c9099ce8e08e325e2251ad613ce3830f2f4a": 2,
       "bbcc8ec339d04a5c1b4c423a14adb92e5dcd83d8c34f39832f31a92505498ea1": 1
     }
+  },
+  "README.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "fbd94e6c1c114fc15399f8ef59ecaa3f0cbbdddd1ca107c1d4a2b0b3f0754815": 1,
+      "4bcb87b299396bf7efdf8118813d3a0623e00b58cb93e1c8d6ce1c28b8e3eb60": 1,
+      "1082d9cb4f7e1126a202f188102a06a84696ca3cf9f1ec55dff623383c8da15f": 1,
+      "47c07a4c4d344934e37c003fff2fd99fd98cfdf1f58b7a0b9c8192f31d31b4fb": 1,
+      "1f61ad47cb28fef4997cf59c50ac986facc3faab190dbb4501843317e46cb3b4": 1,
+      "62e723db8c699d8305a8d14bd8696a8cc916035d146aa5999d41470b1b58c035": 1,
+      "3a51fe5cf031d2a77eb48fd8cb7102fb7ae67e1e71ab903f146ee31d4108f80f": 1,
+      "debaf27c173f04da3c686d468013763f5ea1870bc90751683bfd7ca7cd6a9ca0": 1,
+      "dffc2cb96c27a1f04854dfd40794e528ea5e17cc8b552a4e251709f70080dae5": 1,
+      "b18990b2d821fea92c3adeaa51f88e64546258d8502f215289b11134db4803db": 1,
+      "32b14319e0d7e6320bba2061962243fbb985b3f7e62117c91e6756f7288ebbdf": 1
+    }
+  },
+  "agent/index.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "f61e39ffc9bff8048c5eed78125749006edbe90da452d1c648d263b1ccfe4dc3": 1
+    }
+  },
+  "config/routes.yaml": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "c1d57695e46c60389575e109a97e04388a3b251619aaf2916fc4373348b2fb3d": 1,
+      "8a911ab498017a8889902999b96080bc2295a8616a52a7dcb980649d4e092ca8": 1,
+      "7fb06486ea5697a56b4558a4aac5c5a3bdc6b5a5cb2a11c5386b75e76902f1be": 1,
+      "f525f47dd0ae7d4c03f878d6e7bbd9cab252fc0aa12ccae4731f6c492a44006e": 1,
+      "ab9d416e89ce4950cdb92d3a65ee1a1fdd6a342d8f68a74e843e5fca611a4299": 1,
+      "7619ae922e46b82e7f3f43238473ab8f1795ea5d4ad5dac4ec1c38dde250299a": 1,
+      "c13c676a63c16f13c8ec3a7753aa314d57d5e9621d2574336613d93b0e651549": 1
+    }
+  },
+  "deploy/AUTH_DNS.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "778dd9b05cf362c2607ab18cc696cfed90ce192539be9839fc0470d448f7f179": 1,
+      "3da51f81760994236eaeec307c9afdf62207b770a22d35499fc03cb1c9124291": 1,
+      "05c2fa611b17a4a4dfd64f9e9ea621b8e6ce67babe2a884731663c7154b2fc7a": 1,
+      "5347fc01f6431fc598f31fde82b7d10f73d2c385fb731261ab8425eb22ce7a73": 1,
+      "6633f2e74f91b3f1ba11fcc22c812fb1281dd06e73163a06c944830152606216": 1,
+      "b6ad3eed00874fd8ee43d8efc1a8b2b3c3a074f2566243e84ee98f6e87a1790a": 1,
+      "22e1a67088bccdba904debe97ee5bafb02309c07cb6bcea51ba755954efcf751": 1,
+      "244c1f6235cc684747f8fe8192ab1d9bc878d869b4c1d700ec1f2e4f43bf361e": 1,
+      "c6cd3e2fffef68bb7763133057671fe0823cced31a7790845a96f8e61a640542": 1,
+      "b3d439ba58c3e12ec1c5a2a20d209d28d2fd1200ae8356546fb1f704b64bc7c4": 1,
+      "849d53886847a2cc007be4be5786d54029e4dcddb71f8fa72e34e248836b1957": 1,
+      "0d1828846ffc6702adfebf15438a5e9eee711d457dabc1b4742cb0d8b0dd76d5": 1,
+      "99931b3708324fd417c607892caab1e738f0208e1a584b9bc7933cd8b5b209db": 1,
+      "e691689d777788ddd053db49459fa1c8cbfc06df9a0a6346ba0d501562d86ea7": 1,
+      "d8c8ec11339bedcb75aab1102b470183b7bbadb7a262b8d3f88e8a57f0e32201": 1,
+      "ce55ded30951a048603bb9f4ff59e797115787dc14cdb6eb963da1029cc15180": 1,
+      "7c9a066d69ddbc9c8ac9ebc8071525fd9b07c6e7d9f76febcff3428e7df3ed0e": 1,
+      "7656bc96758587e4195d0477298c59083e3dbcbccb7fdcb76171c9ecf63e874e": 1,
+      "a9d6d06d456adf97bcb1e22075601437498946da999d9230114a96895d069c14": 1,
+      "7dd924f2eb57f0677117d6f484710ae90080d6f29298632cf4b59a48ebcfa06a": 1,
+      "dd8d20737567a59d7d68455414f2535f23870d961fb81b16c42dc82dc6e49d4c": 1,
+      "283d6fc378a12a2ea14e91f31df0ce2bd9680116629cf2533e13ac0ddf36dad6": 1,
+      "f064edc586288a9f97b5dbd4a4bcc76ee7f427b06d10a453dd8ef05b2fbe696a": 1,
+      "c214c75af5b648b7f0df93fce5686a91c7a8f2f1ac7d94b45e13a47b3a7f450e": 1,
+      "c74428766ff61d01a71fa99ee4a49ed91c1fb08963f3dcd6c48975351c2703ae": 1
+    }
+  },
+  "deploy/HOSTNAME_ATTACH.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "94bbf35d7c9c1b7ed1f9eb2f881b71b4ad0c46ff9dc7b6dd076a4579b93a1c71": 1,
+      "a9776ae7763ee3a1c03277ab7838d5dd7bb735394c7bcab0eadbe5288adb0875": 1,
+      "a9fd28ac287e293e1d4a38ac430ddfcb41a0f6c87be5a923a9bba70292999be9": 1,
+      "30c8ded2c09f425409a8e04b49080fb3fe33b034971ed2bb519c8b5e7c6799fd": 1,
+      "ea3e096dc5682713d9e592e60fb8785cb2588de99ce9666dc5a37ea163481f66": 1,
+      "2d8e133f9feec5f90c0b22e64774993b4124e6589539a64fbbcf7df8e364863d": 1,
+      "7bd0b6142e55957f75e1732b48b13c17deccc726ea2118f4d91d7a003af1752c": 1,
+      "eaa7250fe8c4b89fa0eb895cf977ef6f01580b24da512e3689ee97794f7977e9": 1,
+      "aa87c597ae3145c80ba585fb56d1f5b89025a7957a55d2fc998e00ceb88380da": 1
+    }
+  },
+  "deploy/LEASE_DOGFOOD.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "352af3dd6a983718f0d90d309512f3449d08395cf75d9c56cfd0df5b2a59a222": 1,
+      "5735ae55f8ae5465bcef8d2babe17d5bb93778680c1cd601cfb480403c1e4f75": 1,
+      "68ec2ee41666e5890618c4b54442226c4b5d658f18af14f6f2f47539155b9d53": 1,
+      "ad37f176d5bfc68ee827f6ee187d9e9d4bd4fe404c1bc08aeff48f6603316bfd": 1,
+      "e78810141d19cb95223fb480c39cbbc6e83f00120dd37566d77eef2d53163be3": 1,
+      "e5c667e53d521e604ef7391885f777f23e73211adeccef1c7b029f5afda0307c": 1,
+      "ce55ded30951a048603bb9f4ff59e797115787dc14cdb6eb963da1029cc15180": 1,
+      "49b948bb3db8228cffabbf38ae20281e8ed7398158318104dc3e9f99b91819ae": 1,
+      "14e161cc1bbee3ecd91c9647749a1085eb2ba27273f6cec53ddfe5743eb721ec": 1,
+      "43f27f977374156021767c4987395c077f87aa368961149c131b2c4ac269024d": 1,
+      "1a9e87cc07468e1815ec841ec50a9caf6f0520506d5ea46a0a688d76b39f6064": 1,
+      "ef8f100c69d9c66f630ec9b19817ec7bc69d9b64247949edb6cf60c6d3c2945d": 1,
+      "e3f21c5de8cdbe7a2a3a75005519d8fb449620f1cc89158330460d22bb190f0a": 1,
+      "e5e838e9b4850a1d4197ece1057de85d6b11e7a457e3febcc81c0025dd44b966": 1,
+      "41cb8a312f5c9fedc6329a9eecb215274e8b6fe6dd1117c17f097abd994fcd49": 1,
+      "3a2d8027a6012085535304560034cbc9a223c0236cd3953ac96d62c6886c30da": 1,
+      "adf88525371f4e0c21eb010200f46c7c2d6a350e1aa9ecb766064a3a4ed85b4f": 1,
+      "1a2638e7876aadf1090540353ef2d18ac5909c6688fe40c14d290d266cf6b795": 1,
+      "4cac76a3dccaa2da7e67243e223e17a5f9616e1506275b1b117e5fb2e718f23b": 1,
+      "f7e35f86b44dad7e6e6264622f04ed829443095b5b4276ef4240dfba5cd029bf": 1,
+      "4e406bc8b2c34ce1b1422029bce4e9100b2ed0c083065de77ccecbbdd8a0c26c": 1,
+      "0489b134ef0be8052e8ecc63409797c6ae354b665b398c5ce29e626d6167445e": 1,
+      "fce37baa8a83fec27311bc54abf2e849153f3d08454801f5708a95917dd4b194": 1
+    }
+  },
+  "deploy/LOCAL_PROD.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "c3df7c0e7a0fad8eeb5cf3094a3cdb81ca1b048432a4631778a9b62d1e82beba": 1,
+      "5bf505c5fe38d208b8617f0fbb5bf2c26d3db730c230cb9c2c8ca566c829de54": 1,
+      "3987569662ae9e578b8e4f0a70590608d5fa311158259942fd65e996538a8ac0": 1,
+      "9232c83ff81477b23df49f91ab4061fe19393a7865fc3f560d5e05f4fe2251f7": 1,
+      "69148bd150955c079f009530c60b9c9ec9c506563e239ee36de20aa372ec412c": 1,
+      "3166406dfe3008f47d797ab64d64908e3b98505228a930b2524784d8dd0de2e6": 1,
+      "7bf7d3407ddafdd15fe0d6f903aab423e937b53a465990a3c22b54e438682a61": 1,
+      "83be26cf46ccbe4586e64b7066bea9a97c46b779716c21cb011ae15bd0f4cc5c": 1,
+      "cc581ecb1efaa61fe06f0282a08dcf9f503d6362ac071586975b7fec7aa0e2b1": 1,
+      "1082d9cb4f7e1126a202f188102a06a84696ca3cf9f1ec55dff623383c8da15f": 1,
+      "530943db8b80a08bca8787a6614dfc18730ec298a0e3a2c049b4a05f32408179": 1
+    }
+  },
+  "deploy/NS_CUT.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "f211d550b9ee1bd30d104804d43a3b41f04efc9957ae1b6676d403772a2ab0ab": 1,
+      "28cfd195f4aa892474fcbd1786b78251e73b823d457ea049a5ac393ec82c3f9e": 1,
+      "c5bc9218539d3ef42a5f21b59303b3896baf867684b5d712c4b511c12fe21151": 1,
+      "e3b6caba4738ebb56f4c85bb2dbd7854e21af907ada6f0122d5f08c526024fe8": 1,
+      "4145cf190759caaec460a3b7924b2c0ef0b383ebbe5743f5891678323efd11ce": 1,
+      "31baf70145929c7d9e72d654ba56d0357c714810dfae1d651b5b24d703aa9aa5": 1,
+      "77fd5921acfae675c7ea82ed6ca017746fa79195112d12dc02f8bdea9f452748": 1,
+      "78f27b2710cd19056c6d1041f039f5667e9478f74f4813b7371f1960fa90a95c": 1,
+      "771b740ee94e22ddb13ed5589fc6c46c66e0de24e6b66287c44c981686eb3a40": 1,
+      "93ae82f52aa6844ce9f3fd3112479ebc8472e23ae6c43fb19c10217d181e1540": 1,
+      "fae1ac28bdce59fb75565090120164e3e14c0d75ae9465a8f69f789bdd4ccc61": 1,
+      "26f9837c58bf0257a9ab61239e4de747f4a1185cd1fed509c5004aaae39803ad": 1,
+      "57787a18db96b55d367f60b64c770f924924229674b8bfc469a451a863fe2ad6": 1,
+      "5a46440a40c1f44d44a9651597503e9b4afa0b521312977315b8d94e852b9bc1": 1,
+      "f8d838d8f873ee0c74cae7c6f37fb2b80ef27fd0ede5d07864d702f8287d8b36": 1,
+      "39bd735b655ffb082d54070b29808a9cbec1b29454fe3f15ccb59dc09f9b8623": 1,
+      "6e4f20db278fc71146a73451324f28c582b366dcde3cd4668d7be133e9090c1e": 1,
+      "64a0368a281caa69912ba0be5e62f42d642194b43494523861006598e048d0f5": 1,
+      "78e7917d68614df0268d9ca219378a46f0eece4226726b481b5f5e4486000efc": 1,
+      "3ae3da8973873b577eb80bcaf80f72e657dc3771d31e81b24e0e89956337a767": 1,
+      "3485ff71702af1c287af88b7d7e642be04ded4fdbacdc4e98221b9b7917cd1bc": 1,
+      "f09d5cab246990937426d9f4fcad71f38a976a7ae68f8c99f643657b5e6459f6": 1,
+      "791ba89b73cfa570829918665010b0c55e2918d734eeed611f9322ae91ba8648": 1,
+      "59f29ab8414b493e37bcd7739d89c18fa9c237ca6269d89d454e8279807f7d09": 1,
+      "52e14b307d1440c509e52f245d4da630220220d7bb2dccad04a4686e574c9138": 1,
+      "962ccbea0d63e57b1947c00c04b323d11affeb535c331bc4bb94ac35e89d1103": 1,
+      "cf48ab46d6c4b8d83b13b9a731d42ab478e5d34c38f750e3d1599d06c3efd837": 1,
+      "e339815fc42f3d098f4b8d67247a6255777f0f448c5c49610e689a6d3c6ade95": 1,
+      "24580636a0e44a7e49299b637f31b09f9639326e1aa3720a773fbb34e454d45a": 1,
+      "0c1f807b9c3280c72cbcf83707ebec9dbe9de51e4083ed0584c18f83fd1f6641": 1,
+      "3f04b4391eefe923990d319c58eb7d104c46819ddd3c88ab4cc63a6ec7ed755f": 1,
+      "0a6461752905b3ae81b851f10b1e9621f270bc766e397edc2000e7cc72b74471": 1,
+      "ca0af58cd146e4cb0eec308c45cedd9b2eb6c02740fe1cf257126d5c5b1ccbe9": 1,
+      "8d6e746c238a533e6c52e020a825831d624733b08087e85aa82f1041547c268f": 1,
+      "c7bc6bf8c24a48c5a15941680dfaf6249625cbbf7338d6c0fc38f735147ec7fb": 1
+    }
+  },
+  "deploy/PARALLEL_DOGFOOD.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "b1d6cd6168c8cc951f9f68f17c7eb2f8e1ea7858e3efa40ada59230b91b5b6bf": 1,
+      "ff2bc72b01f6fe8d7edfacb463c3556523f12d0192b89119142f2d6987149916": 1,
+      "18e0b8bed3778fb5fc71e267ffa233a9fc6c16d94b7b747122caabe40a044ece": 1,
+      "b103c04e53495f9f38768cb4b4b38a508400d56cb4f8b14afc31134897bcff2f": 1,
+      "9a8d7e7da1de6ffd1e20b17043945a215a39484e77ecea7b7f70bfa9094b628e": 1,
+      "f77f9f60b20584215b93efb35abce9f062db2845b26eb44b5a012e1d16437460": 1,
+      "69fce50369c0206ef125f0e944f172d443b528f1d945a8fd44159dc3e7f148c1": 1,
+      "bb8f4c27d64426e8cf04d2008f2e42c724aea0e6e6e867ccde02d004e36e2005": 1,
+      "cc581ecb1efaa61fe06f0282a08dcf9f503d6362ac071586975b7fec7aa0e2b1": 1,
+      "98bd69d7d5bfe5f9372364ad5e43f511379d7ffbd963a006b49229c97230aa07": 1,
+      "1ed217ebef6c3f704e347f087530d30b5f757755f7c80684d5e3cfb792cb1133": 1,
+      "a33616527e9e8031f1e9901334ddcf7766268e3f33696d8a7d468ff0095f3d80": 1
+    }
+  },
+  "deploy/PORKBUN_TRANSFER.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "0d85b30d8d185a3e82ecd09e6ef02b245f359941c106ac9f0947fffe27a0fdec": 1,
+      "e14aef3f610442460a28405910e5a693168f7e20ff87051c7c6439fbd0b67cf5": 1,
+      "fba8ca43f5a8ccd5e047f104d670ed0efca9c89d385cb31c774c87355fb9eec6": 1,
+      "71bbe93e4066f3914371e3c3723f6e4a9f312258d1a5f3512e3832ed7368f65f": 1,
+      "19b77c9c6e374ca16bab463ed73ea42bba0fabb2bb62ff166a41d3cbeaaae78c": 1,
+      "cd1ce2df92d5f9a61bbac7d206bd47819a807dd94df2b04f8351dad4da015378": 1
+    }
+  },
+  "deploy/ZONE_INVENTORY.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "c7babb62bc15a9104be0cd74e172eb17aefa50392da5a8bfb11f8f721b8806a2": 1,
+      "07c2768d160b62a66bef18b29a686ab75dd4f5adf5f622881740b40341dfbf55": 1
+    }
+  },
+  "deploy/coredns/Corefile": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "3b236666a74774911790f2a0758899a5c7b09a688738bb8a027c9bab6bc937c4": 1
+    }
+  },
+  "deploy/coredns/Corefile.ns2": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "3b236666a74774911790f2a0758899a5c7b09a688738bb8a027c9bab6bc937c4": 1
+    }
+  },
+  "deploy/coredns/INSTALL.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "a1d7a64496e1560081fc978c78675bd60504327aedd42c377ceca58a83b5a690": 1,
+      "c6585cb2379e9147d73976eb5b554d7ebf5cc66435b535950072680905c9b124": 1,
+      "0dc442781211e9a082e3ff287aa1ecc2f792bafbb0559b7460be3123b0bb95b6": 1,
+      "e1506928014fd6cebeb96db521b5d3d1740be13f07053eff9f05a19ec5763df5": 1,
+      "b79918dc3d8f20a4e4734cd80249221c0e3484b3020bf02d25f2cb32ec3e8170": 1,
+      "14a4af2c361e9febde9c26c9f4cbdd47672c374daddc10e89b0f15fb811ec3ec": 1
+    }
+  },
+  "deploy/prod1-fastdog-agent/README.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "a45987ee1b977c79e33aef1865dfee601152feab5bc6adcd463334d09e01eb0b": 1
+    }
+  },
+  "deploy/prod1-fastdog-agent/app/index.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "f61e39ffc9bff8048c5eed78125749006edbe90da452d1c648d263b1ccfe4dc3": 1
+    }
+  },
+  "deploy/prod1-fastdog-agent/docker-compose.yml": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "33c3f8c19d57d0ee2acf72e38b295e669462c1b6cf4c559732b04419327dd002": 1,
+      "3d2bf08a710bc506fa3e0288111483c30cca05add1bf0454d47f9f518edeee87": 1,
+      "cb05aefde99d52a29b5bd640a54eb986f40fab1ad8adfe0f6b4b8d071649d66b": 1,
+      "9fa699710471ae52bbe0bcf689505921fb3b32f8b04bed4b64a5ff9e6c42d870": 1,
+      "ed1517d6facbdffa849ddfe351694ec7ca07004b226c4ac330ec60febd6663e8": 1,
+      "146000ba6547e4aa9901d7c3eea66c7370a8a116e3de50d77d3c1aa7518a63fc": 1
+    }
+  },
+  "docs/BILLING.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "e400e411c24de36a1ff7efb0b731b6a2d6c726908b056cb370114ac22e6bfd00": 1,
+      "e1ea2bba79d2121f615abb678dd1d85642bd6ebbae3e95f2e7b647d53099b625": 1
+    }
+  },
+  "docs/HOSTNAME_ATTACH.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "cd52d8be2f124384e644f2f41167703433e5c20fd85a0bf1d865c0e687bd0fa3": 1,
+      "844b66ce7a0058b79d22976acf13f050f3d33729f64bdea17b995f39a1bbaeb2": 1,
+      "9be965c4aa541b3cb46f3a59ba536f7f602d52d2b197a16ae11b7e57e2d9119b": 1,
+      "fab7bd549651747355808bcaf86317b1e11732db0a3fd297f31f3b3a5ed58603": 1,
+      "a7315e7dacc8a9590279b97cbbd369bdfc751b76d909a5b050bd8e4fcad6265f": 1,
+      "51c2d5d4420b25907649053a03416eb3cb5d39dc8fd28e1c2a46ed7c42de8ff0": 1,
+      "a07eea903d4a5bf83ad3573643f9d58f721b1604079265b79ee80bdc02c38991": 1,
+      "30c8ded2c09f425409a8e04b49080fb3fe33b034971ed2bb519c8b5e7c6799fd": 2,
+      "ea3e096dc5682713d9e592e60fb8785cb2588de99ce9666dc5a37ea163481f66": 1,
+      "0b62e46e9d5f2e53c32afd1653722cb6fb21b13b2cbdbd5dea967343b397b86a": 1,
+      "cb56a76b68f4832a2d74918167ddd8075da4dac81290f87f6114b34e5d4221ab": 1
+    }
+  },
+  "docs/ONBOARDING.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "17916f43e1c5a85dafab723091186275f20e0f661ca13f3564e30462351e77e0": 1,
+      "8787bd761732ef61730a979d2f8f22a8fb7ce282d141aa5a72e207140769aac5": 1
+    }
+  },
+  "docs/POSTIZ_ATTACH_CHECKLIST.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "9e6c4d16647a7a1adaa9d55c58d8da272f617397f0c89f3c35276f8358363faf": 1
+    }
+  },
+  "docs/STATUS.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "19c543b976d361b26ace3d27c6a56751ecc7771fe9f0822412fd179d0d4a7f3c": 1,
+      "c062edad1ff3f628613d25f5bf24878b089be086211d056fe989ae128497728a": 1,
+      "51be3fd72ea76d8b11f0cdc4e7630c0de182912bb00cc9c8357b2d879b02dc26": 1
+    }
+  },
+  "docs/operator-ui.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "cac7238872e0b74d46a7faa6714f6bcaedc1acd7ba9c23cd3126b99ab829868d": 1
+    }
+  },
+  "domain-search/test/ui.test.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "ae2e4c1802c3836f148548cee0b3f93d6e42bda8dba04f76fbca46f7040c0738": 1
+    }
+  },
+  "scripts/ns-cut-checklist.sh": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "e3f3260148a68eddb1bc03b59a68a469a78c2f134a6abbe3d550375bb2b7a9c7": 1
+    }
+  },
+  "site/README.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "1afb3f61dae4a80d3e21327033f317c48e8e13f77ad23d381519c7533e766661": 1
+    }
+  },
+  "site/customers/punch-clock/index.html": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "49b57cf2e9f04abdb7d074b334c4e4503e41e1d437bcff2ba3f56a6179a7b504": 1,
+      "eb2be30127ae20ec271f5de388863ed30a61b7fc73ce03f44a4b2cf6a364e790": 1,
+      "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
+      "4ea432d10e7df4fd845eb440aa1624a2be676fa057407c684a431c8b438386b4": 1,
+      "664f9b47fe8eb12b22665ed583c1b70b78de36db4387bb99aae96ad8334fb7fe": 1,
+      "daf6bfa3cd3460967c44ba8dbf36b21b2458f3797b9355d7139304d943633ee8": 1,
+      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1
+    }
+  },
+  "site/domains/index.html": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "c3d094bc13a052b24dacfed823e1fbb2bccc5e6aba6fd832d86e4f86732f6eb5": 1,
+      "3d98b2556efb270113ee60264e5574ee98f632c9eee0cd2a828c19f821a4a368": 1,
+      "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
+      "c1bb7b1342990763446354c1f7ca7cf65f37b83c745c909afb007fef05b9dbfa": 1,
+      "8d231849d2634eac7a2a79ed2bd76b6bd2c1e036addc844ff8968762a41f1eed": 1,
+      "65bb610bf42cab1d8244c66ffbbe8387508f184a3ab165fa19533b4570b7833a": 1,
+      "59814d5f329820b787bafe7e3bd160809dff566aa3d16dbd94d67df7f411d6d8": 1,
+      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1
+    }
+  },
+  "site/edge/index.html": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "2e629eac599037e9a3a19ac768ad735a853f34f5f4ca771e2ffe5d2dcdfefb47": 1,
+      "14f8c61ec87bbc4d971a239d8edf9454df89e05d576e7fda391431563e4da4e6": 1,
+      "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
+      "25757cc433e2981129cc0800d497339d1e8f493c42a2a853b15d2554e22ec3d7": 1,
+      "ea7d8fd859ae9b5a73cbd203de198a171e52031cc82269d053b0ee5db8f97ab9": 1,
+      "685fae80ecf42147c42d65ee0605c67ba81dc8d9776d986445159e41ddf6688f": 1,
+      "551624cc6e4920d92cd6bf1194c28435cb1b9d5730ad455ec627e2ed0449db0f": 1,
+      "4d08fc772f2c4661e94ce9b53bf215db5fdaa343c766250976a441c906c952fe": 1,
+      "c73b62d9aaec06738718d61d8229e07c48284f5f0d415d0418c958235f9fe4c5": 1,
+      "f48a38d461be87b40ac9eb682b6f4faebf086d6349711c162ec3d2143dc3b540": 1,
+      "c81ec7d329a50740a634d4cd20c856ba891b32969c38a09bd7e2a38f31343249": 1,
+      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1
+    }
+  },
+  "site/index.html": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "d1a05adc45df6264c75edc77562e36ee9dec560081aff863333a84d3950c170f": 1,
+      "17d677cec6a85b721f163d776a90c7f1b810413854d0f32477405da7a90eb61d": 1,
+      "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
+      "4f0095887aad7fd917d2e425a0b4fefe83f19d83390c16378571893d6c9a82ce": 1,
+      "279ffc13afcfca2314283ef8266be3ebc99b7291430d408b5a3761831be4eb2d": 1,
+      "9e29c6120c2eb1b08ea64149eb0ef167d41d04dcdde4281546a369beb3f697fb": 1,
+      "a53c41882217f67e635b5ebae6d8dc1737b7fa0ef698405f2cf3536985744687": 2,
+      "07fed5e93de1334460a4c6bedc00fb87475b6751d6c2171ca937f05e457aea5e": 1,
+      "1e8b9a01e04212f46b784aa6b1689e4d453d778caf153fc7dd634cf4f047fc4e": 1,
+      "e0c841502191c8ff9d851e7a2f9d1a53cab32e9f7f4a1d93a58167455aa9753f": 1,
+      "7095b954b83d490144453d9c401e4713c350ff7386df432f39cfb0d4a0f9c634": 1,
+      "f48a38d461be87b40ac9eb682b6f4faebf086d6349711c162ec3d2143dc3b540": 1,
+      "7f0b95caab2949a7c2c890ee90a95d81e4d90f19a46b0847cbc20f2644d03812": 1,
+      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1
+    }
+  },
+  "site/js/domain-search.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "0066a50e7c0130b17f2bd39f6f470c2a867e31970ff7eb94349f7b1b954a2315": 1
+    }
+  },
+  "site/verdict/index.html": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "d00e2e981101a11f3991a3516cfe057393bf871268cf35a4b6ac807826e1d327": 1,
+      "4b9d788500686deb52f978695bee20621d25e10aeb0c426ff07385015effabeb": 1,
+      "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
+      "58f5028c1ebbf397ee13b380c376f0c354f194a3595bcb590952bf1bd957ba64": 1,
+      "dd5c0c157952f1c3dcc12baca22fefb13cbd1fa7c1fc6b74b99be850c67d7b05": 1,
+      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1
+    }
+  },
+  "src/dns/validate-zone.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "485e2fe3acbcb3d927a5368b9f4b6a5bb9bd597962d749b65ff78d2f17b482d1": 1,
+      "2c058e8b9a2fdc62b946b0687fe11357707d7484e75cf0719a61242e3675a202": 1
+    }
+  },
+  "src/status/service.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "d24766e333468c7cf210c6751497bfc75ac9b942cd20ea5788df3d951ece4c6d": 1,
+      "47a4ac0a06dc62a07f16fe80e662e672dbfb0ae24e0c88d86b22441c6ebfddcc": 1
+    }
+  },
+  "verdict/CODEX_LAST_MESSAGE.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "004459f18c4fac77e4ecbf82b06f3c3b6aa9519fa58172319aa87ab66a91d8fd": 1
+    }
+  },
+  "verdict/README.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "347436ccfc53ceb8c50c62b7bd08831c6db59047483858ad82ccf093dbcd07c8": 1,
+      "8c318fe20a742ebfde098850e84f06429dcbfa6c94ca3084c55dbc1281c0a2c9": 1,
+      "575626ea1a306c4440759a457a201346b34afd47d0c1eb11529289d542b5982f": 1
+    }
+  },
+  "verdict/deploy/EDGE.md": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "9eb10259b22580d2e03452a6f7e89b8fb1c816bcefbe10ebedb183d7bd38d339": 1,
+      "944433a1a31a67b35ddfbf7c361533c3f8a2f8c26d2a55b03a1837364bbac50c": 1,
+      "b2ae7411cf80f45dc209643b1106230ad9ac3154469054d18d36ea12efce6fec": 1,
+      "36d7ea538674c8699345e64a7a4c1fa41a8f44802b69f5383a17fa557783779d": 1,
+      "9698bd71c6f50c02ceb207d2e3aaa923e2dac4a98c4d3bd8420e5c66089302bb": 1,
+      "9d74a89564db2794757d96a560719a9ac0cd227c8628eb10dff00e2facace2c3": 1,
+      "5249cd6cfea799ce8314a48ca359f58df656ef9990d92d34cebe33ebf8f3014d": 1,
+      "aa2a01e68be52217ce21a4141b7cb650f204ded7fdd27023b73164fc78123a0d": 1
+    }
+  },
+  "verdict/fixtures/bad-requests.json": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "b044ae36d012a630443368874c889d58d19158139b80a5a48ee424208783f431": 20,
+      "532ce8679d96f0e67c9b79050f1e63cc9e7d76e3fe630904780923d21eead0e1": 20
+    }
+  },
+  "verdict/src/config/hosts.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "a06144d2074f8ee92395f0d2afb6060974aa0b1f0363fcb55b527e27ac0eb3ef": 1,
+      "37a27e33ae8b3f75ffb3e1d0cfb174717545026e6a4ee18d58e1e9c2ab316457": 1,
+      "665e8f86ff1b998e887b847c5789d59804452690efa3a56c404f8c7bc2428906": 1,
+      "83c903d676ceec875d43498e1115916f6af56a8e075c0ebbb369488481a0ddac": 1,
+      "439c4928b3faf6663011a0ca21cb90f6b075a16e4f21677c31c810ac419609d0": 2,
+      "3d5071ee6a06d46d5ca735c643a7804ab9c523ef9d522245739d5cb731dc783a": 2,
+      "6dffa9d7c10eb0e0412f5424a1e8a793cbf63238151cc3f1d0c3c65e0e9bc3cc": 1
+    }
+  },
+  "verdict/src/edge/security.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "50a7dc21a41f67532c6f71edec84e4dc346911ade9bf4d6dff88939a305c489a": 1
+    }
+  },
+  "verdict/src/engine/signals.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "52993de5d7056179598b672e1929474fea19fa87dff07f217ef15816fc0dd3d6": 1
+    }
+  },
+  "verdict/src/shadow/score.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "781dd9490421ba8e0b4ef70d1e701b5c51e3b2c27defaefcddb822f326217a0b": 1
+    }
+  },
+  "verdict/src/shadow/summary.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "22a0048149072447a644a88321a1110e626d646813934bfde8e9c0101b1640bf": 1
+    }
+  },
+  "verdict/test/adversarial-advsec.test.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "538181ec20aeb4f671bd68f8135c465810f2b98b551a2b8277540d0280610a7a": 1
+    }
+  },
+  "verdict/test/adversarial030.test.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "eed83bcad0372f28d7ab2a7700d7f8a7a32849b1309a6f75b988571377837988": 1
+    }
+  },
+  "verdict/test/challenge.test.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "9e55fe6dc009da7183abf9dd6b0de8e2c39731aaeec53ca52f9659feaf8c61f6": 1,
+      "01567a882feb23cd7eea44d6b37abfd2616345db401201b83d20e2dc39577f58": 1
+    }
+  },
+  "verdict/test/hardening.test.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "ed413e00d84eab74e1195d927793ede1f2e7865bd6f5a840d3445eedae47acf5": 1,
+      "e46e988da5ee865a15f56dbc91e677b03e0c8f6e7a8fd5c50bbd1511a281611e": 1
+    }
+  },
+  "verdict/test/next030.test.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "67e6005b1488fb803d489212b2c42eba9e993a6ae70e882b41aad6b6f068c323": 1,
+      "09e161ae7b2e7f257217aec7dd31c3f4317f4202fadec5ee77eb4decc68db713": 1,
+      "4657763644c534e0f5c4a42c9813167a59e97d3b8af0acd4fa674248a6004d5e": 2,
+      "3f441940808611aa8a276ea6f1815b4288389130d5f882153763c7be0859cb24": 1,
+      "8eebaed6ce4b542145b308373df7a632e983e6cf34f772f2e95b4b1d086d6ef7": 1,
+      "93b08bbb9c0384aae7428e1c15fb3a656c2ab8279310b769f1b7253cb377182a": 1,
+      "d278b73add7cd90f5ce85b0781cd9352ff0b47fcf80b985c074d69fdb9acfd11": 1,
+      "bd66e724280743926368c5f3d46453505bdc2302c5ac09baf882aa02f9803926": 1,
+      "0478a71253edec80d909f973bb6914ab3c9191dd4494d86897bbe4adbf3e5437": 1
+    }
+  },
+  "verdict/test/polish.test.js": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "9d37f704aace8dc38e8c09a6eb2d58de08c84c4ac47a630fd0f1aacebd364169": 1,
+      "269cf30d8ba618ca547ea4b116cd66493def500d512232e378f4e3c78c06f92f": 1
+    }
+  },
+  "zones/fastdognetworks.com.json": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "e2a743fd756c30e6ef39c8152c3be45eb59419105d0b9a4a9dc9c14725f274bb": 1,
+      "d7f3f739ea131f4233545cc0cced727f1488d1490ac1364eeb16e604d308b42c": 1,
+      "b1a234931c194cf35322c19cc26b67b3999d36382ff5a4084d02bedaa052f2a6": 1,
+      "f685209e0be56e2ebd095ebf7e9d72c8e21f35072e3a9917fcdb0e2df9a0ab6c": 1,
+      "73d416990b15690b1ac834913ab79ca8ba27aabecc77239afc12af4ebccdecf0": 1,
+      "f1b95f67090a17928249d30b484f959c02b47c8ff385bc400b8f87abaec6f4cc": 1
+    }
+  },
+  "zones/trysummitlease.com.json": {
+    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "lines": {
+      "2f9420012fbbb8a25b71415260273a773a8fa1c0651300c63f0bda2d19f565d9": 1,
+      "40d2bc90ede979114718ac31bc69c5e259faede823c5c8212b9cd6bcc7af4225": 1
+    }
+  },
+  "test/no-hardcoded-names.allow.json": {
+    "reason": "Exact legacy path keys in this exemption inventory contain denied names; only those keys are exempt.",
+    "lines": {
+      "57dc64b8bf3da4ed70fa222c1e70a0776a0b6ee2501f424823150e8bf0e36b76": 1,
+      "8a7756197f3c629cb281013ba20d25f1300aa8d81e885b47a264388330d03392": 1,
+      "1c2c14f0b29c4d3708e6073370cd87ccb738719b29bc9646a8a2fe6f517d3a2a": 1,
+      "03e231aa1c1ae89277300e2d701802342c7cdfdcfce04b65fcd58d5901f751d9": 1
+    }
   }
 }

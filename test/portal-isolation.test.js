@@ -1,3 +1,4 @@
+import { laneSkip } from './helpers/lanes.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -5,7 +6,7 @@ import { portalFile, twoAccounts, browser } from './helpers/portal.js';
 import { fakeSecret } from './helpers/internal.js';
 import { expectRateLimit } from './helpers/http.js';
 
-const skip = existsSync(portalFile) ? false : 'lane B not merged: portal app absent';
+const skip = laneSkip(existsSync(portalFile), 'lane B not merged: portal app absent');
 
 test('portal derives tenant scope and hostname limit exclusively from each session', { skip }, async (t) => {
   const h = await twoAccounts(t);
