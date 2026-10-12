@@ -9,7 +9,7 @@ import { createAuth } from './auth.js';
 import { equal } from './tokens.js';
 import { fail, statuses } from './errors.js';
 import { normalizeHostname } from './hostname.js';
-import { safePath, serveStatic } from './static.js';
+import { safePath, serveStatic, pages } from './static.js';
 import { createFileMailer } from './mailer-file.js';
 
 const authPaths = new Set(['/api/signup', '/api/login', '/api/logout', '/api/verify-email', '/api/password-reset', '/api/password-reset/confirm']);
@@ -67,6 +67,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
     const started = now();
     let template = 'unknown';
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    response.setHeader('X-Robots-Tag', 'noindex');
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'no-referrer');
     response.setHeader('X-Frame-Options', 'DENY');
@@ -81,8 +82,18 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
     };
     try {
       const path = safePath(request.url);
+      const pagePath = path.replace(/\/$/, '') || '/';
       if (!path.startsWith('/api/')) {
         if (request.method !== 'GET') throw fail('method_not_allowed');
+        if (pagePath === '/health') return send(200, { ok: true });
+        if (Object.hasOwn(pages, pagePath) && !['/login', '/signup', '/verify-email'].includes(pagePath)) {
+          const session = sessions.get(request.headers.cookie);
+          if (!auth.identity(session)) {
+            response.writeHead(302, { Location: '/login', 'Content-Type': 'text/html; charset=utf-8' });
+            return response.end('<!doctype html><html lang="en"><head><meta name="robots" content="noindex"><title>Sign in</title></head><body><main><a href="/login">Sign in to your portal</a></main></body></html>');
+          }
+          response.setHeader('Set-Cookie', session.cookie);
+        }
         template = 'static';
         return serveStatic(path, response);
       }
@@ -109,8 +120,9 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
       const body = request.method === 'GET' ? {} : await readBody(request);
       if (authPaths.has(path)) return await auth.handle(path, body, { ip, session, send });
       const identity = auth.identity(session);
+      if (!identity) throw fail('unauthorized');
       if (path === '/api/domains/search') {
-        limits.take(`search:${identity ? 'user' : 'guest'}:${ip}`, identity ? 30 : 10, 600000);
+        limits.take(`search:user:${ip}`, 30, 600000);
         const query = new URL(request.url, config.origin).searchParams.get('q');
         if (!query || query.length > 253 || /[\s\x00-\x1f\x7f]/.test(query)) throw fail('invalid_hostname');
         const result = await domainSearch.search(query, ip);
