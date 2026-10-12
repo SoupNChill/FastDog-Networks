@@ -76,7 +76,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 ## Lane H (handover documentation)
 - DONE: source-based architecture, ASCII request flows, stores, feature defaults and trust boundaries in `ARCHITECTURE.md`.
 - DONE: deploy, rollback, DNS sync, Caddy certificates, agent attach, portal invites/outbox and Verdict runbooks under `runbooks/`.
-- DONE: dated decisions with repository/git provenance in `DECISIONS.md`.
+- DONE: dated decisions with repository/git provenance in `decisions/README.md`.
 - DONE: per-box inventory and secret-location/owner skeleton in `INVENTORY.md`; unverified live facts remain `TODO(operator)`. No live deployment or outstanding security finding is marked complete by this lane.
 
 ## Open after the Day 3 reviews (flags stay off)
@@ -84,3 +84,9 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - MEDIUM (suspension): suspending a tenant does not yet remove its edge hosts, tunnels or credentials. Until that ships, the operator revokes them per host (runbooks/portal-invites.md).
 - MEDIUM (outbox): files in the outbox hold live verify and reset links and are never swept. Add a TTL sweep, or delete each file after delivery.
 - MEDIUM (agent): the agent token still travels in the WebSocket query string. Move it to a header and confirm access logs drop the query string (they already do).
+
+## Lane D (documentation refresh)
+- DONE: root `AGENTS.md` documents layout, build/test/deploy procedures, documentation index and operational locks.
+- DONE: reviewed architecture, all seven runbooks and inventory against current source; documented portal login without Caddy basic-auth, timestamped release backups, archive rollback and previous portal code. Secret records contain locations and owners only.
+- DONE: migrated the decision log to dated, frontmatter-bearing records under `decisions/`, added an index and updated all old decision-log references.
+- DONE: offline validation: `npm test` 280 passed and `npm run test:portal` 38 passed, zero failures/skips; name scanner, documentation links and decision structure checks pass. No runtime behavior changes or new tests.
