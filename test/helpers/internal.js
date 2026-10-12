@@ -20,7 +20,7 @@ export async function internalHarness(t, overrides = {}) {
   const logs = [];
   const log = (...args) => logs.push(args);
   const options = {
-    dataDir: tempDir(t), portalKey: fakeSecret(), agentToken: fakeSecret(),
+    tlsAskEnabled: true, dataDir: tempDir(t), portalKey: fakeSecret(), agentToken: fakeSecret(),
     attachTarget, altAttachTarget, edgePublicIp, reservedSuffixes, resolver,
     now: clock.now, logger: Object.assign(log, { info: log, warn: log, error: log }),
     registry: { getAgentByHost: (host) => agents.get(host) || null, closeHost: (host) => closed.push(host) },

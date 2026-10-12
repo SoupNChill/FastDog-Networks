@@ -3,6 +3,7 @@ import { isIP } from 'node:net';
 import { equalToken } from '../control/auth.js';
 import { normalizeHostname } from '../onboard/hostname.js';
 import { createClaims, fail } from './claims.js';
+import { createTlsAsk } from './tls-ask.js';
 
 export function isLoopback(address) {
   return address === '::1' || (isIP(address) === 4 && address.startsWith('127.')) ||
@@ -51,6 +52,8 @@ export function createInternalServer(opts = {}) {
   const server = http.createServer({ requestTimeout: 5000, headersTimeout: 5000, connectionsCheckingInterval: 1000 }, handle);
   server.setTimeout(5000);
   const claims = createClaims(opts, () => server.emit('routesChanged'));
+  const tlsAskEnabled = opts.tlsAskEnabled ?? (process.env.TLS_ASK_ENABLED === '1');
+  const tlsAsk = createTlsAsk({ ...opts, tlsAskEnabled });
 
   async function handle(req, res) {
     const started = performance.now();
@@ -76,10 +79,13 @@ export function createInternalServer(opts = {}) {
       const pathname = url.pathname.replace(/^\/internal\/v1(?=\/)/, '');
       if (pathname === '/health' || pathname === '/tls/ask') {
         route = pathname;
+        if (pathname === '/tls/ask' && !tlsAskEnabled) return send(res, 404);
         if (req.method !== 'GET') throw fail(405, 'method_not_allowed');
         if (pathname === '/health') return send(res, 200, { ok: true });
-        if (!isLoopback(req.socket.remoteAddress) || req.headers['x-forwarded-for'] || req.headers.forwarded) return send(res, 404);
-        return send(res, claims.ask(url.searchParams.get('domain')) ? 200 : 404);
+        if (!isLoopback(req.socket.remoteAddress) || Object.keys(req.headers).some((name) => name === 'forwarded' || name.startsWith('x-forwarded-'))) return send(res, 404);
+        const client = req.socket.remoteAddress.replace(/^::ffff:/, '');
+        const result = tlsAsk(url.searchParams.get('domain'), client);
+        return send(res, result.status, result.retry_after ? { error: 'rate_limited', retry_after: result.retry_after } : undefined);
       }
       if (!equalToken(req.headers['x-fastdog-portal-key'], opts.portalKey)) throw fail(401, 'unauthorized');
       const match = url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/hostnames(?:\/([^/]+)(?:\/(verify|credentials\/rotate|agent))?)?$/);

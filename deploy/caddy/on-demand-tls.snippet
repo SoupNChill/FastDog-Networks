@@ -1,0 +1,15 @@
+# NOT APPLIED. Merge into the candidate Caddyfile's existing global block.
+# Replace 8789 with INTERNAL_PORT. Requires TLS_ASK_ENABLED=1 on the edge.
+{
+    on_demand_tls {
+        ask http://127.0.0.1:8789/tls/ask
+    }
+}
+
+# Example catch-all site; review exposure and upstream before enabling.
+# https:// {
+#     tls {
+#         on_demand
+#     }
+#     reverse_proxy 127.0.0.1:8787
+# }

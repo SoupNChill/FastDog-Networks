@@ -1,6 +1,6 @@
 # Day 2 backlog (from the independent reviews of #32, #33, #34)
 
-No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy block, AGENT_TOKEN/EDGE_BIND startup guard, committed portal test artifacts, portal nav. Everything below is deliberately not built yet.
+No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy block, AGENT_TOKEN/EDGE_BIND startup guard, committed portal test artifacts, portal nav. Items marked DONE have been implemented; remaining items are not built yet.
 
 ## Lane A (edge)
 - MEDIUM: active claims are never re-verified or expired (`internal/claims.js`). Re-check routing and TXT periodically or on `/tls/ask`; demote after N failures; document an operator override.
@@ -38,3 +38,11 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 ## Other
 - Portal UI: brand is plain "Portal" (no logo); primary submit buttons look secondary; Connect page shows an empty select when there is no verified hostname.
 - Apply `import fdlog <host>` to the real Caddyfile blocks (needs separate approval) and add a real-request log test.
+
+
+## Lane C (on-demand TLS ask)
+- DONE: default-off `TLS_ASK_ENABLED`; direct-loopback-only ask, rejecting forwarded headers including empty values.
+- DONE: normalized verified active claim / explicit active legacy attachment approval; reserved, malformed, pending, expired and unknown names denied. Ambiguous tunnel lists do not independently authorize issuance.
+- DONE: bounded in-memory limits of 30 queries/minute/client and 300/minute globally, with 429 and retry timing.
+- DONE: offline handler tests for flag, authorization, normalization, spoofing, limits, resets and current-storage reads; existing ask fixtures explicitly opt in.
+- DONE: unapplied Caddy global on-demand TLS snippet and operator documentation; deployment validation remains an operator step.
