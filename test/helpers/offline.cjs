@@ -33,11 +33,18 @@ net.Socket.prototype.connect = function (...args) {
   if (options.path || !['127.0.0.1', '::1', 'localhost'].includes(host)) throw new Error('offline tests forbid external sockets');
   return connect.apply(this, args);
 };
-const spawnSync = childProcess.spawnSync;
-childProcess.spawnSync = function (command, args, options) {
-  if (['ssh', 'scp', 'rsync', 'pgrep', 'pkill', 'systemctl', 'curl', 'wget', 'dig'].includes(command.split('/').at(-1))) {
-    return { status: 1, stdout: '', stderr: 'offline test: external command disabled' };
-  }
-  return spawnSync.call(this, command, args, options);
-};
+// Preserve local test tooling while refusing remote-command entry points, including shells.
+const remoteCommand = /(?:^|[\s/;|&"'])(?:ssh|scp|rsync|pgrep|pkill|systemctl|curl|wget|dig)(?=$|[\s;|&"'])/;
+for (const name of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync']) {
+  const original = childProcess[name];
+  childProcess[name] = function (command, ...args) {
+    const shell = /(?:^|\/)(?:ba|da|z)?sh$/.test(command);
+    const text = [command, ...(shell && Array.isArray(args[0]) ? args[0] : [])].join(' ');
+    if (remoteCommand.test(text)) {
+      if (name === 'spawnSync') return { status: 1, stdout: '', stderr: 'offline test: external command disabled' };
+      throw new Error('offline test: external command disabled');
+    }
+    return original.call(this, command, ...args);
+  };
+}
 syncBuiltinESMExports();

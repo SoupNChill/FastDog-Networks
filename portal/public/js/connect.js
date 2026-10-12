@@ -13,6 +13,8 @@ try {
     option.selected = selected === record.hostname;
     select.append(option);
   }
+  document.querySelector('#connect').hidden = !select.value;
+  document.querySelector('#connect-empty').hidden = Boolean(select.value);
   form('#connect', async ({ hostname }) => {
     if (!hostname) return message('Add and verify a hostname first.');
     stop?.();
@@ -21,5 +23,4 @@ try {
     stop = watchAgent(hostname);
   });
   if (select.value) stop = watchAgent(select.value);
-  else message('Add and verify a hostname first.');
 } catch (error) { message(error.message); }

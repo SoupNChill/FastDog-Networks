@@ -1,5 +1,6 @@
 # Day 2 backlog (from the independent reviews of #32, #33, #34)
 
+No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy block, AGENT_TOKEN/EDGE_BIND startup guard, committed portal test artifacts, portal nav. Items marked DONE below are implemented; the remaining items are not built yet.
 No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy block, AGENT_TOKEN/EDGE_BIND startup guard, committed portal test artifacts, portal nav. Items marked DONE have been implemented; remaining items are not built yet.
 
 ## Lane A (edge)
@@ -13,30 +14,32 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - INFO: 409 `hostname_unavailable` is an existence oracle, as the contract specifies.
 
 ## Lane B (portal)
-- MEDIUM: anonymous sessions created on every `/api/me`; global 20000 cap makes login return 500 when full. Separate anonymous cap, short TTL, evict oldest, return `rate_limited`.
-- MEDIUM: rate-limit map shares one 20000-entry cap across login-account and `rotate:*` keys. Cap per prefix, expire separately, avoid whole-file rewrite per attempt.
+- DONE (E2 review): authenticated sessions are capped at 10 per user and 20000 globally; admission returns 429 without revoking existing sessions, and expired or revoked sessions free capacity.
+- DONE (E2): anonymous sessions have a separate 5000 cap and 30-minute idle TTL; saturation returns `rate_limited` (429) without evicting existing CSRF bootstrap sessions.
+- DONE (E2): rate-limit capacity is 20000 per prefix; expired entries are reclaimed before admission and existing keys remain usable at capacity. Account-map saturation fails closed with 429 before password verification, including valid credentials for new keys; existing account lockouts remain enforced.
+- MEDIUM: persistent rate limits still rewrite the whole file per attempt; reduce write amplification.
 - LOW: per-account login lockout enables lock-out of a known email; also key on IP plus account.
 - LOW: `trustProxy` only accepts a single-IP `X-Forwarded-For`; document that Caddy overwrites it or take the last hop.
-- LOW: `sessions.get()` rewrites `sessions.json` on every request; touch `last_seen` at most once a minute.
+- DONE (E2): `sessions.get()` persists `last_seen` and sliding expiry at most once a minute.
 - LOW: file mailer outbox keeps raw links; delete after delivery or TTL.
 - LOW: whitelist fields of `/api/domain-requests` (do not return operator `notes`).
 - LOW: tenant suspension has no path that deletes the tenant's hostnames and credentials.
 - LOW: `isReserved` in `portal/src/hostname.js` is unused (edge enforces); keep or remove.
 
 ## Lane D (tests)
-- MEDIUM: revocation test after detach then re-activation by another tenant (old and rotated tokens refused).
-- MEDIUM: assert file mode 0600 on tenant and credential stores.
-- MEDIUM: portal tests for new session id on login, replay after logout, cookie Max-Age, password reset, token reuse, single-use invites, generic signup response.
-- MEDIUM: trusted-proxy and untrusted-source cases for the IP limit.
-- MEDIUM: name scanner roots miss `src/status`, `src/dns`, `src/operator`, `src/billing`, `agent/`, `config/`, `deploy/*.md`, `scripts/`, `README.md`, `site/`; widen or scan `git ls-files`.
-- MEDIUM: scanner `sensitiveFile` regex also skips `env.js`; match `.env*` only.
-- MEDIUM: test the access-log snippet (drops query, cookies, auth headers, token; `ip_mask`).
-- MEDIUM: `offline.cjs` blocks only `spawnSync`; also block `spawn`, `exec`, `execFile` and sync variants.
-- MEDIUM: `REQUIRE_LANES=1` so skip guards fail instead of skipping once lanes are merged (turn on after merge).
+- MEDIUM — DONE (E3): revocation test after detach then re-activation by another tenant (old and rotated tokens refused).
+- MEDIUM — DONE (E3): assert file mode 0600 on tenant and credential stores.
+- MEDIUM — DONE (E3): portal tests for new session id on login, replay after logout, cookie Max-Age, password reset, token reuse, single-use invites, generic signup response.
+- MEDIUM — DONE (E3): trusted-proxy and untrusted-source cases for the IP limit.
+- MEDIUM — DONE (E3): name scanner roots miss `src/status`, `src/dns`, `src/operator`, `src/billing`, `agent/`, `config/`, `deploy/*.md`, `scripts/`, `README.md`, `site/`; widen or scan `git ls-files`.
+- MEDIUM — DONE (E3): scanner `sensitiveFile` regex also skips `env.js`; match `.env*` only.
+- MEDIUM — DONE (E3): test the access-log snippet (drops query, cookies, auth headers, token; `ip_mask`).
+- MEDIUM — DONE (E3): `offline.cjs` blocks only `spawnSync`; also block `spawn`, `exec`, `execFile` and sync variants.
+- MEDIUM — DONE (E3): `REQUIRE_LANES=1` so skip guards fail instead of skipping once lanes are merged (turn on after merge).
 - LOW: `/tls/ask` header-spoof case; verify-after-expiry with valid DNS; require fragment (not query) for tokens in the portal helper; scanner skips (`.tmp-`, NUL files, `.md`); hostname-literal check limited by file prefix; `deny-names.json` as hashes; broaden log checks (401/409/429/500, POST body, IP truncation); keep `--lane` list in sync with the glob.
 
 ## Other
-- Portal UI: brand is plain "Portal" (no logo); primary submit buttons look secondary; Connect page shows an empty select when there is no verified hostname.
+- DONE (E4): Portal uses the site logo and favicon; compact mobile navigation keeps Sign out alongside links; submit buttons use the site accent; Connect hides the empty form and links to hostname setup when no verified hostname exists.
 - Apply `import fdlog <host>` to the real Caddyfile blocks (needs separate approval) and add a real-request log test.
 
 
