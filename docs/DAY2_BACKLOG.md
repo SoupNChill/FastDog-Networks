@@ -73,3 +73,8 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE: standalone branded login, invite-only signup and email verification; shared site palette, local fonts, responsive header/footer, accessible labels and focus styles.
 - DONE: active-session gates on every app page and business API, including domain search; noindex response headers and HTML metadata. Invalid invitations create no accounts.
 - DONE: portal-local branding assets remove the sibling-directory deployment dependency; meaningful HTML and noscript guidance on every page, with page/MIME/CSP/asset regression tests. Root-origin proxy requirement documented.
+## Lane H (handover documentation)
+- DONE: source-based architecture, ASCII request flows, stores, feature defaults and trust boundaries in `ARCHITECTURE.md`.
+- DONE: deploy, rollback, DNS sync, Caddy certificates, agent attach, portal invites/outbox and Verdict runbooks under `runbooks/`.
+- DONE: dated decisions with repository/git provenance in `DECISIONS.md`.
+- DONE: per-box inventory and secret-location/owner skeleton in `INVENTORY.md`; unverified live facts remain `TODO(operator)`. No live deployment or outstanding security finding is marked complete by this lane.
