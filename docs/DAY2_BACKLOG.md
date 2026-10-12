@@ -1,6 +1,6 @@
 # Day 2 backlog (from the independent reviews of #32, #33, #34)
 
-No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy block, AGENT_TOKEN/EDGE_BIND startup guard, committed portal test artifacts, portal nav. Everything below is deliberately not built yet.
+No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy block, AGENT_TOKEN/EDGE_BIND startup guard, committed portal test artifacts, portal nav. Items marked DONE below are implemented; the remaining items are not built yet.
 
 ## Lane A (edge)
 - MEDIUM: active claims are never re-verified or expired (`internal/claims.js`). Re-check routing and TXT periodically or on `/tls/ask`; demote after N failures; document an operator override.
@@ -13,11 +13,13 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - INFO: 409 `hostname_unavailable` is an existence oracle, as the contract specifies.
 
 ## Lane B (portal)
-- MEDIUM: anonymous sessions created on every `/api/me`; global 20000 cap makes login return 500 when full. Separate anonymous cap, short TTL, evict oldest, return `rate_limited`.
-- MEDIUM: rate-limit map shares one 20000-entry cap across login-account and `rotate:*` keys. Cap per prefix, expire separately, avoid whole-file rewrite per attempt.
+- DONE (E2 review): authenticated sessions are capped at 10 per user and 20000 globally; admission returns 429 without revoking existing sessions, and expired or revoked sessions free capacity.
+- DONE (E2): anonymous sessions have a separate 5000 cap and 30-minute idle TTL; saturation returns `rate_limited` (429) without evicting existing CSRF bootstrap sessions.
+- DONE (E2): rate-limit capacity is 20000 per prefix; expired entries are reclaimed before admission and existing keys remain usable at capacity. Account-map saturation fails closed with 429 before password verification, including valid credentials for new keys; existing account lockouts remain enforced.
+- MEDIUM: persistent rate limits still rewrite the whole file per attempt; reduce write amplification.
 - LOW: per-account login lockout enables lock-out of a known email; also key on IP plus account.
 - LOW: `trustProxy` only accepts a single-IP `X-Forwarded-For`; document that Caddy overwrites it or take the last hop.
-- LOW: `sessions.get()` rewrites `sessions.json` on every request; touch `last_seen` at most once a minute.
+- DONE (E2): `sessions.get()` persists `last_seen` and sliding expiry at most once a minute.
 - LOW: file mailer outbox keeps raw links; delete after delivery or TTL.
 - LOW: whitelist fields of `/api/domain-requests` (do not return operator `notes`).
 - LOW: tenant suspension has no path that deletes the tenant's hostnames and credentials.

@@ -60,8 +60,8 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         if (!valid || !user || user.auth_version !== initial.auth_version) throw fail('unauthorized');
         limits.refund(ipKey);
         limits.refund(accountKey, true);
-        sessions.revoke(session.token_hash);
         const next = sessions.create(user);
+        sessions.revoke(session.token_hash);
         return send(200, generic, { 'Set-Cookie': next.cookie });
       }
       if (path === '/api/logout') {

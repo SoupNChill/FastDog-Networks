@@ -28,7 +28,7 @@ test('anonymous CSRF bootstrap, cookie attributes, login renewal and logout', as
   const bootstrap = await f.client.call('/api/me');
   assert.equal(bootstrap.data.email, null);
   const attributes = bootstrap.headers['set-cookie'][0];
-  for (const attribute of ['__Host-fd_session=', 'Secure', 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=1209600']) assert.ok(attributes.includes(attribute));
+  for (const attribute of ['__Host-fd_session=', 'Secure', 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=1800']) assert.ok(attributes.includes(attribute));
   assert.ok(!attributes.includes('Domain='));
   const { client, user, password } = await f.seed();
   const beforeLogin = client.cookie;
@@ -138,6 +138,7 @@ test('reset links expire, are single-use, revoke all sessions, and reject old pa
   assert.ok(!readFileSync(join(f.dataDir, 'accounts.json'), 'utf8').includes(expired));
   f.advance(3600000);
   const nextPassword = fakeSecret();
+  await f.client.call('/api/me');
   assert.equal((await f.client.call('/api/password-reset/confirm', 'POST', { token: expired, password: nextPassword })).status, 401);
   await f.client.call('/api/password-reset', 'POST', { email: user.email });
   const token = linkToken(f.messages[1]);
@@ -155,6 +156,7 @@ test('verification links expire at one hour', async (t) => {
   const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email: 'new@example.com' });
   await f.client.call('/api/signup', 'POST', { email: 'new@example.com', password: fakeSecret(), invite_code: code });
   f.advance(3600000);
+  await f.client.call('/api/me');
   assert.equal((await f.client.call('/api/verify-email', 'POST', { token: linkToken(f.messages[0]) })).status, 401);
 });
 
