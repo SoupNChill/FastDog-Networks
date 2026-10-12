@@ -9,6 +9,7 @@ import { reservedSuffixes as defaultSuffixes } from '../lib/config.js';
 
 export const fail = (status, code, extra = {}) => Object.assign(new Error(code), { status, code, ...extra });
 const DAY = 86400000;
+const MIN_OUTAGE_SAMPLE = 10;
 
 export function createClaims(opts, changed) {
   const directory = opts.dataDir ?? defaultDataDir();
@@ -69,9 +70,11 @@ export function createClaims(opts, changed) {
   }
   let rechecking = false;
   async function recheckActiveClaims({ now: time = now(), resolver: lookup = resolver, failuresBeforeDemote = 3,
-    inconclusiveBeforeFailure = opts.inconclusiveBeforeFailure ?? 8 } = {}) {
+    inconclusiveBeforeFailure = opts.inconclusiveBeforeFailure ?? 8,
+    minOutageSample = opts.minOutageSample ?? MIN_OUTAGE_SAMPLE } = {}) {
     if (!Number.isInteger(failuresBeforeDemote) || failuresBeforeDemote < 1) throw new RangeError('invalid failure threshold');
     if (!Number.isInteger(inconclusiveBeforeFailure) || inconclusiveBeforeFailure < 1) throw new RangeError('invalid inconclusive threshold');
+    if (!Number.isInteger(minOutageSample) || minOutageSample < 1) throw new RangeError('invalid outage sample');
     if (rechecking) return;
     rechecking = true;
     try {
@@ -96,8 +99,16 @@ export function createClaims(opts, changed) {
         })).then((result) => result.verified, () => null);
         results.push({ initial, ok });
       }
-      // Decide only after all lookups: a resolver outage must not age any streak.
-      const outage = results.filter(({ ok }) => ok === null).length > results.length / 2;
+      // Require enough checked claims and cap each tenant at one majority vote.
+      const tenants = new Map();
+      for (const { initial, ok } of results) {
+        const vote = tenants.get(initial.tenant_id) ?? { checked: 0, inconclusive: 0 };
+        vote.checked++;
+        if (ok === null) vote.inconclusive++;
+        tenants.set(initial.tenant_id, vote);
+      }
+      const inconclusiveTenants = [...tenants.values()].filter((vote) => vote.inconclusive > vote.checked / 2).length;
+      const outage = results.length >= minOutageSample && inconclusiveTenants > tenants.size / 2;
       for (const { initial, ok } of results) {
         if (ok === null && outage) continue;
         // DNS yields: never resurrect a deleted/replaced claim or overwrite another owner.
