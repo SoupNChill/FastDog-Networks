@@ -26,7 +26,7 @@ export function deniedLines(source, denyNames) {
 export function scanText(path, source, denyNames, allow = {}) {
   const hits = deniedLines(source, denyNames);
   const rule = allow[path];
-  if (rule?.data || rule?.documentation) return [];
+  if (path === 'test/deny-names.json' && rule?.data === true) return [];
   const remaining = { ...rule?.lines };
   return hits.filter(({ hash }) => {
     if (remaining[hash] > 0) { remaining[hash]--; return false; }
@@ -36,13 +36,22 @@ export function scanText(path, source, denyNames, allow = {}) {
 
 export function scanRepository(root, denyNames, allow) {
   const errors = [];
+  const remaining = new Map(Object.entries(allow).filter(([, rule]) => rule.lines)
+    .map(([path, rule]) => [path, { ...rule.lines }]));
   for (const name of execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)) {
     const file = join(root, name);
     if (sensitiveFile.test(basename(file)) || !existsSync(file) || lstatSync(file).isSymbolicLink()) continue;
     const buffer = readFileSync(file);
     if (buffer.includes(0)) continue;
     const path = relative(root, file).split(sep).join('/');
+    const counts = remaining.get(path);
+    if (counts) for (const { hash } of deniedLines(buffer.toString('utf8'), denyNames)) {
+      if (counts[hash] > 0) counts[hash]--;
+    }
     errors.push(...scanText(path, buffer.toString('utf8'), denyNames, allow));
+  }
+  for (const [path, counts] of remaining) for (const [hash, count] of Object.entries(counts)) {
+    if (count > 0) errors.push({ path, hash, unused: count });
   }
   return errors;
 }

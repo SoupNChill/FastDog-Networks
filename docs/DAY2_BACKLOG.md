@@ -57,5 +57,5 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 ## Open after Day 2 reviews (must fix before enabling the flag)
 - MEDIUM (TLS ask, PR #38): deny path is unmetered and does synchronous disk reads per ask; meter denies and cache the owner index. Blocks enabling TLS_ASK_ENABLED.
 - MEDIUM (claim re-check, PR #39): inconclusive DNS results are skipped forever; cap consecutive inconclusive checks so a stale tenant cannot hold a hostname. Blocks enabling RECHECK_ENABLED.
-- MEDIUM (name scan, PR #36): about 60 legacy files exempt by line hash and three whole-file exemptions (two docs and deny-names.json); move docs to per-line exemptions and shrink the legacy list.
+- MEDIUM — DONE (M3, name scan, PR #36): removed whole-doc exemptions (planning doc pins 34 hashes; API contract needs none), pruned stale legacy hash, grouped paths by directory; only deny-names.json has a whole-file exemption. Stale hashes/files and unused occurrences fail; reviewed caps are 61 files, 350 hashes and 398 line occurrences. Test header documents exemption review.
 - Edge access logs: top-level `level`, `ts`, `logger`, `msg` fields still appear in fdlog output (Caddy adds them outside the filter); harmless, but the snippet comment should say so.
