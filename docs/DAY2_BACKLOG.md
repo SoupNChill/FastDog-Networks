@@ -56,6 +56,6 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 
 ## Open after Day 2 reviews (must fix before enabling the flag)
 - MEDIUM (TLS ask, PR #38): deny path is unmetered and does synchronous disk reads per ask; meter denies and cache the owner index. Blocks enabling TLS_ASK_ENABLED.
-- MEDIUM (claim re-check, PR #39): inconclusive DNS results are skipped forever; cap consecutive inconclusive checks so a stale tenant cannot hold a hostname. Blocks enabling RECHECK_ENABLED.
+- DONE (M2, claim re-check, PR #39): persist `recheck_inconclusive`; the eighth consecutive inconclusive check (~48h at 6h intervals) and each later check advance the suspend failure counter. Configure `inconclusiveBeforeFailure` in claims/server options or per recheck run (default 8, positive integer). Any conclusive result or explicit activation resets the streak. More than 50% inconclusive among active claims freezes all inconclusive counters for that run; conclusive results still apply. Fake resolver/clock coverage includes three-tenant isolation and the exact 50% boundary.
 - MEDIUM (name scan, PR #36): about 60 legacy files exempt by line hash and three whole-file exemptions (two docs and deny-names.json); move docs to per-line exemptions and shrink the legacy list.
 - Edge access logs: top-level `level`, `ts`, `logger`, `msg` fields still appear in fdlog output (Caddy adds them outside the filter); harmless, but the snippet comment should say so.
