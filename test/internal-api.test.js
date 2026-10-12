@@ -32,7 +32,7 @@ async function setup(t, extra = {}) {
     async resolveTxt(name) { calls.txt++; return txt.get(name) ?? []; },
   };
   const registry = { getAgentByHost, closeHost(host) { closed.push(host); closeHost(host); } };
-  const server = createInternalServer({ dataDir: directory, portalKey, agentToken, attachTarget: target,
+  const server = createInternalServer({ tlsAskEnabled: true, dataDir: directory, portalKey, agentToken, attachTarget: target,
     altAttachTarget: 'edge.example.test', edgePublicIp: '192.0.2.1', reservedSuffixes: [],
     resolver, registry, now: () => time, logger: (event) => logs.push(event), ...extra });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
