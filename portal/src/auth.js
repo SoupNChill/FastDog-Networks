@@ -53,15 +53,22 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         const accountKey = `login-account:${digest(email || '')}`;
         const ipKey = `login-ip:${ip}`;
         limits.take(ipKey, 20, 900000);
-        limits.take(accountKey, 5, 900000, true);
+        let capacityError;
+        try { limits.take(accountKey, 5, 900000, true); }
+        catch (error) {
+          if (!error.capacity || error.code !== 'rate_limited') throw error;
+          capacityError = error;
+        }
+        // A full account map must not reject valid credentials for a new key.
+        // The IP reservation still bounds derivations; failed attempts fail closed.
         const initial = read().users.find((u) => u.email === email);
         const valid = await verifyPassword(body.password, initial?.password_hash || dummyPassword);
         const user = read().users.find((u) => u.id === initial?.id);
-        if (!valid || !user || user.auth_version !== initial.auth_version) throw fail('unauthorized');
+        if (!valid || !user || user.auth_version !== initial.auth_version) throw capacityError || fail('unauthorized');
         limits.refund(ipKey);
-        limits.refund(accountKey, true);
-        sessions.revoke(session.token_hash);
+        if (!capacityError) limits.refund(accountKey, true);
         const next = sessions.create(user);
+        sessions.revoke(session.token_hash);
         return send(200, generic, { 'Set-Cookie': next.cookie });
       }
       if (path === '/api/logout') {
