@@ -36,5 +36,5 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - LOW: `/tls/ask` header-spoof case; verify-after-expiry with valid DNS; require fragment (not query) for tokens in the portal helper; scanner skips (`.tmp-`, NUL files, `.md`); hostname-literal check limited by file prefix; `deny-names.json` as hashes; broaden log checks (401/409/429/500, POST body, IP truncation); keep `--lane` list in sync with the glob.
 
 ## Other
-- Portal UI: brand is plain "Portal" (no logo); primary submit buttons look secondary; Connect page shows an empty select when there is no verified hostname.
+- DONE (E4): Portal uses the site logo and favicon; compact mobile navigation keeps Sign out alongside links; submit buttons use the site accent; Connect hides the empty form and links to hostname setup when no verified hostname exists.
 - Apply `import fdlog <host>` to the real Caddyfile blocks (needs separate approval) and add a real-request log test.
