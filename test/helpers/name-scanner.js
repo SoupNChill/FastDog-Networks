@@ -14,6 +14,10 @@ export const unscannableAllow = Object.freeze({
   'site/fonts/Mulish-SemiBold.ttf': 'Existing binary font used by the site typography.',
   'site/fonts/SpaceGrotesk-Bold.ttf': 'Existing binary font used by the site typography.',
   'site/fonts/SpaceGrotesk-Medium.ttf': 'Existing binary font used by the site typography.',
+  'portal/public/fonts/Mulish-Regular.ttf': 'Portal copy of the site font.',
+  'portal/public/fonts/Mulish-SemiBold.ttf': 'Portal copy of the site font.',
+  'portal/public/fonts/SpaceGrotesk-Bold.ttf': 'Portal copy of the site font.',
+  'portal/public/fonts/SpaceGrotesk-Medium.ttf': 'Portal copy of the site font.',
   'site/og/og.png': 'Existing PNG social preview image used by the site.',
   'verdict/.env.example': 'Existing service environment template; never read environment files.',
 });

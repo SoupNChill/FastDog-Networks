@@ -139,6 +139,8 @@ test('unscannable exemptions are exact paths with reviewed reasons', () => {
     'site/apple-touch-icon.png', 'site/favicon-32.png',
     'site/fonts/Mulish-Regular.ttf', 'site/fonts/Mulish-SemiBold.ttf',
     'site/fonts/SpaceGrotesk-Bold.ttf', 'site/fonts/SpaceGrotesk-Medium.ttf',
+    'portal/public/fonts/Mulish-Regular.ttf', 'portal/public/fonts/Mulish-SemiBold.ttf',
+    'portal/public/fonts/SpaceGrotesk-Bold.ttf', 'portal/public/fonts/SpaceGrotesk-Medium.ttf',
     'site/og/og.png', 'verdict/.env.example',
   ]);
   for (const reason of Object.values(unscannableAllow)) assert.ok(reason.length > 15);
