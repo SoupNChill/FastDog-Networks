@@ -1,12 +1,13 @@
+import { laneSkip } from './helpers/lanes.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { internalFile, internalHarness, hostPath, fakeSecret } from './helpers/internal.js';
 import { tenants, acceptedHosts, rejectedClaims, attachTarget } from './helpers/fixtures.js';
 import { expectError, jsonRequest } from './helpers/http.js';
 
-const skip = existsSync(internalFile) ? false : 'lane A not merged: internal server absent';
+const skip = laneSkip(existsSync(internalFile), 'lane A not merged: internal server absent');
 const endpoints = [['GET', ''], ['POST', '/verify'], ['POST', '/credentials/rotate'], ['GET', '/agent'], ['DELETE', '']];
 
 test('every other tenant sees exactly hostname_not_found for every valid awkward host', { skip }, async (t) => {
@@ -181,6 +182,13 @@ test('issued credentials are host-bound, operator keys are barred, rotate and de
   assert.equal((await h.request(hostPath(tenants[0], first.hostname), { method: 'DELETE' })).status, 200);
   denied(rotated.body.credential.token, first.hostname);
   assert.equal(h.closed.filter((host) => host === first.hostname).length, 2);
+  const replacement = await h.activate(tenants[1], first.hostname);
+  denied(first.credential.token, first.hostname);
+  denied(rotated.body.credential.token, first.hostname);
+  assert.equal(register(replacement.credential.token, first.hostname).hostname, first.hostname);
+  for (const file of ['tenant_hostnames.json', 'agent-credentials.json']) {
+    assert.equal(statSync(join(h.dataDir, file)).mode & 0o777, 0o600, file);
+  }
   const saved = readFileSync(join(h.dataDir, 'agent-credentials.json'), 'utf8');
   assert.ok(!saved.includes(first.credential.token));
   assert.ok(!saved.includes(rotated.body.credential.token));

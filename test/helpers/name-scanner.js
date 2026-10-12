@@ -1,10 +1,9 @@
 import { existsSync, readdirSync, readFileSync, lstatSync } from 'node:fs';
 import { join, relative, sep, basename } from 'node:path';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
-export const scanRoots = ['portal', 'src/onboard', 'src/control', 'src/edge', 'src/internal',
-  'test', 'deploy/caddy', 'docs/TENANT_API.md', 'docs/INTERNAL_API_OPS.md', 'docs/SELF_SERVE_PLAN.md'];
-const sensitiveFile = /(?:^|\.)env(?:\.|$)|\.(?:pem|key|p12|pfx)$/i;
+const sensitiveFile = /^\.env(?:\.|$)|\.(?:pem|key|p12|pfx)$/i;
 export const lineHash = (line) => createHash('sha256').update(line).digest('hex');
 
 export function* filesUnder(root, path = root) {
@@ -37,7 +36,9 @@ export function scanText(path, source, denyNames, allow = {}) {
 
 export function scanRepository(root, denyNames, allow) {
   const errors = [];
-  for (const base of scanRoots) for (const file of filesUnder(root, join(root, base))) {
+  for (const name of execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)) {
+    const file = join(root, name);
+    if (sensitiveFile.test(basename(file)) || !existsSync(file) || lstatSync(file).isSymbolicLink()) continue;
     const buffer = readFileSync(file);
     if (buffer.includes(0)) continue;
     const path = relative(root, file).split(sep).join('/');

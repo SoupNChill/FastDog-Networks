@@ -120,6 +120,6 @@ export async function fixture(t, config = {}) {
     await session.call('/api/me');
     return { client: session, user, password };
   }
-  return { dataDir, store, now, advance: (ms) => { clock += ms; }, messages, searches, port, client, seed, ...fake };
+  return { app, dataDir, store, now, advance: (ms) => { clock += ms; }, messages, searches, port, client, seed, ...fake };
 }
 export const linkToken = (message) => new URLSearchParams(new URL(message.link).hash.slice(1)).get('token');
