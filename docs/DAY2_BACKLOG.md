@@ -48,14 +48,14 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 ## Lane C (on-demand TLS ask)
 - DONE: default-off `TLS_ASK_ENABLED`; direct-loopback-only ask, rejecting forwarded headers including empty values.
 - DONE: normalized verified active claim / explicit active legacy attachment approval; reserved, malformed, pending, expired and unknown names denied. Ambiguous tunnel lists do not independently authorize issuance.
-- DONE: bounded in-memory limits of 30 successful approvals/minute/client and 300/minute globally, with 429 and retry timing.
+- DONE: bounded in-memory limits of 30 asks/minute/client and per normalized name, and 300/minute globally, with 429 and retry timing.
 - DONE: offline handler tests for flag, authorization, normalization, spoofing, limits, resets and current-storage reads; existing ask fixtures explicitly opt in.
 - DONE: unapplied Caddy global on-demand TLS snippet and operator documentation; deployment validation remains an operator step.
-- DONE: review MEDIUM — denied/unknown SNI consumes neither approval budget; regression tests cover shared-loopback exhaustion.
+- DONE: review MEDIUM (superseded by M1) — all denied/unknown SNI now consumes ask budgets; regression tests cover exhaustion.
 - DONE: review MEDIUM — deny multiple active records and legacy/tenant coexistence; regression tests cover duplicate owners, invalid competing owners and pending claims.
 
 ## Open after Day 2 reviews (must fix before enabling the flag)
-- MEDIUM (TLS ask, PR #38): deny path is unmetered and does synchronous disk reads per ask; meter denies and cache the owner index. Blocks enabling TLS_ASK_ENABLED.
+- DONE (M1, TLS ask, PR #38): meter allowed and denied asks before owner lookup; cache the owner index, invalidate on local store writes and check external changes at most once per second. Unknown-name floods perform no hot-path disk reads; activation and flag-off regressions covered.
 - MEDIUM (claim re-check, PR #39): inconclusive DNS results are skipped forever; cap consecutive inconclusive checks so a stale tenant cannot hold a hostname. Blocks enabling RECHECK_ENABLED.
 - MEDIUM (name scan, PR #36): about 60 legacy files exempt by line hash and three whole-file exemptions (two docs and deny-names.json); move docs to per-line exemptions and shrink the legacy list.
 - Edge access logs: top-level `level`, `ts`, `logger`, `msg` fields still appear in fdlog output (Caddy adds them outside the filter); harmless, but the snippet comment should say so.
