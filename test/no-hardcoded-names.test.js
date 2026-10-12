@@ -56,3 +56,20 @@ test('hostname scanner catches literal external domains without flagging propert
   }
   assert.deepEqual(hostnameViolations("response.body.error; 'app.example.com'; 'x.example.test'; 'x.invalid'; 'attach.example-edge.test'; '../src/internal/server.js'"), []);
 });
+
+test('tracked-file scan covers legacy roots and scans env.js but excludes dot-env files', async (t) => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { execFileSync } = await import('node:child_process');
+  const dir = mkdtempSync(join(tmpdir(), 'scanner-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-q', dir]);
+  const paths = ['src/status/env.js', 'src/dns/check.js', 'src/operator/check.js', 'src/billing/check.js',
+    'agent/check.js', 'config/check.js', 'deploy/check.md', 'scripts/check.js', 'README.md', 'site/index.html'];
+  for (const path of [...paths, '.env', '.env.local']) {
+    mkdirSync(join(dir, path, '..'), { recursive: true });
+    writeFileSync(join(dir, path), 'synthetic-denied-marker');
+  }
+  execFileSync('git', ['add', '.'], { cwd: dir });
+  assert.deepEqual(scanRepository(dir, ['synthetic-denied-marker'], {}).map((hit) => hit.path).sort(), paths.sort());
+});

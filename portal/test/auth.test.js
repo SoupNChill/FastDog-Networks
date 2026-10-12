@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { hashPassword, validPassword, verifyPassword } from '../src/passwords.js';
-import { createInvites } from '../src/invites.js';
+import { createInvites, findInvite } from '../src/invites.js';
 import { createFileMailer } from '../src/mailer-file.js';
-import { fixture, browser, fakeSecret, linkToken, temporary, origin } from './helpers.js';
+import { fixture, browser, fakeSecret, linkToken, temporary, origin, request } from './helpers.js';
 
 test('scrypt parameters, unique salts, password policy and comparisons', async () => {
   const password = fakeSecret();
@@ -30,7 +30,12 @@ test('anonymous CSRF bootstrap, cookie attributes, login renewal and logout', as
   const attributes = bootstrap.headers['set-cookie'][0];
   for (const attribute of ['__Host-fd_session=', 'Secure', 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=1209600']) assert.ok(attributes.includes(attribute));
   assert.ok(!attributes.includes('Domain='));
-  const { client } = await f.seed();
+  const { client, user, password } = await f.seed();
+  const beforeLogin = client.cookie;
+  assert.equal((await client.call('/api/login', 'POST', { email: user.email, password })).status, 200);
+  assert.notEqual(client.cookie, beforeLogin);
+  assert.equal((await request(f.port, '/api/hostnames', { headers: { cookie: beforeLogin } })).status, 401);
+  await client.call('/api/me');
   const initial = client.cookie;
   const raw = initial.split('=')[1];
   assert.ok(!readFileSync(join(f.dataDir, 'sessions.json'), 'utf8').includes(raw));
@@ -40,6 +45,7 @@ test('anonymous CSRF bootstrap, cookie attributes, login renewal and logout', as
   assert.ok((await client.call('/api/me')).data.tenant);
   assert.equal(client.cookie, initial);
   const logout = await client.call('/api/logout', 'POST');
+  assert.equal((await request(f.port, '/api/hostnames', { headers: { cookie: initial } })).status, 401);
   assert.match(logout.headers['set-cookie'][0], /Max-Age=0/);
   assert.equal((await client.call('/api/hostnames')).status, 401);
 });
@@ -54,7 +60,10 @@ test('sessions have a 14-day idle expiry and 90-day absolute expiry', async (t) 
     f.advance(10 * 86400000);
     assert.equal((await b.client.call('/api/hostnames')).status, 200);
   }
-  f.advance(10 * 86400000);
+  f.advance(9 * 86400000);
+  const nearExpiry = await b.client.call('/api/me');
+  assert.match(nearExpiry.headers['set-cookie'][0], /Max-Age=86400(?:;|$)/);
+  f.advance(86400000);
   assert.equal((await b.client.call('/api/hostnames')).status, 401);
 });
 
@@ -81,13 +90,18 @@ test('invite signup is email-bound, generic, single use, and verifies one-time h
   const good = await f.client.call('/api/signup', 'POST', { email: 'NEW@example.com', password, invite_code: code });
   assert.deepEqual(good.data, wrong.data);
   assert.equal(f.messages.length, 1);
-  assert.equal((await f.client.call('/api/signup', 'POST', { email: 'new@example.com', password, invite_code: code })).status, 200);
+  const repeated = await f.client.call('/api/signup', 'POST', { email: 'new@example.com', password, invite_code: code });
+  assert.equal(repeated.status, good.status);
+  assert.deepEqual(repeated.data, good.data);
   assert.equal(f.messages.length, 1);
   const saved = f.store.read('accounts');
   assert.match(saved.tenants[0].id, /^t_[a-z2-7]{20}$/);
   assert.equal(saved.tenants[0].plan, 'plan-from-invite');
   assert.equal(saved.tenants[0].hostname_limit, 9);
   assert.equal(saved.invites[0].tenant_id, saved.tenants[0].id);
+  assert.equal(findInvite(saved, code, saved.users[0].email, f.now()), undefined);
+  assert.equal(saved.users.length, 1);
+  assert.equal(saved.tenants.length, 1);
   assert.equal((await f.client.call('/api/login', 'POST', { email: 'new@example.com', password })).status, 200);
   await f.client.call('/api/me');
   assert.equal((await f.client.call('/api/hostnames', 'POST', { hostname: 'app.example.com' })).status, 401);
@@ -169,3 +183,35 @@ test('concurrent signup and reset requests consume each one-time capability once
   const resets = await Promise.all([1, 2].map(() => f.client.call('/api/password-reset/confirm', 'POST', { token, password: next })));
   assert.deepEqual(resets.map((response) => response.status).sort(), [200, 401]);
 });
+
+test('existing email with a fresh invite receives the generic signup response', async (t) => {
+  const f = await fixture(t);
+  const { user } = await f.seed();
+  const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email: user.email });
+  const before = f.store.read('accounts');
+  const existing = await f.client.call('/api/signup', 'POST', { email: user.email, password: fakeSecret(), invite_code: code });
+  const unknown = await f.client.call('/api/signup', 'POST', { email: 'absent@example.test', password: fakeSecret(), invite_code: fakeSecret() });
+  assert.equal(existing.status, 200);
+  assert.equal(existing.status, unknown.status);
+  assert.deepEqual(existing.data, unknown.data);
+  assert.deepEqual(f.store.read('accounts'), before);
+  assert.equal(f.messages.length, 0);
+});
+
+for (const trustedSource of [true, false]) {
+  test(`TRUST_PROXY IP limit with ${trustedSource ? 'loopback' : 'untrusted'} source and X-Forwarded-For`, async (t) => {
+    const f = await fixture(t, { trustProxy: true });
+    // Simulate the accepted socket's peer without opening any external connection.
+    if (!trustedSource) f.app.prependListener('request', (req) => {
+      Object.defineProperty(req.socket, 'remoteAddress', { value: '192.0.2.200', configurable: true });
+    });
+    const attempt = (i, ip) => f.client.call('/api/login', 'POST', {
+      email: `missing-${i}@example.test`, password: fakeSecret(),
+    }, { 'x-forwarded-for': ip });
+    for (let i = 0; i < 20; i++) assert.equal((await attempt(i, '198.51.100.1')).status, 401);
+    assert.equal((await attempt(20, '198.51.100.1')).status, 429);
+    assert.equal((await attempt(21, '198.51.100.2')).status, trustedSource ? 401 : 429);
+    f.advance(900001);
+    assert.equal((await attempt(22, '198.51.100.1')).status, 401);
+  });
+}

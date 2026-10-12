@@ -24,15 +24,15 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - LOW: `isReserved` in `portal/src/hostname.js` is unused (edge enforces); keep or remove.
 
 ## Lane D (tests)
-- MEDIUM: revocation test after detach then re-activation by another tenant (old and rotated tokens refused).
-- MEDIUM: assert file mode 0600 on tenant and credential stores.
-- MEDIUM: portal tests for new session id on login, replay after logout, cookie Max-Age, password reset, token reuse, single-use invites, generic signup response.
-- MEDIUM: trusted-proxy and untrusted-source cases for the IP limit.
-- MEDIUM: name scanner roots miss `src/status`, `src/dns`, `src/operator`, `src/billing`, `agent/`, `config/`, `deploy/*.md`, `scripts/`, `README.md`, `site/`; widen or scan `git ls-files`.
-- MEDIUM: scanner `sensitiveFile` regex also skips `env.js`; match `.env*` only.
-- MEDIUM: test the access-log snippet (drops query, cookies, auth headers, token; `ip_mask`).
-- MEDIUM: `offline.cjs` blocks only `spawnSync`; also block `spawn`, `exec`, `execFile` and sync variants.
-- MEDIUM: `REQUIRE_LANES=1` so skip guards fail instead of skipping once lanes are merged (turn on after merge).
+- MEDIUM — DONE (E3): revocation test after detach then re-activation by another tenant (old and rotated tokens refused).
+- MEDIUM — DONE (E3): assert file mode 0600 on tenant and credential stores.
+- MEDIUM — DONE (E3): portal tests for new session id on login, replay after logout, cookie Max-Age, password reset, token reuse, single-use invites, generic signup response.
+- MEDIUM — DONE (E3): trusted-proxy and untrusted-source cases for the IP limit.
+- MEDIUM — DONE (E3): name scanner roots miss `src/status`, `src/dns`, `src/operator`, `src/billing`, `agent/`, `config/`, `deploy/*.md`, `scripts/`, `README.md`, `site/`; widen or scan `git ls-files`.
+- MEDIUM — DONE (E3): scanner `sensitiveFile` regex also skips `env.js`; match `.env*` only.
+- MEDIUM — DONE (E3): test the access-log snippet (drops query, cookies, auth headers, token; `ip_mask`).
+- MEDIUM — DONE (E3): `offline.cjs` blocks only `spawnSync`; also block `spawn`, `exec`, `execFile` and sync variants.
+- MEDIUM — DONE (E3): `REQUIRE_LANES=1` so skip guards fail instead of skipping once lanes are merged (turn on after merge).
 - LOW: `/tls/ask` header-spoof case; verify-after-expiry with valid DNS; require fragment (not query) for tokens in the portal helper; scanner skips (`.tmp-`, NUL files, `.md`); hostname-literal check limited by file prefix; `deny-names.json` as hashes; broaden log checks (401/409/429/500, POST body, IP truncation); keep `--lane` list in sync with the glob.
 
 ## Other

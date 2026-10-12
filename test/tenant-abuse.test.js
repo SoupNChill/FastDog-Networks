@@ -1,3 +1,4 @@
+import { laneSkip } from './helpers/lanes.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -5,7 +6,7 @@ import { internalFile, internalHarness, hostPath, fakeSecret } from './helpers/i
 import { tenants, attachTarget, edgePublicIp } from './helpers/fixtures.js';
 import { expectError, expectRateLimit, jsonRequest } from './helpers/http.js';
 
-const skip = existsSync(internalFile) ? false : 'lane A not merged: internal server absent';
+const skip = laneSkip(existsSync(internalFile), 'lane A not merged: internal server absent');
 
 test('verify allows six calls per minute per tenant and recovers with the clock', { skip }, async (t) => {
   const h = await internalHarness(t);

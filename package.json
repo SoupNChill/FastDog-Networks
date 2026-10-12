@@ -8,7 +8,7 @@
     "start": "node src/edge/server.js",
     "dev": "node --watch src/edge/server.js",
     "agent": "node agent/index.js",
-    "test": "node --test test/*.test.js",
+    "test": "REQUIRE_LANES=1 node --test test/*.test.js",
     "test:portal": "node --test portal/test/*.test.js",
     "export-zones": "node src/dns/export-cli.js",
     "sync-coredns": "bash scripts/sync-coredns.sh",
