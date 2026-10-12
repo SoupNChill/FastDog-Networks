@@ -1,6 +1,6 @@
 # Architecture and handover
 
-Repository snapshot: 2026-10-12, base `5afa603`. This is a source-based handover, not a live audit. Start with the binding [tenant API](TENANT_API.md), then [inventory](INVENTORY.md), [decisions](DECISIONS.md) and [deployment runbook](runbooks/deploy.md). Open findings remain in [DAY2_BACKLOG.md](DAY2_BACKLOG.md). No live services, DNS, secrets or environment files were inspected for this handover.
+Repository review: 2026-10-12; initial handover base `5afa603`, updated against current source and operator-supplied deployment facts. This is a source-based handover, not a live audit. Start with the binding [tenant API](TENANT_API.md), then [inventory](INVENTORY.md), [decisions](decisions/README.md) and [deployment runbook](runbooks/deploy.md). Open findings remain in [DAY2_BACKLOG.md](DAY2_BACKLOG.md). No live services, DNS, secrets or environment files were inspected for this handover.
 
 ## Components and request paths
 
@@ -21,7 +21,7 @@ Browser -- session + Origin + CSRF --> portal (fdportal)
 Portal -- separate PORTAL_KEY --> internal edge 127.0.0.1:8789
                                   --> routing DNS + ownership TXT verification
                                   --> tenant claim + scoped credential + host map
-Caddy -- direct loopback ask --> :8789 (optional; default off, blocked pending review)
+Caddy -- direct loopback ask --> :8789 (optional; default off, operational review required)
 Operator -- SSH local forwarding --> :8788 -- operator credential --> control APIs
 ```
 
@@ -29,7 +29,7 @@ The edge (`src/edge/server.js`) is an ESM Node 18/20 application with three list
 
 `agent/` registers a hostname, maintains an outbound WebSocket, retries with jittered exponential backoff and exchanges heartbeat frames. Requests and responses are buffered JSON/base64 HTTP frames; this is not a general streaming or application WebSocket tunnel. No inbound origin port is required. The deployment copy under `deploy/prod1-fastdog-agent/` is a separate template; do not assume it matches the current agent byte-for-byte.
 
-Portal (`portal/server.js`, `portal/src/`, `portal/public/`) is a standalone built-in-only HTTP service. The handover deployment target is user `fdportal`, listener `127.0.0.1:8790`, private state `/var/lib/fastdog-portal`, and its `outbox/`. Those user/path choices are operator requirements for this handover, not proof of an installed unit; the repository does not ship a portal systemd unit. Authentication, invites, tenant-scoped hostname management, agent status, domain requests and operator-assigned plans are implemented. Browser credentials are displayed once and are not stored in browser storage.
+Portal (`portal/server.js`, `portal/src/`, `portal/public/`) is a standalone built-in-only HTTP service. The handover deployment target is user `fdportal`, listener `127.0.0.1:8790`, private state `/var/lib/fastdog-portal`, and its `outbox/`. The operator inventory records unit `fastdog-portal`; the repository does not ship a portal systemd unit template. Code lives at `/opt/fastdog-portal`, with previous code at `/opt/fastdog-portal.old`. Release backups use `/root/backups/<tag>-<timestamp>/code.tgz`; rollback untars code at its recorded extraction root and restarts the unit, preserving compatible runtime state. The portal has its own invite-only login; the Caddy basic-auth gate has been removed (operator-supplied deployment fact). App pages redirect anonymous visitors to `/login`, and business APIs require an active session. Authentication, invites, tenant-scoped hostname management, agent status, domain requests and operator-assigned plans are implemented. Browser credentials are displayed once and are not stored in browser storage.
 
 Domain search (`domain-search/`) is a separate dependency-free Node 20 service on `127.0.0.1:8791`; it alone holds registrar credentials. It supports lookup and pricing, never registration, renewal or transfer. Cache lifetime is three hours; upstream calls are capped at 300 per UTC day. `STATE_DIRECTORY/daily-count.json` persists the budget when configured (the unit uses `StateDirectory=domain-search`); cache/IP limits remain in memory. The README's blanket reset-on-restart statement predates that persistence change. Portal domain requests are an operator queue, not purchases.
 
@@ -75,8 +75,8 @@ Portal state is 0600 under a 0700 directory. Edge JSON uses atomic file replacem
 | Setting | Default and effect |
 | --- | --- |
 | `INTERNAL_ENABLED` | Off; exactly `1` starts the tenant listener; validates separate `PORTAL_KEY` and loopback bind |
-| `TLS_ASK_ENABLED` | Off; exactly `1` enables ask with internal listener; keep off until denial-metering/index review is fixed |
-| `RECHECK_ENABLED` | Off; exactly `1` schedules active routing checks every six hours with internal listener; keep off until inconclusive-result review is fixed |
+| `TLS_ASK_ENABLED` | Off; exactly `1` enables ask with internal listener; keep off pending operational review; denied asks are metered and the owner index is cached |
+| `RECHECK_ENABLED` | Off; exactly `1` schedules active routing checks every six hours with internal listener; keep off pending Day 3 review; bounded inconclusive streaks and outage detection are implemented |
 | `COREDNS_SYNC_ENABLED` | False; opt-in Node sync after onboarding; **does not disable shell script local writes** |
 | `COREDNS_SYNC_DRY_RUN` | False; set true explicitly for validation without zone writes/reloads |
 | `COREDNS_SYNC_STRICT` | Off; makes onboarding CLI sync failure affect exit status |

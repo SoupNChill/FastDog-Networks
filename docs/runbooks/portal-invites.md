@@ -1,8 +1,8 @@
 # Portal invitations and private outbox
 
-Portal invitations are email-bound and single-use, separate from the legacy zone invite CLI in [INVITES.md](../INVITES.md). There is no browser mint/list endpoint. The handover target runs as `fdportal` with `STATE_DIRECTORY=/var/lib/fastdog-portal` and outbox `/var/lib/fastdog-portal/outbox/`; actual unit and secret-file path are `TODO(operator)` until recorded in [inventory](../INVENTORY.md).
+Portal invitations are email-bound and single-use, separate from the legacy zone invite CLI in [INVITES.md](../INVITES.md). There is no browser mint/list endpoint. The handover target runs as `fdportal` with `STATE_DIRECTORY=/var/lib/fastdog-portal` and outbox `/var/lib/fastdog-portal/outbox/`; the operator [inventory](../INVENTORY.md) records unit `fastdog-portal` and runtime env path `/etc/fastdog/portal.env` (owner `root`). The portal supplies its own login and the Caddy basic-auth gate has been removed.
 
-1. Confirm the approved email, operator-assigned plan, hostname limit (1–1000), expiry and correct state directory. Stop the portal using its confirmed unit/manager before minting: CLI and server must not write the same JSON concurrently. Make a private state backup.
+1. Confirm the approved email, operator-assigned plan, hostname limit (1–1000), expiry and correct state directory. Stop the portal using its confirmed unit/manager before minting: CLI and server must not write the same JSON concurrently. Make a private state backup under `/root/backups/<tag>-<timestamp>` per [deploy](deploy.md). Code is in `/opt/fastdog-portal` with previous code in `/opt/fastdog-portal.old`; neither replaces the state backup.
 2. From the installed release root, run the CLI as the state owner. The following synthetic example redirects the one-time code into a private handoff file instead of printing it:
 
    ```sh
