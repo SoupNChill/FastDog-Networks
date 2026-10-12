@@ -67,7 +67,7 @@ before adding hostnames, verifying DNS, rotating credentials or requesting names
 
 Email messages have `{to,kind,link}`. Verify/reset tokens are 32 random bytes,
 one-time, expire in one hour and are stored only as hashes. Links carry tokens
-in the fragment. The login page removes the fragment and submits the token in a
+in the fragment. The verification and login pages remove the fragment and submit the token in a
 JSON body with CSRF protection. File mail contains the actual link so the
 operator can deliver it by hand; treat the outbox as private. Password reset
 revokes all sessions. Session hashes expire after 14 idle days and at 90 days
@@ -123,7 +123,7 @@ contract codes without upstream details. The search client performs only GET
 requests to the existing search API. Its `invalid_domain` maps to
 `invalid_hostname`; unknown errors map to `internal_error`.
 
-The portal applies search limits of 10 anonymous or 30 authenticated requests per
+The portal requires an authenticated account for search and allows 30 requests per
 IP per ten minutes. The unchanged search service has its own stricter per-IP cap;
 without a service-side trusted caller quota, that upstream cap can dominate the
 portal's quotas. No registrar write operation exists here.
@@ -137,6 +137,29 @@ certificate success.
 
 Static serving is allowlisted to portal pages/JS, `/css/site.css`,
 `/css/portal.css`, and the bundled fonts. Paths with traversal, double encoding,
-backslashes, absolute URLs or symlink escapes are rejected. No logos, marketing
-pages, state files or arbitrary repository files are served. The CSS reuses the
+backslashes, absolute URLs or symlink escapes are rejected. Only the favicon and two theme-specific hound logos are served; marketing
+pages, state files and arbitrary repository files are not served. The CSS reuses the
 site's theme variables and responsive layout, with 44px controls and no animation.
+
+## Private pages and rendering
+
+App pages (including `/` and `/dashboard`) require an active account session and
+redirect to `/login` otherwise. `/login`, `/signup`, `/verify-email`, allowlisted
+assets and `/health` are public. The signup form accepts an invitation code; an
+invalid, expired, used or email-mismatched invitation never creates an account.
+Authentication APIs and `/api/me` remain available for CSRF-protected bootstrap.
+Every response has `X-Robots-Tag: noindex`; HTML also has robots metadata.
+
+All pages include meaningful HTML, navigation and instructions before scripts
+run. Forms and live account data require JavaScript, with a visible noscript
+notice. Styles, fonts (with licenses), logos and scripts are bundled under
+`portal/public` so a portal-only deployment does not depend on a sibling `site/`
+directory. Keep the copied site styles/assets aligned when refreshing branding.
+The strict same-origin CSP permits these external assets without inline code.
+
+The previous sibling-directory asset dependency was a likely deployment failure;
+no evidence establishes the exact cause of the reported blank page. Regression
+tests check all page bodies, MIME types, asset delivery and CSP. Serve this app at
+the root of its dedicated origin; proxy prefix mounting is not supported (the
+configured origin and browser API URLs are root-relative). Caddy should preserve
+paths and route assets to the portal. Basic-auth removal is an operator action.

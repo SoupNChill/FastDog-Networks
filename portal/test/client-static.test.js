@@ -60,11 +60,12 @@ test('domain client performs only a read and never forwards portal credentials',
 
 test('static paths reject traversal, encoding and absolute-form requests with security headers', async (t) => {
   const f = await fixture(t);
+  const { client } = await f.seed();
   for (const path of ['/../package.json', '/%2e%2e/package.json', '/css/%2e%2e/%2e%2e/package.json', '/css/..%2f..%2fpackage.json', '/%252e%252e/package.json', '//example.com/login', 'http://example.com/login', '/css/site.css%00', '/css%5c..%5cpackage.json', '/accounts.json', '/fonts/../../package.json']) {
     assert.equal((await request(f.port, path)).status, 404, path);
   }
   for (const path of ['/login', '/signup', '/hostname', '/connect', '/domains', '/plan', '/js/login.js', '/css/site.css', '/css/portal.css', '/fonts/Mulish-Regular.ttf', '/favicon.svg', '/logos/hound-dark.svg', '/logos/hound-light.svg']) {
-    const response = await request(f.port, path);
+    const response = await client.call(path);
     assert.equal(response.status, 200, path);
     assert.match(response.headers['content-security-policy'], /default-src 'self'/);
     assert.match(response.headers['content-security-policy'], /frame-ancestors 'none'/);
@@ -98,7 +99,7 @@ test('public files contain no inline scripts, handlers, external assets or store
     const source = readFileSync(join(publicDir, 'js', file), 'utf8');
     assert.doesNotMatch(source, /https?:\/\/|localStorage|sessionStorage|innerHTML|eval\(/);
   }
-  const css = readFileSync(fileURLToPath(new URL('../../site/css/portal.css', import.meta.url)), 'utf8');
+  const css = readFileSync(fileURLToPath(new URL('../public/css/portal.css', import.meta.url)), 'utf8');
   assert.doesNotMatch(css, /#[a-f\d]{3,8}\b|rgba?\(|animation|transition/i);
   assert.ok(css.includes('min-height: 44px'));
   for (const [, name] of css.matchAll(/var\((--[\w-]+)\)/g)) assert.ok(['--bg', '--panel', '--rule', '--ink', '--sub', '--muted', '--accent', '--healthy'].includes(name));
@@ -115,7 +116,7 @@ test('domain validation failures map to the contract and private errors are disc
 });
 
 test('portal styles keep submit actions primary and mobile navigation together', () => {
-  const css = readFileSync(new URL('../../site/css/portal.css', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../public/css/portal.css', import.meta.url), 'utf8');
   const primary = css.match(/\.portal-body button\[type="submit"\] \{([^}]+)\}/)[1];
   assert.match(primary, /background: var\(--accent\)/);
   assert.match(primary, /color: var\(--bg\)/);

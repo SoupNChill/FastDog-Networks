@@ -90,12 +90,11 @@ test('signup, login account, login IP and search limits use the injected clock',
   assert.equal((await f.client.call('/api/login', 'POST', { email: 'last@example.com', password: fakeSecret() })).status, 429);
   f.advance(900000);
   assert.equal((await f.client.call('/api/login', 'POST', { email: 'last@example.com', password: fakeSecret() })).status, 401);
-  for (let i = 0; i < 10; i++) assert.equal((await f.client.call('/api/domains/search?q=example.com')).status, 200);
-  assert.equal((await f.client.call('/api/domains/search?q=example.com')).status, 429);
+  assert.equal((await f.client.call('/api/domains/search?q=example.test')).status, 401);
   for (let i = 0; i < 30; i++) assert.equal((await a.client.call('/api/domains/search?q=example.com')).status, 200);
   assert.equal((await a.client.call('/api/domains/search?q=example.com')).status, 429);
   f.advance(600000);
-  assert.equal((await f.client.call('/api/domains/search?q=example.com')).status, 200);
+  assert.equal((await a.client.call('/api/domains/search?q=example.com')).status, 200);
 });
 
 test('hostname verification and rotation are limited without extra edge calls', async (t) => {

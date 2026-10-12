@@ -59,3 +59,8 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - MEDIUM (claim re-check, PR #39): inconclusive DNS results are skipped forever; cap consecutive inconclusive checks so a stale tenant cannot hold a hostname. Blocks enabling RECHECK_ENABLED.
 - MEDIUM (name scan, PR #36): about 60 legacy files exempt by line hash and three whole-file exemptions (two docs and deny-names.json); move docs to per-line exemptions and shrink the legacy list.
 - Edge access logs: top-level `level`, `ts`, `logger`, `msg` fields still appear in fdlog output (Caddy adds them outside the filter); harmless, but the snippet comment should say so.
+
+## Lane P (portal login and branding)
+- DONE: standalone branded login, invite-only signup and email verification; shared site palette, local fonts, responsive header/footer, accessible labels and focus styles.
+- DONE: active-session gates on every app page and business API, including domain search; noindex response headers and HTML metadata. Invalid invitations create no accounts.
+- DONE: portal-local branding assets remove the sibling-directory deployment dependency; meaningful HTML and noscript guidance on every page, with page/MIME/CSP/asset regression tests. Root-origin proxy requirement documented.
