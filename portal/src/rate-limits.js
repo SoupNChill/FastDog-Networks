@@ -7,9 +7,15 @@ export function createRateLimits(now, store) {
     if (persistent) entries = new Map(Object.entries(store.read('rate_limits', {})));
     else entries = memory;
     for (const [name, entry] of entries) if (entry.reset <= time) entries.delete(name);
+    const prefix = key.split(':', 1)[0];
+    let prefixSize = 0;
+    if (!entries.has(key)) {
+      for (const name of entries.keys()) if (name === prefix || name.startsWith(`${prefix}:`)) prefixSize++;
+    }
     const entry = entries.get(key) || { count: 0, reset: time + window };
-    if (entry.count >= limit || (!entries.has(key) && entries.size >= 20000)) {
-      throw fail('rate_limited', Math.max(1, Math.ceil((entry.reset - time) / 1000)));
+    if (entry.count >= limit) throw fail('rate_limited', Math.max(1, Math.ceil((entry.reset - time) / 1000)));
+    if (!entries.has(key) && prefixSize >= 20000) {
+      throw Object.assign(fail('rate_limited', Math.max(1, Math.ceil((entry.reset - time) / 1000))), { capacity: true });
     }
     entry.count++;
     entries.set(key, entry);

@@ -39,6 +39,7 @@ test('public control routes require operator auth; open endpoints retain their b
   try { mod = await import('../src/edge/server.js'); }
   catch (error) {
     if (error.code !== 'ERR_MODULE_NOT_FOUND' && error.code !== 'MODULE_NOT_FOUND') throw error;
+    if (process.env.REQUIRE_LANES === '1') throw error;
     t.skip('Existing edge dependencies are absent; install from the lockfile in an authorized environment to run integration coverage.');
     return;
   }
