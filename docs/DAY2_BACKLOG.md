@@ -43,6 +43,8 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 ## Lane C (on-demand TLS ask)
 - DONE: default-off `TLS_ASK_ENABLED`; direct-loopback-only ask, rejecting forwarded headers including empty values.
 - DONE: normalized verified active claim / explicit active legacy attachment approval; reserved, malformed, pending, expired and unknown names denied. Ambiguous tunnel lists do not independently authorize issuance.
-- DONE: bounded in-memory limits of 30 queries/minute/client and 300/minute globally, with 429 and retry timing.
+- DONE: bounded in-memory limits of 30 successful approvals/minute/client and 300/minute globally, with 429 and retry timing.
 - DONE: offline handler tests for flag, authorization, normalization, spoofing, limits, resets and current-storage reads; existing ask fixtures explicitly opt in.
 - DONE: unapplied Caddy global on-demand TLS snippet and operator documentation; deployment validation remains an operator step.
+- DONE: review MEDIUM — denied/unknown SNI consumes neither approval budget; regression tests cover shared-loopback exhaustion.
+- DONE: review MEDIUM — deny multiple active records and legacy/tenant coexistence; regression tests cover duplicate owners, invalid competing owners and pending claims.

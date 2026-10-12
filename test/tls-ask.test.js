@@ -96,22 +96,24 @@ test('TLS ask rejects non-loopback and any forwarded header, including empty hea
 
 test('TLS ask limits each client across host queries and IPv4 mapped forms, then resets', async (t) => {
   const h = setup(t);
-  for (let i = 0; i < 30; i++) assert.equal((await h.ask(`unknown-${i}.example.test`)).statusCode, 404);
+  h.save([h.claim('app.example.test')]);
+  for (let i = 0; i < 30; i++) assert.equal((await h.ask()).statusCode, 200);
   const limited = await h.ask(undefined, { address: '::ffff:127.0.0.1' });
   assert.equal(limited.statusCode, 429);
   assert.equal(limited.headers['retry-after'], '60');
   assert.deepEqual(JSON.parse(limited.body), { error: 'rate_limited', retry_after: 60 });
-  assert.equal((await h.ask(undefined, { address: '127.0.0.2' })).statusCode, 404);
+  assert.equal((await h.ask(undefined, { address: '127.0.0.2' })).statusCode, 200);
   h.advance();
-  assert.equal((await h.ask()).statusCode, 404);
+  assert.equal((await h.ask()).statusCode, 200);
 });
 
-test('TLS ask limits all clients to 300 queries per minute', async (t) => {
+test('TLS ask limits all clients to 300 approvals per minute', async (t) => {
   const h = setup(t);
-  for (let i = 0; i < 300; i++) assert.equal((await h.ask(undefined, { address: `127.0.0.${Math.floor(i / 30) + 1}` })).statusCode, 404);
+  h.save([h.claim('app.example.test')]);
+  for (let i = 0; i < 300; i++) assert.equal((await h.ask(undefined, { address: `127.0.0.${Math.floor(i / 30) + 1}` })).statusCode, 200);
   assert.equal((await h.ask(undefined, { address: '::1' })).statusCode, 429);
   h.advance();
-  assert.equal((await h.ask(undefined, { address: '::1' })).statusCode, 404);
+  assert.equal((await h.ask(undefined, { address: '::1' })).statusCode, 200);
 });
 
 test('Caddy snippet places ask inside global on_demand_tls and leaves site commented', () => {
@@ -119,4 +121,42 @@ test('Caddy snippet places ask inside global on_demand_tls and leaves site comme
   assert.match(snippet, /^\{\s*on_demand_tls\s*\{\s*ask http:\/\/127\.0\.0\.1:8789\/tls\/ask\s*\}\s*\}/m);
   assert.match(snippet, /# https:\/\/ \{/);
   assert.match(snippet, /#\s+on_demand/);
+});
+
+test('TLS ask denied queries cannot consume approval budgets', async (t) => {
+  const h = setup(t);
+  h.save([h.claim('app.example.test'), h.claim('pending.example.test', { status: 'pending' })]);
+  for (let i = 0; i < 310; i++) {
+    for (const host of [`unknown-${i}.example.test`, 'pending.example.test', '*.example.test', 'reserved.example.test']) {
+      assert.equal((await h.ask(host)).statusCode, 404);
+    }
+  }
+  for (let i = 0; i < 30; i++) assert.equal((await h.ask()).statusCode, 200);
+  assert.equal((await h.ask()).statusCode, 429);
+  assert.equal((await h.ask('unknown.example.test')).statusCode, 404);
+});
+
+test('TLS ask requires one active owner and denies legacy/tenant coexistence', async (t) => {
+  const h = setup(t);
+  const host = 'app.example.test';
+  const owner = h.claim(host);
+  for (const competitor of [owner, h.claim(host, { tenant_id: 't_bbbbbbbbbbbbbbbbbbbb' }),
+    h.claim(host, { tenant_id: 'invalid', verified_at: null })]) {
+    h.save([owner, competitor]);
+    assert.equal((await h.ask()).statusCode, 404);
+  }
+  h.save([owner, h.claim(host, { status: 'pending', tenant_id: 't_bbbbbbbbbbbbbbbbbbbb' })]);
+  assert.equal((await h.ask()).statusCode, 200);
+  for (const status of ['active', 'pending', 'expired']) {
+    for (const legacyStatus of ['active', 'pending']) {
+      h.save([h.claim(host, { status })]);
+      h.save([{ hostname: host, status: legacyStatus }], 'attached_hosts.json');
+      assert.equal((await h.ask()).statusCode, 404);
+    }
+  }
+  h.save([]);
+  h.save([{ hostname: host, status: 'active' }, { hostname: host, status: 'active' }], 'attached_hosts.json');
+  assert.equal((await h.ask()).statusCode, 404);
+  h.save([{ hostname: host, status: 'active' }], 'attached_hosts.json');
+  assert.equal((await h.ask()).statusCode, 200);
 });

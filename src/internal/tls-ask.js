@@ -15,6 +15,22 @@ export function createTlsAsk(opts = {}) {
   const clients = new Map();
   return (input, client) => {
     if (!enabled) return { status: 404 };
+    let host;
+    try { host = normalizeHostname(input); } catch { return { status: 404 }; }
+    if (isReserved(host, reserved) || targets.some((target) => host === target.toLowerCase().replace(/\.$/, ''))) return { status: 404 };
+    const claims = readJson('tenant_hostnames.json', [], directory).filter((c) => c.hostname === host);
+    const attachments = readJson('attached_hosts.json', [], directory).filter((c) => c.hostname === host);
+    // Count active records before validating them: an invalid competing owner is
+    // still ambiguous. Legacy records must never coexist with tenant claims.
+    if (claims.length && attachments.some((c) => !c.tenant_id)) return { status: 404 };
+    const active = [...claims, ...attachments].filter((c) => c.status === 'active');
+    if (active.length !== 1) return { status: 404 };
+    const owner = active[0];
+    const approved = claims.includes(owner)
+      ? /^t_[a-z2-7]{20}$/.test(owner.tenant_id) && Number.isFinite(Date.parse(owner.verified_at))
+      : !owner.tenant_id;
+    if (!approved) return { status: 404 };
+    // Unknown and denied SNI must not exhaust Caddy's shared loopback budget.
     const time = now();
     if (time >= until) { until = time + 60000; total = 0; clients.clear(); }
     const count = clients.get(client) ?? 0;
@@ -23,14 +39,6 @@ export function createTlsAsk(opts = {}) {
     }
     total++;
     clients.set(client, count + 1);
-    let host;
-    try { host = normalizeHostname(input); } catch { return { status: 404 }; }
-    if (isReserved(host, reserved) || targets.some((target) => host === target.toLowerCase().replace(/\.$/, ''))) return { status: 404 };
-    const claims = readJson('tenant_hostnames.json', [], directory);
-    const active = claims.some((c) => c.hostname === host && /^t_[a-z2-7]{20}$/.test(c.tenant_id) &&
-      c.status === 'active' && Number.isFinite(Date.parse(c.verified_at)));
-    const legacy = readJson('attached_hosts.json', [], directory).some((c) =>
-      c.hostname === host && !c.tenant_id && c.status === 'active');
-    return { status: active || legacy ? 200 : 404 };
+    return { status: 200 };
   };
 }
