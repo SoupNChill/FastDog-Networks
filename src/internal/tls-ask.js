@@ -14,7 +14,6 @@ export function createTlsAsk(opts = {}) {
   const reserved = opts.reservedSuffixes ?? reservedSuffixes(...targets);
   let until = 0;
   let total = 0;
-  const clients = new Map();
   const names = new Map();
   const files = ['tenant_hostnames.json', 'attached_hosts.json'];
   let owners = new Map();
@@ -57,24 +56,25 @@ export function createTlsAsk(opts = {}) {
     revisions = current;
     stamps = updated;
   }
-  return (input, client) => {
+  return (input) => {
     if (!enabled) return { status: 404 };
     let host;
     try { host = normalizeHostname(input); } catch { /* Invalid names share a budget. */ }
     const time = now();
-    if (time >= until) { until = time + 60000; total = 0; clients.clear(); names.clear(); }
-    const count = clients.get(client) ?? 0;
+    if (host && !isReserved(host, reserved) && !targets.some((target) => host === target.toLowerCase().replace(/\.$/, ''))) {
+      refresh(time);
+      // Approved owners never spend or wait on anonymous deny budgets.
+      if (owners.has(host)) return { status: 200 };
+    }
+    if (time >= until) { until = time + 60000; total = 0; names.clear(); }
     const nameCount = names.get(host) ?? 0;
-    // Count every ask globally, including asks already denied by a narrower budget.
+    // Count every denied ask globally, including asks limited by the per-name budget.
     const globalLimited = total >= 300;
     if (!globalLimited) total++;
-    if (globalLimited || count >= 30 || nameCount >= 30) {
+    if (globalLimited || nameCount >= 30) {
       return { status: 429, retry_after: Math.ceil((until - time) / 1000) };
     }
-    clients.set(client, count + 1);
     names.set(host, nameCount + 1);
-    if (!host || isReserved(host, reserved) || targets.some((target) => host === target.toLowerCase().replace(/\.$/, ''))) return { status: 404 };
-    refresh(time);
-    return { status: owners.has(host) ? 200 : 404 };
+    return { status: 404 };
   };
 }

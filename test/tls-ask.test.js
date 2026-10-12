@@ -95,26 +95,29 @@ test('TLS ask rejects non-loopback and any forwarded header, including empty hea
   for (const address of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) assert.equal((await h.ask(undefined, { address })).statusCode, 200);
 });
 
-test('TLS ask limits each client across host queries and IPv4 mapped forms, then resets', async (t) => {
+test('TLS ask meters only denied names and resets with retry timing', async (t) => {
   const h = setup(t);
-  h.save([h.claim('app.example.test')]);
-  for (let i = 0; i < 30; i++) assert.equal((await h.ask()).statusCode, 200);
-  const limited = await h.ask(undefined, { address: '::ffff:127.0.0.1' });
+  for (let i = 0; i < 30; i++) assert.equal((await h.ask()).statusCode, 404);
+  const limited = await h.ask(' APP.EXAMPLE.TEST. ');
   assert.equal(limited.statusCode, 429);
   assert.equal(limited.headers['retry-after'], '60');
   assert.deepEqual(JSON.parse(limited.body), { error: 'rate_limited', retry_after: 60 });
-  assert.equal((await h.ask(undefined, { address: '127.0.0.2' })).statusCode, 429);
+  assert.equal((await h.ask('other.example.test')).statusCode, 404);
   h.advance();
-  assert.equal((await h.ask()).statusCode, 200);
+  assert.equal((await h.ask()).statusCode, 404);
 });
 
-test('TLS ask limits all clients to 300 approvals per minute', async (t) => {
+test('TLS ask approved floods neither consume deny budgets nor block approvals', async (t) => {
   const h = setup(t);
-  h.save(Array.from({ length: 10 }, (_, i) => h.claim(`app-${i}.example.test`)));
-  for (let i = 0; i < 300; i++) assert.equal((await h.ask(`app-${Math.floor(i / 30)}.example.test`, { address: `127.0.0.${Math.floor(i / 30) + 1}` })).statusCode, 200);
-  assert.equal((await h.ask(undefined, { address: '::1' })).statusCode, 429);
+  h.save([h.claim('app.example.test')]);
+  for (let i = 0; i < 310; i++) assert.equal((await h.ask()).statusCode, 200);
+  for (let i = 0; i < 300; i++) {
+    assert.equal((await h.ask(`unknown-${i}.example.test`)).statusCode, 404);
+  }
+  assert.equal((await h.ask('another.example.test')).statusCode, 429);
+  for (let i = 0; i < 310; i++) assert.equal((await h.ask()).statusCode, 200);
   h.advance();
-  assert.equal((await h.ask('app-0.example.test', { address: '::1' })).statusCode, 200);
+  assert.equal((await h.ask('another.example.test')).statusCode, 404);
 });
 
 test('Caddy snippet places ask inside global on_demand_tls and leaves site commented', () => {
@@ -126,21 +129,20 @@ test('Caddy snippet places ask inside global on_demand_tls and leaves site comme
 
 test('TLS ask meters unknown-name floods without hot-path disk reads', async (t) => {
   const h = setup(t);
-  h.save([]);
+  h.save([h.claim('app.example.test')]);
   assert.equal((await h.ask('warm.example.test')).statusCode, 404);
   const read = t.mock.method(fs, 'readFileSync');
   const stat = t.mock.method(fs, 'statSync');
   for (let i = 1; i < 300; i++) {
-    assert.equal((await h.ask(`unknown-${i}.example.test`, {
-      address: `127.0.0.${Math.floor(i / 30) + 1}`,
-    })).statusCode, 404);
+    assert.equal((await h.ask(`unknown-${i}.example.test`)).statusCode, 404);
   }
-  assert.equal((await h.ask('another.example.test', { address: '::1' })).statusCode, 429);
+  assert.equal((await h.ask('another.example.test')).statusCode, 429);
+  assert.equal((await h.ask()).statusCode, 200);
   assert.equal(read.mock.callCount(), 0);
   assert.equal(stat.mock.callCount(), 0);
 });
 
-test('TLS ask meters denied names, malformed inputs and reserved names before lookup', async (t) => {
+test('TLS ask meters denied names, malformed inputs and reserved names', async (t) => {
   for (const host of ['unknown.example.test', '*.example.test', 'reserved.example.test']) {
     const h = setup(t);
     for (let i = 0; i < 30; i++) assert.equal((await h.ask(host)).statusCode, 404);
@@ -160,7 +162,9 @@ test('TLS ask refreshes immediately when a claim activates', async (t) => {
     resolver: { resolveCname: async () => ['attach.example.test'], resolveTxt: async () => [[proof]] },
   }, () => {});
   proof = claims.create(tid, { hostname: host, hostname_limit: 5 }).body.dns.txt.value;
-  assert.equal((await h.ask(host)).statusCode, 404);
+  for (let i = 0; i < 300; i++) {
+    assert.equal((await h.ask(host)).statusCode, i < 30 ? 404 : 429);
+  }
   await claims.verify(tid, host);
   assert.equal((await h.ask(host)).statusCode, 200);
 });
