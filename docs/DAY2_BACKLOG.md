@@ -13,8 +13,9 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - INFO: 409 `hostname_unavailable` is an existence oracle, as the contract specifies.
 
 ## Lane B (portal)
-- DONE (E2): anonymous sessions have a separate 5000 cap, 30-minute idle TTL and oldest-first eviction; authenticated sessions have a 20000 cap and return `rate_limited` (429) when full.
-- DONE (E2): rate-limit capacity is 20000 per prefix; expired entries are reclaimed before admission and existing keys remain usable at capacity. Valid logins for new keys still succeed under account-map saturation; failed attempts remain IP-limited and return 429.
+- DONE (E2 review): authenticated sessions are capped at 10 per user and 20000 globally; admission returns 429 without revoking existing sessions, and expired or revoked sessions free capacity.
+- DONE (E2): anonymous sessions have a separate 5000 cap and 30-minute idle TTL; saturation returns `rate_limited` (429) without evicting existing CSRF bootstrap sessions.
+- DONE (E2): rate-limit capacity is 20000 per prefix; expired entries are reclaimed before admission and existing keys remain usable at capacity. Account-map saturation fails closed with 429 before password verification, including valid credentials for new keys; existing account lockouts remain enforced.
 - MEDIUM: persistent rate limits still rewrite the whole file per attempt; reduce write amplification.
 - LOW: per-account login lockout enables lock-out of a known email; also key on IP plus account.
 - LOW: `trustProxy` only accepts a single-IP `X-Forwarded-For`; document that Caddy overwrites it or take the last hop.

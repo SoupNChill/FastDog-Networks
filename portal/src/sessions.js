@@ -25,12 +25,10 @@ export function createSessions(store, now) {
       const raw = token();
       const all = current();
       const peers = all.filter((s) => (s.user_id === null) === (user === null));
-      if (peers.length >= (user === null ? 5000 : 20000)) {
-        if (user !== null) throw fail('rate_limited', Math.max(1, Math.ceil((Math.min(...peers.map((s) => Math.min(s.expires_at, s.created_at + 90 * DAY))) - now()) / 1000)));
-        peers.sort((a, b) => a.created_at - b.created_at);
-        const evicted = new Set(peers.slice(0, peers.length - 4999));
-        for (let i = all.length - 1; i >= 0; i--) if (evicted.has(all[i])) all.splice(i, 1);
-      }
+      const userSessions = user === null ? [] : peers.filter((s) => s.user_id === user.id);
+      const full = userSessions.length >= 10 ? userSessions : peers.length >= (user === null ? 5000 : 20000) ? peers : null;
+      if (full) throw fail('rate_limited', Math.max(1, Math.ceil((Math.min(...full.map((s) =>
+        Math.min(s.expires_at, s.last_seen + idleTTL(s), s.created_at + 90 * DAY))) - now()) / 1000)));
       const session = { token_hash: digest(raw), csrf: token(), user_id: user?.id ?? null,
         auth_version: user?.auth_version ?? null, created_at: now(), last_seen: now(), expires_at: now() + (user === null ? ANON_TTL : 14 * DAY) };
       all.push(session);

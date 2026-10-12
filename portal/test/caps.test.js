@@ -47,26 +47,50 @@ async function setup(t) {
 }
 const credentials = { email: 'user@example.test', password: 'synthetic-password-123' };
 
-test('anonymous cap evicts oldest anonymous session and login still works', async (t) => {
+test('anonymous saturation preserves bootstrap sessions and admits again after expiry', async (t) => {
   const f = await setup(t);
+  const bootstrap = f.sessions.create();
   const live = f.sessions.create(f.user);
-  const rows = Array.from({ length: 5000 }, (_, i) => row(i, f.now()));
-  rows[123].created_at -= 1000;
-  f.store.write('sessions', [...rows, ...f.store.read('sessions')]);
-  const bootstrap = await call(f.app, '/api/me');
-  assert.equal(bootstrap.status, 200);
-  const saved = f.store.read('sessions');
-  assert.equal(saved.filter((s) => s.user_id === null).length, 5000);
-  assert.ok(!saved.some((s) => s.token_hash === rows[123].token_hash));
+  const rows = Array.from({ length: 4999 }, (_, i) => row(i, f.now()));
+  f.store.write('sessions', [...f.store.read('sessions'), ...rows]);
+  const before = f.store.read('sessions');
+  for (let i = 0; i < 3; i++) {
+    const result = await call(f.app, '/api/me');
+    assert.equal(result.status, 429);
+    assert.equal(Number(result.headers['retry-after']), 1800);
+  }
+  assert.deepEqual(f.store.read('sessions'), before);
+  assert.ok(f.sessions.get(bootstrap.cookie));
   assert.ok(f.sessions.get(live.cookie));
-  const login = await call(f.app, '/api/login', { cookie: bootstrap.headers['set-cookie'], csrf: bootstrap.data.csrf }, credentials);
+  const login = await call(f.app, '/api/login', bootstrap, credentials);
   assert.equal(login.status, 200);
   assert.match(login.headers['set-cookie'], /Max-Age=1209600/);
+  f.sessions.create();
+  f.advance(1800000);
+  assert.equal((await call(f.app, '/api/me')).status, 200);
+});
+
+test('per-user cap preserves sessions and other users can log in; revocation and expiry free slots', async (t) => {
+  const f = await setup(t);
+  const existing = Array.from({ length: 10 }, () => f.sessions.create(f.user));
+  const bootstrap = f.sessions.create();
+  const before = f.store.read('sessions');
+  const result = await call(f.app, '/api/login', bootstrap, credentials);
+  assert.equal(result.status, 429);
+  assert.equal(Number(result.headers['retry-after']), 14 * DAY / 1000);
+  assert.deepEqual(f.store.read('sessions'), before);
+  assert.ok(f.sessions.get(bootstrap.cookie));
+  assert.ok(f.sessions.create({ id: 'synthetic-other-user', auth_version: 1 }));
+  f.sessions.revoke(existing[0].token_hash);
+  assert.equal((await call(f.app, '/api/login', bootstrap, credentials)).status, 200);
+  assert.throws(() => f.sessions.create(f.user), { code: 'rate_limited' });
+  f.advance(14 * DAY);
+  assert.ok(f.sessions.create(f.user));
 });
 
 test('authenticated cap returns 429, preserves bootstrap, then admits login after expiry', async (t) => {
   const f = await setup(t);
-  f.store.write('sessions', Array.from({ length: 20000 }, (_, i) => row(i, f.now(), 'synthetic-user')));
+  f.store.write('sessions', Array.from({ length: 20000 }, (_, i) => row(i, f.now(), `synthetic-user-${i}`)));
   const session = f.sessions.create();
   const result = await call(f.app, '/api/login', session, credentials);
   assert.equal(result.status, 429);
@@ -80,14 +104,18 @@ test('authenticated cap returns 429, preserves bootstrap, then admits login afte
   assert.equal(f.store.read('sessions').length, 20000);
 });
 
-test('full login-account prefix allows a new real login and rotate, but rejects invalid credentials', async (t) => {
+test('full login-account prefix fails closed for new accounts, preserves existing lockouts and recovers after expiry', async (t) => {
   const f = await setup(t);
   const session = f.sessions.create(f.user);
   const entries = Object.fromEntries(Array.from({ length: 20000 }, (_, i) => [`login-account:${digest(`junk${i}@example.test`)}`, { count: 1, reset: f.now() + 900000 }]));
   f.store.write('rate_limits', entries);
   assert.equal((await call(f.app, '/api/hostnames/app.example.test/rotate', session, {})).status, 200);
   assert.equal((await call(f.app, '/api/login', session, { ...credentials, password: 'synthetic-wrong-password' })).status, 429);
-  assert.equal((await call(f.app, '/api/login', session, credentials)).status, 200);
+  assert.equal((await call(f.app, '/api/login', session, credentials)).status, 429);
+  assert.ok(f.sessions.get(session.cookie));
+  const saved = f.store.read('rate_limits');
+  for (const [key, entry] of Object.entries(entries)) assert.deepEqual(saved[key], entry);
+  assert.equal(saved[`login-account:${digest(credentials.email)}`], undefined);
   const limits = createRateLimits(f.now, f.store);
   assert.throws(() => limits.take('login-account:new', 5, 900000, true), { code: 'rate_limited' });
   limits.take('rotate:synthetic', 5, DAY, true);
@@ -95,8 +123,9 @@ test('full login-account prefix allows a new real login and rotate, but rejects 
   for (let i = 0; i < 4; i++) limits.take(existing, 5, 900000, true);
   assert.throws(() => createRateLimits(f.now, f.store).take(existing, 5, 900000, true), { code: 'rate_limited' });
   f.advance(900000);
+  assert.equal((await call(f.app, '/api/login', session, credentials)).status, 200);
   limits.take('login-account:new', 5, 900000, true);
-  assert.equal(Object.keys(f.store.read('rate_limits')).length, 3);
+  assert.equal(Object.keys(f.store.read('rate_limits')).length, 4);
 });
 
 test('in-memory prefixes have independent caps and reclaim expired entries', () => {
