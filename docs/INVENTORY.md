@@ -118,7 +118,7 @@ As of 2026-10-12, neither server3 nor the edge has a key for ns2 (2.29.58.90), s
 | --- | --- |
 | Address | LAN 192.168.200.7, login user per operator SSH config |
 | Units | `docker`, `containerd`, `ssh`, `fwupd` |
-| Workloads | About 20 Docker compose containers from 7 projects under `/opt/<project>/`. Project names are not recorded here, per the name-scan rule (see the operator notes). They include two independent customer stacks with their own Cloudflare tunnels; they are out of scope and must not be touched. |
+| Workloads | Docker compose projects under `/opt/<project>/` that belong to independent operators. Out of scope: do not touch. |
 | FastDog pieces | Two outbound `fastdog-agent` containers (node:20-bookworm-slim) with no published ports |
-| Listeners | 22, 80, 443, 4000, 8000, 8080, 7880/7881, 3478 (TURN); 127.0.0.1:2019, 127.0.0.1:7430 |
+| Listeners | Not recorded (third-party workloads). FastDog agents publish no ports. |
 | Secrets | Per-project `.env` files under `/opt/<project>/` (owner: project operator) and agent tokens in the agent compose env (owner: origin owner). Paths are verified by the operator only. |
