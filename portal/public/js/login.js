@@ -1,10 +1,10 @@
 import { api, init, form, message } from './api.js';
+const fragment = new URLSearchParams(location.hash.slice(1));
+const linkToken = fragment.get('token');
+const kind = fragment.get('kind');
+history.replaceState(null, '', location.pathname);
 try {
   await init();
-  const fragment = new URLSearchParams(location.hash.slice(1));
-  const linkToken = fragment.get('token');
-  const kind = fragment.get('kind');
-  history.replaceState(null, '', location.pathname);
   if (linkToken && kind === 'verify-email') {
     await api('/api/verify-email', 'POST', { token: linkToken });
     message('Email verified. You can now sign in and add a hostname.');
@@ -18,7 +18,14 @@ try {
       message('Password changed. Sign in with your new password.');
     });
   }
-  form('#login', async (data) => { await api('/api/login', 'POST', data); location.assign('/hostname'); });
+  form('#login', async (data) => {
+    try {
+      await api('/api/login', 'POST', data);
+      location.assign('/hostname');
+    } catch (error) {
+      message(`${error.message} Check your email address and password. If you forgot your password, use the reset link below.`);
+    }
+  });
   form('#reset-request', async (data) => {
     await api('/api/password-reset', 'POST', data);
     message('If this email has an account, a password reset link will be sent.');

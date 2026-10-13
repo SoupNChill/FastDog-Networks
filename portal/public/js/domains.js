@@ -10,11 +10,11 @@ async function requests() {
     if (entry.status === 'registered') {
       const link = document.createElement('a');
       link.href = '/hostname';
-      link.textContent = 'Add a hostname and get DNS instructions';
+      link.textContent = 'Set up this web address';
       list.append(link);
     }
   }
-  if (!result.requests.length) list.textContent = 'No requests yet.';
+  if (!result.requests.length) list.textContent = 'No requests yet. Search above to find a name.';
 }
 try {
   const me = await init();
@@ -30,7 +30,7 @@ try {
       if (result.status === 'available') row.append(button('Request this name', async () => {
         if (!me.tenant) return location.assign('/login');
         await api('/api/domain-requests', 'POST', { name: result.domain, quoted_price: result.price_year });
-        message('Request received. Registration is reviewed and handled by an operator.');
+        message('Request received. We will email you to confirm the price and next steps.');
         await requests();
       }));
       list.append(row);

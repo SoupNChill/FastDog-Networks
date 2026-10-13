@@ -1,5 +1,101 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Add a hostname · Portal</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/css/site.css"><link rel="stylesheet" href="/css/portal.css"><script type="module" src="/js/hostname.js"></script></head>
-<body><a class="skip" href="#main">Skip to content</a><header class="site-header wrap"><a class="brand" href="/hostname" aria-label="FastDog Networks Portal"><picture><source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/hound-light.svg" width="70" height="21" alt="FastDog Networks"></picture><span>Portal</span></a><nav aria-label="Main navigation"><a href="/hostname">Hostname</a><a href="/connect">Origin</a><a href="/domains">Domains</a><a href="/plan">Plan</a><a href="/login" id="signin">Sign in</a><button type="button" id="logout" hidden>Sign out</button></nav></header>
-<main id="main" class="wrap split"><div class="section-marker">01 / Hostname</div><div class="section-body portal-body"><p class="eyebrow">Your account</p><h1>Add a hostname</h1><noscript><p>JavaScript is needed to submit forms and load account details. You can still read these instructions; enable JavaScript and reload to continue.</p></noscript><p id="message" role="status" aria-live="polite"></p><p>Keep your DNS provider. Add the routing and ownership records, then verify them here.</p><form method="post" id="add-hostname"><label for="hostname">Hostname</label><input id="hostname" name="hostname" placeholder="app.example.com" autocapitalize="none" spellcheck="false" required><button type="submit">Add hostname</button></form><section id="claim" hidden><h2 id="claim-hostname"></h2><div id="dns"></div><div id="verify-actions"></div></section><section id="credential" hidden><h2>Run your agent</h2><p>This credential is shown once. Copy it now. Replace the image, edge WebSocket URL, and local upstream placeholders with the values supplied by your operator. Keep the token private.</p><pre id="command" tabindex="0"></pre><button type="button" id="copy-command">Copy command</button></section>
-<p id="connection" role="status"></p><div id="origin-actions"></div><a id="visit" hidden target="_blank" rel="noopener noreferrer">Open hostname to check HTTPS</a><section><h2>Your hostnames</h2><div id="hostnames"></div></section></div></main><footer class="footer wrap"><a class="brand" href="/login">FastDog <span class="brand-second">Networks</span></a><div><span>Private customer portal</span><span>Access by invitation only</span></div></footer></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your website address · Portal</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/css/portal.css">
+<link rel="stylesheet" href="/css/guide.css">
+<script type="module" src="/js/hostname.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap">
+<a class="brand" href="/hostname" aria-label="FastDog Networks Portal">
+<picture>
+<source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)">
+<img src="/logos/hound-light.svg" width="70" height="21" alt="FastDog Networks">
+</picture>
+<span>Portal</span>
+</a>
+<nav aria-label="Main navigation">
+<a href="/hostname" aria-current="page">Website</a>
+<a href="/connect">Server</a>
+<a href="/domains">Domains</a>
+<a href="/plan">Plan</a>
+<a href="/login" id="signin">Sign in</a>
+<button type="button" id="logout" hidden>Sign out</button>
+</nav>
+</header>
+<main id="main" class="wrap split">
+<div class="section-marker">Website setup</div>
+<div class="section-body portal-body">
+<p class="eyebrow">Your account</p>
+<h1>Your website address</h1>
+<section id="getting-started" class="setup-guide" aria-label="Getting started">
+<h2>Getting started</h2>
+<p>Step 1 of 4: Add your website address</p>
+<ol>
+<li aria-current="step">Add your website address</li>
+<li>Add two DNS records</li>
+<li>Connect your server</li>
+<li>Live with HTTPS</li>
+</ol>
+</section>
+<noscript>
+<p>JavaScript is needed to submit forms and load account details. You can still read these instructions; enable JavaScript and reload to continue.</p>
+</noscript>
+<p id="message" role="status" aria-live="polite"></p>
+<p>Start with the address people will use to visit your website. You can keep the company that manages your domain.</p>
+<details class="hostname-help">
+<summary>What's this?</summary>
+<dl>
+<dt>Website address (hostname)</dt>
+<dd>An address such as app.example.com. Use a domain you own.</dd>
+<dt>CNAME record</dt>
+<dd>It points your address at FastDog.</dd>
+<dt>TXT record</dt>
+<dd>It proves you own the domain.</dd>
+<dt>DNS changes</dt>
+<dd>DNS is your domain’s address book. Changes take time to spread: minutes, sometimes up to a few hours.</dd>
+</dl>
+</details>
+<form method="post" id="add-hostname">
+<label for="hostname">Website address</label>
+<input id="hostname" name="hostname" placeholder="app.example.com" autocapitalize="none" spellcheck="false" aria-describedby="hostname-note message" required>
+<p id="hostname-note" class="hostname-note" role="status">For example, app.example.com. A pasted web link will be reduced to its address.</p>
+<button type="submit">Add website address</button>
+</form>
+<section id="claim" hidden>
+<h2 id="claim-hostname"></h2>
+<p>Add these two records in your domain provider’s DNS settings. Copy each name and value exactly. Keep both records in place.</p>
+<div id="dns"></div>
+<div id="verify-actions"></div>
+</section>
+<section id="credential" hidden>
+<h2>Connect your server</h2>
+<p>This command connects your server to FastDog. It contains a private access key and is shown only once. Save it securely now. Ask the person who manages your server to fill in the placeholders and run it.</p>
+<pre id="command" tabindex="0"></pre>
+<button type="button" id="copy-command">Copy command</button>
+</section>
+<section>
+<h2>Your website addresses</h2>
+<div id="hostnames"></div>
+</section>
+<p class="hostname-support">Stuck? Email <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>
+</p>
+</div>
+</main>
+<footer class="footer wrap">
+<a class="brand" href="/login">FastDog <span class="brand-second">Networks</span>
+</a>
+<div>
+<span>Private customer portal</span>
+<span>Access by invitation only</span>
+</div>
+</footer>
+</body>
+</html>

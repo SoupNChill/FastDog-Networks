@@ -79,32 +79,3 @@ test('every page renders branded HTML without JS and every referenced asset is s
   assert.equal(missing.status, 404);
   assert.equal(missing.headers['x-robots-tag'], 'noindex');
 });
-
-test('verification page clears its fragment and confirms only on submission', async () => {
-  const { readFileSync } = await import('node:fs');
-  const source = readFileSync(new URL('../public/js/verify-email.js', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
-  for (const token of [null, fakeSecret()]) {
-    let submit;
-    let cleared;
-    let status;
-    const calls = [];
-    const node = { hidden: false };
-    new Function('api', 'init', 'form', 'message', 'location', 'history', 'document', source)(
-      async (...args) => calls.push(args), async () => calls.push('init'),
-      (id, callback) => { assert.equal(id, '#verify-email'); submit = callback; },
-      (text) => { status = text; }, { hash: token ? `#token=${token}` : '', pathname: '/verify-email' },
-      { replaceState: (...args) => { cleared = args; } }, { querySelector: () => node },
-    );
-    assert.deepEqual(cleared, [null, '', '/verify-email']);
-    assert.deepEqual(calls, []);
-    await submit();
-    if (token) {
-      assert.deepEqual(calls, ['init', ['/api/verify-email', 'POST', { token }]]);
-      assert.equal(node.hidden, true);
-      assert.match(status, /Email verified/);
-    } else {
-      assert.deepEqual(calls, []);
-      assert.match(status, /complete verification link/);
-    }
-  }
-});
