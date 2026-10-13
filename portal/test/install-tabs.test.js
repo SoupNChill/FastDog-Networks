@@ -1,23 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, statSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import vm from 'node:vm';
 import { connectionCommand as buildCommand, showCredential } from '../public/js/agent-view.js';
 const connectionCommand = (env, platform) => buildCommand(env, platform, 'https://portal.example.test');
 const env = { AGENT_TOKEN: "private'fixture", AGENT_HOSTNAME: 'app.example.test', EDGE_HTTP_URL: 'https://edge.example.test', AGENT_LOCAL_UPSTREAM: 'http://127.0.0.1:8080' };
 test('Linux installer receives quoted token, edge, hostname and origin', () => {
   const command = connectionCommand(env, 'linux');
-  assert.match(command, /^curl -fsSL 'https:\/\/portal\.example\.test\/install\/agent.sh' \| sudo bash -s -- /);
-  assert.ok(command.includes("--token 'private'\\''fixture'"));
+  assert.match(command, /^curl -fsSL 'https:\/\/portal\.example\.test\/install\/agent.sh' -o \/tmp\/fastdog-agent-install.sh && sudo /);
+  assert.ok(command.includes("FASTDOG_AGENT_TOKEN='private'\\''fixture'"));
   for (const [flag, value] of [['edge', env.EDGE_HTTP_URL], ['hostname', env.AGENT_HOSTNAME], ['origin', env.AGENT_LOCAL_UPSTREAM]]) assert.ok(command.includes(`--${flag} '${value}'`));
 });
 test('Docker and macOS share a pinned command; Windows uses PowerShell quoting', () => {
   const docker = connectionCommand(env, 'docker');
   assert.equal(docker, connectionCommand(env, 'macos'));
-  assert.match(docker, /ghcr.io\/soupnchill\/fastdog-agent:0.1.0$/);
+  assert.match(docker, /^umask 077; printf/);
+  for (const platform of ['docker', 'macos', 'windows']) {
+    const command = connectionCommand(env, platform);
+    assert.match(command, /docker run .*--env-file fastdog-agent.env/);
+    assert.doesNotMatch(command.slice(command.indexOf('docker run')), /private| -e /);
+  }
+  assert.match(docker, /ghcr.io\/soupnchill\/fastdog-agent:0.1.0@sha256:DIGEST_PLACEHOLDER$/);
   assert.match(docker, /EDGE_WS_URL=wss:\/\/edge.example.test\/_fastdog\/tunnel/);
-  assert.ok(connectionCommand(env, 'windows').includes("-e 'AGENT_TOKEN=private''fixture'"));
-  assert.match(connectionCommand(env, 'windows'), /^docker run /);
+  assert.ok(connectionCommand(env, 'windows').includes("'AGENT_TOKEN=private''fixture'"));
+  assert.match(connectionCommand(env, 'windows'), /^Set-Content /);
   assert.match(connectionCommand({ AGENT_TOKEN: 'fixture', AGENT_HOSTNAME: 'app.example.test' }, 'linux'), /--edge '<EDGE_HTTP_URL>'.*--origin '<LOCAL_UPSTREAM>'/);
 });
 test('install tabs start with Linux and support keyboard navigation and credential clearing', () => {
@@ -36,6 +45,7 @@ test('install tabs start with Linux and support keyboard navigation and credenti
     assert.equal(tabs[3].attrs['aria-selected'], 'true');
     assert.equal(tabs[3].focused, true);
     assert.match(elements.get('#command-help').textContent, /Untested.*Docker Desktop.*PowerShell/);
+    assert.match(elements.get('#command-help').textContent, /Keep fastdog-agent.env private/);
     tabs[3].handlers.keydown({ key: 'ArrowRight', preventDefault() {} });
     assert.equal(tabs[0].attrs['aria-selected'], 'true');
     clear();
@@ -53,4 +63,18 @@ test('root domain hints cover two-part suffixes and include the actual attach ta
     assert.match(hint, /ALIAS\/ANAME\/CNAME flattening/);
   }
   for (const domain of ['', 'app.example.test', 'www.example.co.uk', 'co.uk']) assert.equal(context.rootDomainHelp(domain), '');
+});
+
+test('Docker shell command writes private exact values without passing the token to Docker', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'portal-command-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'docker'), '#!/bin/sh\nprintf "%s\\n" "$@" > docker-args\n', { mode: 0o700 });
+  const result = spawnSync('/bin/bash', ['-c', connectionCommand(env, 'docker')], {
+    cwd: dir, encoding: 'utf8', env: { PATH: `${dir}:/usr/bin:/bin` },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const saved = readFileSync(join(dir, 'fastdog-agent.env'), 'utf8');
+  for (const [key, value] of Object.entries(env)) assert.ok(saved.includes(`${key}=${value}\n`));
+  assert.equal(statSync(join(dir, 'fastdog-agent.env')).mode & 0o777, 0o600);
+  assert.doesNotMatch(readFileSync(join(dir, 'docker-args'), 'utf8'), /private/);
 });

@@ -1,7 +1,7 @@
 import { api, button, copy, message } from './api.js';
 const shellQuote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
 const powershellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
-const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.0';
+const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.0@sha256:DIGEST_PLACEHOLDER';
 export function connectionCommand(agentEnv, platform, portalOrigin = window.location.origin) {
   const env = Object.fromEntries(['AGENT_TOKEN', 'AGENT_HOSTNAME', 'AGENT_NAME']
     .filter((key) => typeof agentEnv[key] === 'string').map((key) => [key, agentEnv[key]]));
@@ -11,9 +11,12 @@ export function connectionCommand(agentEnv, platform, portalOrigin = window.loca
     AGENT_LOCAL_UPSTREAM: agentEnv.AGENT_LOCAL_UPSTREAM || '<LOCAL_UPSTREAM>',
   });
   const entries = Object.entries(env);
-  if (platform === 'linux') return `curl -fsSL ${shellQuote(new URL('/install/agent.sh', portalOrigin).href)} | sudo bash -s -- --token ${shellQuote(env.AGENT_TOKEN)} --edge ${shellQuote(env.EDGE_HTTP_URL)} --hostname ${shellQuote(env.AGENT_HOSTNAME)} --origin ${shellQuote(env.AGENT_LOCAL_UPSTREAM)}`;
-  const quote = platform === 'windows' ? powershellQuote : shellQuote;
-  return `docker run -d --restart unless-stopped ${entries.map(([key, value]) => `-e ${quote(`${key}=${value}`)}`).join(' ')} ${AGENT_IMAGE}`;
+  if (platform === 'linux') return `curl -fsSL ${shellQuote(new URL('/install/agent.sh', portalOrigin).href)} -o /tmp/fastdog-agent-install.sh && sudo FASTDOG_AGENT_TOKEN=${shellQuote(env.AGENT_TOKEN)} bash /tmp/fastdog-agent-install.sh --edge ${shellQuote(env.EDGE_HTTP_URL)} --hostname ${shellQuote(env.AGENT_HOSTNAME)} --origin ${shellQuote(env.AGENT_LOCAL_UPSTREAM)}`;
+  const run = `docker run -d --restart unless-stopped --env-file fastdog-agent.env ${AGENT_IMAGE}`;
+  if (platform === 'windows') {
+    return `Set-Content -LiteralPath fastdog-agent.env -Encoding ASCII -Value @(${entries.map(([key, value]) => powershellQuote(`${key}=${value}`)).join(', ')}) -ErrorAction Stop; ${run}`;
+  }
+  return `umask 077; printf '%s\\n' ${entries.map(([key, value]) => shellQuote(`${key}=${value}`)).join(' ')} > fastdog-agent.env && chmod 600 fastdog-agent.env && ${run}`;
 }
 export function showCredential(credential) {
   const output = document.querySelector('#command');
@@ -26,7 +29,7 @@ export function showCredential(credential) {
     copyButton.textContent = 'Copy command';
     if (help) help.textContent = platform === 'linux'
       ? 'Linux (recommended): run this command in your server’s terminal. It installs the connection software with administrator permission.'
-      : `${platform === 'windows' ? 'Untested. Install Docker Desktop and use PowerShell.' : platform === 'macos' ? 'Install Docker Desktop and use Terminal.' : 'Install Docker and use a Linux or macOS terminal.'} Your website’s local address must be reachable from inside Docker. In Docker Desktop, use host.docker.internal to reach a website on the same computer; 127.0.0.1 refers to the container itself.`;
+      : `${platform === 'windows' ? 'Untested. Install Docker Desktop and use PowerShell.' : platform === 'macos' ? 'Install Docker Desktop and use Terminal.' : 'Install Docker and use a Linux or macOS terminal.'} Keep fastdog-agent.env private. It contains your connection token. Your website’s local address must be reachable from inside Docker. In Docker Desktop, use host.docker.internal to reach a website on the same computer; 127.0.0.1 refers to the container itself.`;
   };
   if (tabs) {
     tabs.replaceChildren();

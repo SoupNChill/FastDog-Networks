@@ -2,7 +2,6 @@ name: Publish agent image
 on:
   push:
     tags: ['agent-v*']
-  workflow_dispatch:
 permissions:
   contents: read
   packages: write
@@ -27,6 +26,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Refuse an existing image tag
+        env:
+          AGENT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if docker manifest inspect "ghcr.io/soupnchill/fastdog-agent:$AGENT_VERSION" >/dev/null 2>&1; then
+            echo 'This image tag already exists. Publish a new version.'
+            exit 1
+          fi
       - uses: docker/build-push-action@v6
         id: image
         with:
@@ -36,4 +43,4 @@ jobs:
       - name: Print image digest
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-        run: printf 'Image digest: %s\n' "$IMAGE_DIGEST"
+        run: 'printf "Image digest %s\n" "$IMAGE_DIGEST"'

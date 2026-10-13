@@ -6,19 +6,23 @@ export LC_ALL=C
 umask 077
 fail() { printf '%s\n' "$1" >&2; exit 1; }
 usage() {
-  printf '%s\n' 'Usage: bash agent.sh --token TOKEN --edge URL --hostname HOST [--origin URL] [--name NAME]' \
+  printf '%s\n' 'Usage: FASTDOG_AGENT_TOKEN=TOKEN bash agent.sh --edge URL --hostname HOST [--origin URL] [--name NAME]' \
     'Remove: bash agent.sh --uninstall [--name NAME]' \
     'The edge URL must start with https:// or wss://. The default name is default.'
 }
-token='' edge='' hostname='' origin='http://127.0.0.1:8080' name='default' uninstall=0
+image=ghcr.io/soupnchill/fastdog-agent:0.1.0@sha256:DIGEST_PLACEHOLDER
+token=${FASTDOG_AGENT_TOKEN:-}
+unset FASTDOG_AGENT_TOKEN
+edge='' hostname='' origin='http://127.0.0.1:8080' name='default' uninstall=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --uninstall) uninstall=1; shift ;;
-    --token|--edge|--hostname|--origin|--name)
+    --token|--token=*) fail 'The --token option is no longer supported. Pass the token in FASTDOG_AGENT_TOKEN instead.' ;;
+    --edge|--hostname|--origin|--name)
       [ "$#" -ge 2 ] && [ -n "$2" ] || fail 'An option is missing its value. Run with --help.'
       case "$1" in
-        --token) token=$2 ;; --edge) edge=$2 ;; --hostname) hostname=$2 ;;
+        --edge) edge=$2 ;; --hostname) hostname=$2 ;;
         --origin) origin=$2 ;; --name) name=$2 ;;
       esac
       shift 2 ;;
@@ -28,7 +32,7 @@ done
 case "$name" in ''|*[!a-z0-9-]*) fail 'Use only lowercase letters, numbers and hyphens for the name.' ;; esac
 [ "${#name}" -le 63 ] || fail 'Use a name of 63 characters or fewer.'
 if [ "$uninstall" -eq 0 ]; then
-  [ -n "$token" ] || fail 'Provide the connection token with --token.'
+  [ -n "$token" ] || fail 'Provide the connection token in FASTDOG_AGENT_TOKEN.'
   case "$token" in *[![:graph:]]*) fail 'The token must not contain spaces or control characters.' ;; esac
   # Accept an edge authority only; optional standard tunnel path is also supported.
   edge=${edge%/}
@@ -54,6 +58,7 @@ if [ "$uninstall" -eq 0 ]; then
     port=${origin_authority##*:}
     (( 10#$port >= 1 && 10#$port <= 65535 )) || fail 'The origin port must be between 1 and 65535.'
   fi
+  case "$image" in *DIGEST_PLACEHOLDER*) fail 'The agent image is not ready. Ask the operator to set the published image digest.' ;; esac
 fi
 [ "$(id -u)" -eq 0 ] || fail 'Run this installer as root using sudo bash.'
 [ "$(uname -s)" = Linux ] || fail 'This installer requires Linux.'
@@ -65,7 +70,6 @@ unit_dir=/etc/systemd/system
 unit="fastdog-agent-$name.service"
 env_file="$config_dir/$name.env"
 unit_file="$unit_dir/$unit"
-image=ghcr.io/soupnchill/fastdog-agent:0.1.0
 if [ "$uninstall" -eq 1 ]; then
   systemctl disable --now "$unit" >/dev/null 2>&1 || fail 'Could not stop the service. Check its status before removing files.'
   rm -f -- "$unit_file" "$env_file"
