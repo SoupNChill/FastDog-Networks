@@ -16,10 +16,12 @@ try {
   document.querySelector('#connect').hidden = !select.value;
   document.querySelector('#connect-empty').hidden = Boolean(select.value);
   form('#connect', async ({ hostname }) => {
-    if (!hostname) return message('Add and verify a hostname first.');
+    if (!hostname) return message('Add and verify your website address first.');
     stop?.();
     document.querySelector('#credential').hidden = true;
     document.querySelector('#command').textContent = '';
+    document.querySelector('#command-tabs').replaceChildren();
+    document.querySelector('#copy-command').onclick = null;
     stop = watchAgent(hostname);
   });
   if (select.value) stop = watchAgent(select.value);
