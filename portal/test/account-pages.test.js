@@ -102,7 +102,7 @@ test('plan renders human labels and singular or plural limits', async () => {
 test('lane C pages include support, plain step names and accessible password and continue controls', () => {
   for (const name of ['login', 'signup', 'verify-email', 'plan', 'domains']) {
     const html = read(`${name}.html`);
-    assert.match(html, /class="footer-support" href="mailto:support@fastdognetworks&#46;com"/);
+    assert.match(html, /class="footer-support" href="mailto:{{SUPPORT_EMAIL}}"/);
     assert.doesNotMatch(html, /Private access|\d\d \/ (Plan|Domains)|Assigned plan|Contact the operator/);
   }
   assert.match(read('signup.html'), /exact email address/);

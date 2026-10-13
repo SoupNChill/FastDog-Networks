@@ -68,7 +68,7 @@ test('hostname page supplies labelled guidance, mobile styles and support', asyn
   assert.match(html, /href="\/css\/guide.css"/);
   assert.match(html, /<details class="hostname-help">\s*<summary>What's this\?<\/summary>/);
   assert.match(html, /aria-describedby="hostname-note message"/);
-  assert.match(html, /mailto:support@fastdognetworks(?:\.|&#46;)com/);
+  assert.match(html, /mailto:\{\{SUPPORT_EMAIL\}\}/);
   assert.match(html, /Step 1 of 4/);
   assert.doesNotMatch(html, /01 \/ Hostname|routing and ownership records/);
 });
@@ -104,4 +104,12 @@ test('hostname page restores pending setup and updates the guide from live agent
     assert.ok(calls.every(([, method]) => method === 'GET'), 'loading the page never mutates a claim');
     stopped();
   }
+});
+
+test('support address comes from PORTAL_SUPPORT_EMAIL with a safe fallback', async () => {
+  const { supportEmail, renderHtml } = await import('../src/static.js');
+  assert.equal(supportEmail({ PORTAL_SUPPORT_EMAIL: 'help@example.test' }), 'help@example.test');
+  assert.equal(supportEmail({ PORTAL_SUPPORT_EMAIL: '<script>@x' }), 'support@example.invalid');
+  assert.equal(supportEmail({}), 'support@example.invalid');
+  assert.equal(renderHtml(Buffer.from('a {{SUPPORT_EMAIL}} b'), { PORTAL_SUPPORT_EMAIL: 'help@example.test' }).toString(), 'a help@example.test b');
 });
