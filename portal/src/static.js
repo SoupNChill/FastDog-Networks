@@ -6,7 +6,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 const publicRoot = resolve(root, '../public');
 export const pages = { '/': 'hostname.html', '/login': 'login.html', '/signup': 'signup.html', '/hostname': 'hostname.html',
   '/verify-email': 'verify-email.html', '/dashboard': 'hostname.html', '/connect': 'connect.html', '/domains': 'domains.html', '/plan': 'plan.html' };
-const types = { '.svg': 'image/svg+xml', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.ttf': 'font/ttf' };
+const types = { '.sh': 'text/plain; charset=utf-8', '.svg': 'image/svg+xml', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.ttf': 'font/ttf' };
 const supportFallback = 'support@example.invalid';
 export function supportEmail(env = process.env) {
   const value = String(env.PORTAL_SUPPORT_EMAIL || '').trim();
@@ -30,6 +30,7 @@ export function serveStatic(path, response) {
     base = publicRoot;
     relative = path.slice(1);
   }
+  if (path === '/install/agent.sh') relative = 'install/agent.sh';
   if (!relative) throw fail('not_found');
   try {
     const file = realpathSync(resolve(base, relative));
