@@ -27,6 +27,20 @@ export function prepareHostname(input) {
   return { hostname, changed: hostname !== input };
 }
 
+// A helpful hint, not public-suffix validation or a restriction on registration.
+export function rootDomainHelp(hostname, target) {
+  const labels = hostname.toLowerCase().split('.');
+  const suffixes = ['co.uk', 'org.uk', 'me.uk', 'com.au', 'net.au', 'org.au', 'co.nz', 'co.jp', 'co.in', 'com.br', 'co.za'];
+  const root = labels.length === (suffixes.includes(labels.slice(-2).join('.')) ? 3 : 2);
+  if (!root) return '';
+  return `This is a root domain. Most DNS providers can't put a CNAME on the root. Recommended: use www.${hostname} instead and redirect the root to it at your DNS provider. Or, if your provider supports ALIAS/ANAME/CNAME flattening on the root, point it at ${target || 'the attach target in the DNS records shown after you add the address'}.`;
+}
+function updateRootHelp(hostname, target) {
+  const note = document.querySelector('#root-domain-help');
+  note.textContent = rootDomainHelp(hostname, target);
+  note.hidden = !note.textContent;
+}
+
 async function api(...args) {
   try { return await request(...args); }
   catch (error) {
@@ -76,11 +90,7 @@ function showDns(record) {
     const control = button(`Copy ${value.type} record`, () => copyFeedback(text, control, code));
     panel.append(code, control);
   }
-  if (record.dns?.apex_note) {
-    const note = document.createElement('p');
-    note.textContent = 'An address such as example.com is a bare domain. Some providers cannot use a CNAME record there. You can use a subdomain such as www.example.com, or ask your provider about an ALIAS or ANAME record.';
-    panel.append(note);
-  }
+  updateRootHelp(record.hostname, record.dns?.cname?.value);
   if (!record.dns) {
     const note = document.createElement('p');
     note.textContent = 'Keep the original two DNS records in place. If you no longer have them, contact support before making changes.';
@@ -179,6 +189,10 @@ async function list() {
     showDns(details);
   }
 }
+document.querySelector('#hostname').addEventListener('input', (event) => {
+  try { updateRootHelp(prepareHostname(event.target.value).hostname); }
+  catch { updateRootHelp(''); }
+});
 try {
   const me = await init(true);
   emailVerified = me.email_verified;
