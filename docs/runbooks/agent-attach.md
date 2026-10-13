@@ -22,8 +22,8 @@ The agent connects your web service to its verified hostname. Run it on the Linu
 After verifying your hostname, keep the connection token shown by the portal. You also need the edge URL supplied by your operator. Replace the example URLs below with those values. `--hostname` is required. `--origin` is your local web service address; it defaults to `http://127.0.0.1:8080`. `--name` identifies this installation and defaults to `default`; use lowercase letters, numbers and hyphens only.
 
 ```sh
-curl -fsSL https://portal.example.test/install/agent.sh | sudo bash -s -- \
-  --token TOKEN --edge https://edge.example.test \
+curl -fsSL https://portal.example.test/install/agent.sh -o /tmp/fastdog-agent-install.sh
+sudo FASTDOG_AGENT_TOKEN='TOKEN' bash /tmp/fastdog-agent-install.sh --edge https://edge.example.test \
   --hostname app.example.test --origin http://127.0.0.1:8080 --name web
 ```
 
@@ -32,12 +32,12 @@ Use your actual portal address in place of `portal.example.test`. Do not save a 
 ```sh
 curl -fsSL https://portal.example.test/install/agent.sh -o agent.sh
 read -r -s -p 'Connection token: ' agent_token; printf '\n'
-sudo bash agent.sh --token "$agent_token" --edge https://edge.example.test \
+sudo FASTDOG_AGENT_TOKEN="$agent_token" bash agent.sh --edge https://edge.example.test \
   --hostname app.example.test --name web
 unset agent_token
 ```
 
-The token is briefly present in the installer process arguments. Run this on a trusted machine. The installer never prints it. It saves the token and connection settings in `/etc/fastdog-agent/web.env`, owned by root with mode 600, under a private directory. The service file is `/etc/systemd/system/fastdog-agent-web.service`. The container runs as the non-root `node` user. Host networking lets the container reach your web service on `127.0.0.1`.
+The token is passed in the environment (FASTDOG_AGENT_TOKEN), never in process arguments; `--token` is rejected. Run this on a trusted machine. The installer never prints it. It saves the token and connection settings in `/etc/fastdog-agent/web.env`, owned by root with mode 600, under a private directory. The service file is `/etc/systemd/system/fastdog-agent-web.service`. The container runs as the non-root `node` user. Host networking lets the container reach your web service on `127.0.0.1`.
 
 The installer accepts an HTTPS edge address or its WSS equivalent, with an optional `/_fastdog/tunnel` suffix. It sets both `EDGE_HTTP_URL` and `EDGE_WS_URL` for the same server, plus `AGENT_TOKEN`, `AGENT_NAME`, `AGENT_HOSTNAME` and `AGENT_LOCAL_UPSTREAM`. It downloads `ghcr.io/soupnchill/fastdog-agent:0.1.0` and enables automatic restarts and startup after reboot.
 

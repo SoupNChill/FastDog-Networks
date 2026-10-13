@@ -22,7 +22,7 @@ function fixture(t, published = true) {
   for (const name of ['chmod', 'cat', 'rm']) symlinkSync(`/usr/bin/${name}`, join(bin, name));
   const script = join(dir, 'installer.sh');
   // Substitute a synthetic published digest and isolated filesystem destinations.
-  writeFileSync(script, source.replace(image, published ? publishedImage : image).replace('config_dir=/etc/fastdog-agent', `config_dir=${config}`).replace('unit_dir=/etc/systemd/system', `unit_dir=${units}`));
+  writeFileSync(script, source.replace(image, published ? image : image.replace(/sha256:[0-9a-f]{64}/, 'sha256:DIGEST_PLACEHOLDER')).replace('config_dir=/etc/fastdog-agent', `config_dir=${config}`).replace('unit_dir=/etc/systemd/system', `unit_dir=${units}`));
   const calls = join(dir, 'calls');
   const run = (args, env = {}) => {
     const result = spawnSync('/bin/bash', [script, ...args], { encoding: 'utf8', env: { PATH: bin, CALLS: calls, FASTDOG_AGENT_TOKEN: token, ...env } });
@@ -109,7 +109,7 @@ test('portal and installer each define the same single image reference', () => {
   const portal = readFileSync('portal/public/js/agent-view.js', 'utf8');
   assert.equal(portal.match(/const AGENT_IMAGE = '([^']+)'/)[1], image);
   for (const text of [source, portal]) assert.equal(text.split(image).length, 2);
-  assert.match(image, /:0\.1\.0@sha256:DIGEST_PLACEHOLDER$/);
+  assert.match(image, /:0\.1\.0@sha256:[0-9a-f]{64}$/);
 });
 test('image publication uses tags only and rejects an existing registry tag before push', () => {
   const workflow = readFileSync('.github/workflows/agent-image.yml', 'utf8');

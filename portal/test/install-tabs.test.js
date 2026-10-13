@@ -23,7 +23,7 @@ test('Docker and macOS share a pinned command; Windows uses PowerShell quoting',
     assert.match(command, /docker run .*--env-file fastdog-agent.env/);
     assert.doesNotMatch(command.slice(command.indexOf('docker run')), /private| -e /);
   }
-  assert.match(docker, /ghcr.io\/soupnchill\/fastdog-agent:0.1.0@sha256:DIGEST_PLACEHOLDER$/);
+  assert.match(docker, /ghcr.io\/soupnchill\/fastdog-agent:0.1.0@sha256:[0-9a-f]{64}$/);
   assert.match(docker, /EDGE_WS_URL=wss:\/\/edge.example.test\/_fastdog\/tunnel/);
   assert.ok(connectionCommand(env, 'windows').includes("'AGENT_TOKEN=private''fixture'"));
   assert.match(connectionCommand(env, 'windows'), /^Set-Content /);

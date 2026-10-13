@@ -1,7 +1,7 @@
 import { api, button, copy, message } from './api.js';
 const shellQuote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
 const powershellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
-const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.0@sha256:DIGEST_PLACEHOLDER';
+const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.0@sha256:9597421f707d048d6f904b239ac7e7e536cbd06959999cdc4e5c4ee44092a5a1';
 export function connectionCommand(agentEnv, platform, portalOrigin = window.location.origin) {
   const env = Object.fromEntries(['AGENT_TOKEN', 'AGENT_HOSTNAME', 'AGENT_NAME']
     .filter((key) => typeof agentEnv[key] === 'string').map((key) => [key, agentEnv[key]]));
