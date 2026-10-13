@@ -1,0 +1,10 @@
+.portal-body .setup-guide { margin-top: 0; padding-bottom: 20px; }
+.setup-guide ol { padding-left: 24px; margin-block: 16px; }
+.setup-guide li { padding: 6px 0; color: var(--sub); }
+.setup-guide [aria-current="step"] { color: var(--ink); font-weight: 600; }
+.portal-body .hostname-help summary { display: list-item; width: fit-content; padding-block: 10px; }
+.hostname-help { margin-block: 18px; }
+.hostname-help dt { font-weight: 600; }
+.hostname-help dd { margin: 0 0 12px; }
+.hostname-note { color: var(--sub); font-size: 14px; }
+.hostname-support { border-top: 1px solid var(--rule); padding-top: 20px; }
