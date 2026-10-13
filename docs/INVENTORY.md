@@ -116,7 +116,7 @@ Portal authentication: own invite-only login; Caddy basic-auth gate removed. The
 | Units | `fastdog-coredns` (User=coredns, `/usr/local/bin/coredns -conf /etc/coredns/Corefile`), `ssh`, `atd`; stock Ubuntu timers only |
 | Listeners | 53 tcp/udp (public); 127.0.0.1:8053 health, 127.0.0.1:9153 metrics; 22/tcp |
 | Firewall | UFW active: allows 22/tcp, 53/tcp, 53/udp only |
-| Paths | `/etc/coredns/Corefile`, `/etc/coredns/zones/fastdognetworks.com.zone` (+ `.db`) |
+| Paths | `/etc/coredns/Corefile`, `/etc/coredns/zones/<apex-zone>.zone` (+ `.db`) |
 | Backups | `/etc/coredns/zones/*.bak.*`, `/root/ns2-zone-<timestamp>.bak`, `/root/fastdog-apex-<serial>/`, `/root/backups/` |
 
 | Secret location | Owner |
