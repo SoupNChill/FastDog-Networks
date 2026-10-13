@@ -137,3 +137,64 @@ button:disabled {
   .site-header nav a, .site-header nav button { min-height: 44px; }
   .footer-support { font-size: 13px; }
 }
+
+/* Shared portal affordances; colors and type come from the existing theme. */
+.site-header nav {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.site-header nav #logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  white-space: nowrap;
+}
+.portal-body details summary {
+  display: list-item;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 44px;
+  padding-block: 10px;
+  cursor: pointer;
+}
+.portal-body details summary:hover { color: var(--accent); }
+.portal-body details summary:focus-visible,
+.site-header nav :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+#connect-empty { margin-block: 20px; }
+#connect-empty a {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 12px;
+  text-decoration: none;
+  font-weight: 600;
+}
+.setup-guide li {
+  padding: 8px 12px;
+  border-left: 3px solid var(--rule);
+}
+.setup-guide li[data-state="done"] {
+  border-left-color: var(--healthy);
+  color: var(--ink);
+}
+.setup-guide li[aria-current="step"] {
+  border-left-color: var(--accent);
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 600;
+}
+.portal-body :is(a, button, summary) { min-width: 44px; }
+.portal-body :is(a, button) { max-width: 100%; overflow-wrap: anywhere; }
+@media (max-width: 420px) {
+  .site-header nav { gap: 4px 12px; }
+  #connect-empty a { width: 100%; justify-content: center; }
+}
