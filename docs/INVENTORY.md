@@ -108,9 +108,22 @@ Portal authentication: own invite-only login; Caddy basic-auth gate removed. The
 | `~/portal-review-pw.txt` (retired review-gate credential, 600) | `mranderson` |
 | Coding-agent logins under `~/claude-home`, `~/.codex` | `mranderson` |
 
-## ns2 live check
+## ns2 (operator-verified 2026-10-13, read-only)
 
-As of 2026-10-12, neither server3 nor the edge has a key for ns2 (2.29.58.90), so its live state is unverified. It is only observed through DNS: it serves the zone with an authoritative SOA (edge status check is green). An operator with ns2 access should fill in the remaining items.
+| Item | Value |
+| --- | --- |
+| Host / OS | `ns2-fastdog`, 2.29.58.90, Ubuntu 24.04.4 LTS, CoreDNS 1.14.7 |
+| Units | `fastdog-coredns` (User=coredns, `/usr/local/bin/coredns -conf /etc/coredns/Corefile`), `ssh`, `atd`; stock Ubuntu timers only |
+| Listeners | 53 tcp/udp (public); 127.0.0.1:8053 health, 127.0.0.1:9153 metrics; 22/tcp |
+| Firewall | UFW active: allows 22/tcp, 53/tcp, 53/udp only |
+| Paths | `/etc/coredns/Corefile`, `/etc/coredns/zones/<apex-zone>.zone` (+ `.db`) |
+| Backups | `/etc/coredns/zones/*.bak.*`, `/root/ns2-zone-<timestamp>.bak`, `/root/fastdog-apex-<serial>/`, `/root/backups/` |
+
+| Secret location | Owner |
+| --- | --- |
+| `/root/.ssh/authorized_keys` (operator and server3 automation keys; public keys only) | `root` |
+
+No registrar, edge, portal or Verdict credentials are present; this is a DNS-only role.
 
 ## prod1 (operator-verified 2026-10-12, read-only; do not modify)
 
