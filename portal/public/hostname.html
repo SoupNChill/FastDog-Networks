@@ -65,8 +65,9 @@
 </details>
 <form method="post" id="add-hostname">
 <label for="hostname">Website address</label>
-<input id="hostname" name="hostname" placeholder="app.example.com" autocapitalize="none" spellcheck="false" aria-describedby="hostname-note message" required>
+<input id="hostname" name="hostname" placeholder="app.example.com" autocapitalize="none" spellcheck="false" aria-describedby="hostname-note message root-domain-help" required>
 <p id="hostname-note" class="hostname-note" role="status">For example, app.example.com. A pasted web link will be reduced to its address.</p>
+<p id="root-domain-help" role="status" hidden></p>
 <button type="submit">Add website address</button>
 </form>
 <section id="claim" hidden>
