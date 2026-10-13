@@ -1,0 +1,23 @@
+#command-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 20px 12px;
+}
+#command-tabs [role="tab"] { flex: 1 1 130px; width: auto; }
+#command-tabs [aria-selected="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+#connect-empty a {
+  padding: 10px 16px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+.portal-body :is(button, a, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+#command-panel { min-width: 0; }
