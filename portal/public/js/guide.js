@@ -8,20 +8,17 @@ export function guideStep(record, agent = record?.agent) {
 export function renderGuide(container, record, agent) {
   const step = guideStep(record, agent);
   const heading = document.createElement('h2');
-  heading.textContent = 'Getting started';
+  heading.textContent = record ? `Setup for ${record.hostname}` : 'Getting started';
   const progress = document.createElement('p');
   progress.textContent = `Step ${step} of 4: ${steps[step - 1]}`;
   const list = document.createElement('ol');
   for (const [index, title] of steps.entries()) {
     const item = document.createElement('li');
-    item.textContent = `${title}${index + 1 < step ? ' — Done' : ''}`;
+    const state = index + 1 < step ? 'done' : index + 1 === step ? 'current' : 'upcoming';
+    item.setAttribute('data-state', state);
+    item.textContent = `${title}${state === 'done' ? ' — Done' : ''}`;
     if (index + 1 === step) item.setAttribute('aria-current', 'step');
     list.append(item);
   }
   container.replaceChildren(heading, progress, list);
-  if (record) {
-    const address = document.createElement('p');
-    address.textContent = `Setup for ${record.hostname}`;
-    container.append(address);
-  }
 }
