@@ -68,7 +68,7 @@ test('hostname page supplies labelled guidance, mobile styles and support', asyn
   assert.match(html, /href="\/css\/guide.css"/);
   assert.match(html, /<details class="hostname-help">\s*<summary>What's this\?<\/summary>/);
   assert.match(html, /aria-describedby="hostname-note message"/);
-  assert.match(html, /mailto:support@fastdognetworks.com/);
+  assert.match(html, /mailto:support@fastdognetworks(?:\.|&#46;)com/);
   assert.match(html, /Step 1 of 4/);
   assert.doesNotMatch(html, /01 \/ Hostname|routing and ownership records/);
 });

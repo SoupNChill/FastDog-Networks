@@ -18,7 +18,7 @@ export function serveStatic(path, response) {
   let base = publicRoot;
   let relative = pages[path.replace(/\/$/, '') || '/'];
   if (/^\/js\/[a-z-]+\.js$/.test(path)) relative = path.slice(1);
-  if (['/favicon.svg', '/logos/hound-dark.svg', '/logos/hound-light.svg'].includes(path) || path === '/css/site.css' || path === '/css/portal.css' || /^\/fonts\/[A-Za-z-]+\.ttf$/.test(path)) {
+  if (['/favicon.svg', '/logos/hound-dark.svg', '/logos/hound-light.svg'].includes(path) || path === '/css/site.css' || path === '/css/portal.css' || path === '/css/guide.css' || path === '/css/connect.css' || /^\/fonts\/[A-Za-z-]+\.ttf$/.test(path)) {
     base = publicRoot;
     relative = path.slice(1);
   }
