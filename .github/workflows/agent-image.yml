@@ -1,0 +1,46 @@
+name: Publish agent image
+on:
+  push:
+    tags: ['agent-v*']
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select version
+        id: version
+        shell: bash
+        run: |
+          version=$(node -p "require('./agent/package.json').version")
+          if [[ "$GITHUB_REF" == refs/tags/agent-v* ]]; then
+            tag_version=${GITHUB_REF#refs/tags/agent-v}
+            [[ "$tag_version" == "$version" ]] || { echo 'Tag must match agent/package.json version'; exit 1; }
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Refuse an existing image tag
+        env:
+          AGENT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if docker manifest inspect "ghcr.io/soupnchill/fastdog-agent:$AGENT_VERSION" >/dev/null 2>&1; then
+            echo 'This image tag already exists. Publish a new version.'
+            exit 1
+          fi
+      - uses: docker/build-push-action@v6
+        id: image
+        with:
+          context: ./agent
+          push: true
+          tags: ghcr.io/soupnchill/fastdog-agent:${{ steps.version.outputs.version }}
+      - name: Print image digest
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: 'printf "Image digest %s\n" "$IMAGE_DIGEST"'

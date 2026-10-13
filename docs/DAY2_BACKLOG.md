@@ -90,3 +90,8 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE: reviewed architecture, all seven runbooks and inventory against current source; documented portal login without Caddy basic-auth, timestamped release backups, archive rollback and previous portal code. Secret records contain locations and owners only.
 - DONE: migrated the decision log to dated, frontmatter-bearing records under `decisions/`, added an index and updated all old decision-log references.
 - DONE: offline validation: `npm test` 280 passed and `npm run test:portal` 38 passed, zero failures/skips; name scanner, documentation links and decision structure checks pass. No runtime behavior changes or new tests.
+
+## Open after the agent image review (Oct 13)
+- MEDIUM (agent): the token still travels in the WebSocket query string (`agent/index.js`). Move it to a header on both the agent and the edge, then publish agent 0.1.1.
+- MEDIUM (agent): the agent falls back to a built-in dev token, hostname and name when AGENT_TOKEN is unset. In production it should refuse to start instead.
+- LOW (agent): PID 1 doesn't exit on SIGTERM (Docker needs 10 seconds to kill it). Handle SIGTERM, or add `--init` to the docker run commands and the unit.

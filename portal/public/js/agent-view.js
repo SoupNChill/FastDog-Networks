@@ -1,17 +1,22 @@
 import { api, button, copy, message } from './api.js';
 const shellQuote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
 const powershellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
-export function connectionCommand(agentEnv, platform) {
+const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.0@sha256:9597421f707d048d6f904b239ac7e7e536cbd06959999cdc4e5c4ee44092a5a1';
+export function connectionCommand(agentEnv, platform, portalOrigin = window.location.origin) {
   const env = Object.fromEntries(['AGENT_TOKEN', 'AGENT_HOSTNAME', 'AGENT_NAME']
     .filter((key) => typeof agentEnv[key] === 'string').map((key) => [key, agentEnv[key]]));
   Object.assign(env, {
-    EDGE_HTTP_URL: '<EDGE_HTTP_URL>', EDGE_WS_URL: '<EDGE_WS_URL>',
-    AGENT_LOCAL_UPSTREAM: '<LOCAL_UPSTREAM>',
+    EDGE_HTTP_URL: agentEnv.EDGE_HTTP_URL || '<EDGE_HTTP_URL>',
+    EDGE_WS_URL: agentEnv.EDGE_WS_URL || (agentEnv.EDGE_HTTP_URL ? `${agentEnv.EDGE_HTTP_URL.replace(/^http/, 'ws').replace(/\/$/, '')}/_fastdog/tunnel` : '<EDGE_WS_URL>'),
+    AGENT_LOCAL_UPSTREAM: agentEnv.AGENT_LOCAL_UPSTREAM || '<LOCAL_UPSTREAM>',
   });
   const entries = Object.entries(env);
-  if (platform === 'docker') return `docker run -d --restart unless-stopped ${entries.map(([key, value]) => `-e ${key}=${shellQuote(value)}`).join(' ')} <AGENT_IMAGE>`;
-  if (platform === 'windows') return `${entries.map(([key, value]) => `$env:${key} = ${powershellQuote(value)}`).join('\n')}\nnode agent/index.js`;
-  return `${entries.map(([key, value]) => `${key}=${shellQuote(value)}`).join(' ')} node agent/index.js`;
+  if (platform === 'linux') return `curl -fsSL ${shellQuote(new URL('/install/agent.sh', portalOrigin).href)} -o /tmp/fastdog-agent-install.sh && sudo FASTDOG_AGENT_TOKEN=${shellQuote(env.AGENT_TOKEN)} bash /tmp/fastdog-agent-install.sh --edge ${shellQuote(env.EDGE_HTTP_URL)} --hostname ${shellQuote(env.AGENT_HOSTNAME)} --origin ${shellQuote(env.AGENT_LOCAL_UPSTREAM)}`;
+  const run = `docker run -d --restart unless-stopped --env-file fastdog-agent.env ${AGENT_IMAGE}`;
+  if (platform === 'windows') {
+    return `Set-Content -LiteralPath fastdog-agent.env -Encoding ASCII -Value @(${entries.map(([key, value]) => powershellQuote(`${key}=${value}`)).join(', ')}) -ErrorAction Stop; ${run}`;
+  }
+  return `umask 077; printf '%s\\n' ${entries.map(([key, value]) => shellQuote(`${key}=${value}`)).join(' ')} > fastdog-agent.env && chmod 600 fastdog-agent.env && ${run}`;
 }
 export function showCredential(credential) {
   const output = document.querySelector('#command');
@@ -22,13 +27,13 @@ export function showCredential(credential) {
   const render = (platform) => {
     output.textContent = connectionCommand(credential.agent_env, platform);
     copyButton.textContent = 'Copy command';
-    if (help) help.textContent = platform === 'docker'
-      ? 'Docker (recommended): install Docker first. Ask support for the agent image and replace <AGENT_IMAGE>. Your website’s local address must be reachable from inside the container; 127.0.0.1 points to the container itself. Run this command in a Linux or macOS terminal.'
-      : `Use ${platform === 'windows' ? 'PowerShell' : 'a terminal'}. You need Node 18 or 20 and a copy of the FastDog agent with its dependencies installed (including ws). Ask support for these files. Run this command from the folder containing agent/. Keep this window open to stay connected.`;
+    if (help) help.textContent = platform === 'linux'
+      ? 'Linux (recommended): run this command in your server’s terminal. It installs the connection software with administrator permission.'
+      : `${platform === 'windows' ? 'Untested. Install Docker Desktop and use PowerShell.' : platform === 'macos' ? 'Install Docker Desktop and use Terminal.' : 'Install Docker and use a Linux or macOS terminal.'} Keep fastdog-agent.env private. It contains your connection token. Your website’s local address must be reachable from inside Docker. In Docker Desktop, use host.docker.internal to reach a website on the same computer; 127.0.0.1 refers to the container itself.`;
   };
   if (tabs) {
     tabs.replaceChildren();
-    const choices = [['docker', 'Docker (recommended)'], ['linux', 'Linux'], ['macos', 'macOS'], ['windows', 'Windows (PowerShell)']];
+    const choices = [['linux', 'Linux (recommended)'], ['docker', 'Docker'], ['macos', 'macOS'], ['windows', 'Windows (Untested)']];
     const activate = (index, focus = false) => {
       [...tabs.children].forEach((tab, i) => {
         tab.setAttribute('aria-selected', String(i === index));
@@ -53,7 +58,7 @@ export function showCredential(credential) {
       tabs.append(tab);
     });
     activate(0);
-  } else render('docker'); // The hostname page also displays newly issued commands.
+  } else render('linux'); // The hostname page also displays newly issued commands.
   document.querySelector('#credential').hidden = false;
   copyButton.onclick = async () => {
     try { await copy(output.textContent); copyButton.textContent = 'Copied'; }

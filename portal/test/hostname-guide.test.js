@@ -67,7 +67,7 @@ test('hostname page supplies labelled guidance, mobile styles and support', asyn
   const html = await readFile(new URL('../public/hostname.html', import.meta.url), 'utf8');
   assert.match(html, /href="\/css\/guide.css"/);
   assert.match(html, /<details class="hostname-help">\s*<summary>What's this\?<\/summary>/);
-  assert.match(html, /aria-describedby="hostname-note message"/);
+  assert.match(html, /aria-describedby="hostname-note message root-domain-help"/);
   assert.match(html, /mailto:\{\{SUPPORT_EMAIL\}\}/);
   assert.match(html, /Step 1 of 4/);
   assert.doesNotMatch(html, /01 \/ Hostname|routing and ownership records/);

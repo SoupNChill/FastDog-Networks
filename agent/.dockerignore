@@ -1,0 +1,7 @@
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!index.js
+!backoff.js
+!heartbeat.js
