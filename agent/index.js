@@ -23,25 +23,23 @@ function env(name, fallback) {
 
 const EDGE_HTTP = env('EDGE_HTTP_URL', 'http://127.0.0.1:8787');
 const EDGE_WS = env('EDGE_WS_URL', 'ws://127.0.0.1:8787/_fastdog/tunnel');
-const TOKEN = env('AGENT_TOKEN', 'fastdog-local-dev-token');
-const NAME = env('AGENT_NAME', 'server3-agent');
-const HOSTNAME = env('AGENT_HOSTNAME', 'demo.fastdog.local');
+const TOKEN = env('AGENT_TOKEN', '');
+const NAME = env('AGENT_NAME', '');
+const HOSTNAME = env('AGENT_HOSTNAME', '');
 const LOCAL_UPSTREAM = env('AGENT_LOCAL_UPSTREAM', 'http://127.0.0.1:9999').replace(/\/$/, '');
 
-async function register() {
+export async function register() {
   const res = await fetch(`${EDGE_HTTP.replace(/\/$/, '')}/_fastdog/agents/register`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-fastdog-token': TOKEN },
+    headers: { 'content-type': 'application/json', Authorization: `Bearer ${TOKEN}` },
     body: JSON.stringify({
       name: NAME,
       hostname: HOSTNAME,
       localUpstream: LOCAL_UPSTREAM,
-      token: TOKEN,
     }),
   });
-  const body = await res.json();
-  if (!res.ok) throw new Error(`register failed: ${res.status} ${JSON.stringify(body)}`);
-  return body;
+  if (!res.ok) throw new Error(`register failed: ${res.status}`);
+  return res.json();
 }
 
 function fetchLocal(method, path, headers, bodyBuf) {
@@ -115,15 +113,18 @@ async function handleFrame(ws, msg) {
   }
 }
 
-function connectWs(agentId, onWelcome) {
+let activeSocket;
+
+export function connectWs(agentId, onWelcome) {
   const u = new URL(EDGE_WS);
   u.searchParams.set('agentId', agentId);
-  u.searchParams.set('token', TOKEN);
+  u.searchParams.delete('token');
 
   return new Promise((resolve) => {
-    const ws = new WebSocket(u.toString());
+    const ws = new WebSocket(u.toString(), { headers: { Authorization: `Bearer ${TOKEN}` } });
+    activeSocket = ws;
     ws.on('open', () => {
-      console.log(`[agent] tunnel connected as ${agentId} host=${HOSTNAME}`);
+      console.log('[agent] tunnel connected');
       startHeartbeat(ws);
     });
     ws.on('message', (data) => {
@@ -134,18 +135,19 @@ function connectWs(agentId, onWelcome) {
         return;
       }
       if (msg.type === 'welcome') {
-        console.log(`[agent] welcome protocol=${msg.protocol}`);
+        console.log('[agent] tunnel ready');
         onWelcome();
         return;
       }
       if (msg.type === 'pong') return;
       handleFrame(ws, msg);
     });
-    ws.on('close', (code, reason) => {
-      console.warn(`[agent] ws closed ${code} ${reason}`);
+    ws.on('close', (code) => {
+      if (activeSocket === ws) activeSocket = undefined;
+      console.warn(`[agent] ws closed ${code}`);
       resolve();
     });
-    ws.on('error', (err) => console.error('[agent] ws error', err.message));
+    ws.on('error', () => console.error('[agent] connection error'));
   });
 }
 
@@ -153,12 +155,12 @@ export async function reconnectLoop({ registerAgent = register, connect = connec
   let attempt = 0;
   for (;;) {
     try {
-      console.log(`[agent] registering with ${EDGE_HTTP} as ${HOSTNAME} -> ${LOCAL_UPSTREAM}`);
+      console.log('[agent] registering');
       const reg = await registerAgent();
-      console.log(`[agent] registered id=${reg.id} route=`, reg.route);
+      console.log('[agent] registered');
       await connect(reg.id, () => { attempt = 0; });
     } catch (err) {
-      console.error('[agent] register/connect failed:', err.message);
+      console.error('[agent] registration or connection failed. Check the connection settings.');
     }
     const nextDelay = backoff(attempt);
     console.warn(`[agent] reconnect attempt ${attempt + 1}, next delay ${nextDelay}ms`);
@@ -168,5 +170,23 @@ export async function reconnectLoop({ registerAgent = register, connect = connec
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.env.FASTDOG_AGENT_NO_MAIN !== '1') {
+  if (!TOKEN.trim()) {
+    console.error('[agent] AGENT_TOKEN is required. Set the connection token before starting.');
+    process.exit(1);
+  }
+  const stop = () => {
+    if (activeSocket) {
+      try { activeSocket.close(1000, 'shutdown'); } catch { /* Already closed. */ }
+      setTimeout(() => {
+        activeSocket?.terminate();
+        process.exit(0);
+      }, 100).unref();
+      activeSocket.once('close', () => process.exit(0));
+    } else {
+      process.exit(0);
+    }
+  };
+  process.once('SIGTERM', stop);
+  process.once('SIGINT', stop);
   reconnectLoop();
 }

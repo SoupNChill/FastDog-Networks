@@ -66,3 +66,11 @@ git tag agent-v0.1.0 && git push origin agent-v0.1.0
 The workflow uses only `GITHUB_TOKEN`, pushes `ghcr.io/soupnchill/fastdog-agent:0.1.0`, and prints its digest. It does not publish a `latest` tag. **Make the package public once in the GitHub package settings**, so customer machines can pull it without GitHub credentials. A manual workflow run publishes the version in `agent/package.json`; a tag run requires the tag version to match. For a future release, update the package version, lockfile, image label, installer image reference and identical portal copy together before tagging.
 
 The repository work is offline: building, publishing, pulling and live acceptance checks run only in the separately authorized workflow or operator procedure. `TLS_ASK_ENABLED` and `RECHECK_ENABLED` remain off; this installer does not change either flag or any ownership checks.
+
+## Agent 0.1.1 migration (lane K)
+
+The source package and lockfile are now 0.1.1. This release requires a nonempty `AGENT_TOKEN`; without it, startup prints a configuration error and exits with status 1. There is no built-in token, hostname or installation name. Supply the verified `AGENT_HOSTNAME`; the name is optional and the edge assigns a name when omitted. SIGTERM and SIGINT close the connection and exit with status 0 promptly.
+
+Version 0.1.1 sends the credential only in an Authorization Bearer header on registration and tunnel connections. Deploy the compatible edge before upgrading agents. A present Authorization header wins over legacy credentials, including when the header is invalid. The edge temporarily accepts the deprecated tunnel query token for 0.1.0 installations. Keep proxy logs configured to drop queries and authentication headers throughout migration. Remove the query fallback after every agent is confirmed on 0.1.1 or later.
+
+The publication instructions above describe the published 0.1.0 image. Publishing 0.1.1 and updating any image metadata remain separate operator work. Installer and portal image references stay pinned to 0.1.0 until the operator publishes and verifies 0.1.1; only then update those references. This lane does not build, publish, pull or deploy an image.

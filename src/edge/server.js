@@ -117,13 +117,22 @@ app.get('/_fastdog/agents', requireOperator, (_req, res) => {
   res.json({ agents: listAgents() });
 });
 
+// A present Authorization header is authoritative, including malformed headers.
+// Never log credentials, request URLs, or authentication error details here.
+function agentToken(req, legacyToken) {
+  if (req.headers.authorization !== undefined) {
+    return /^Bearer ([^\s]+)$/i.exec(req.headers.authorization)?.[1] || '';
+  }
+  return legacyToken;
+}
+
 app.post('/_fastdog/agents/register', (req, res) => {
   try {
     const result = registerAgent({
       name: req.body?.name,
       hostname: req.body?.hostname,
       localUpstream: req.body?.localUpstream,
-      token: req.body?.token || req.headers['x-fastdog-token'],
+      token: agentToken(req, req.body?.token || req.headers['x-fastdog-token']),
       expectedToken: AGENT_TOKEN,
     });
     res.status(201).json(result);
@@ -188,7 +197,8 @@ const wss = new WebSocketServer({ server, path: '/_fastdog/tunnel' });
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const agentId = url.searchParams.get('agentId');
-  const token = url.searchParams.get('token') || req.headers['x-fastdog-token'];
+  // Deprecated: query tokens support 0.1.0 only; remove after migration to 0.1.1+.
+  const token = agentToken(req, url.searchParams.get('token') || req.headers['x-fastdog-token']);
 
   if (!agentId || !attachWs(agentId, ws, token)) {
     ws.close(4401, 'unauthorized');
