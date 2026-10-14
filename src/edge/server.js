@@ -23,7 +23,7 @@ import { operatorAuth } from '../control/auth.js';
 import { createInternalServer, assertLoopbackBind } from '../internal/server.js';
 import { dataDir } from '../onboard/json.js';
 import { watchTunnel } from '../control/heartbeat.js';
-import { assertSafeStartup } from '../lib/startup-guard.js';
+import { assertSafeStartup, DEFAULT_AGENT_TOKEN } from '../lib/startup-guard.js';
 import { dnsRouter } from '../dns/api.js';
 import { onboardRouter } from '../onboard/api.js';
 import { statusService, intervalMs as statusIntervalMs } from '../status/service.js';
@@ -33,7 +33,11 @@ import { createOperatorServer, OPERATOR_BIND, OPERATOR_PORT } from '../operator/
 
 const PORT = Number(env('EDGE_PORT', '8787'));
 const BIND = env('EDGE_BIND', '127.0.0.1');
-const AGENT_TOKEN = env('AGENT_TOKEN', 'fastdog-local-dev-token');
+assertSafeStartup();
+const AGENT_TOKEN = process.env.AGENT_TOKEN?.trim() ? process.env.AGENT_TOKEN : DEFAULT_AGENT_TOKEN;
+const ALLOW_QUERY_TOKEN = env('ALLOW_QUERY_TOKEN', '1') !== '0';
+// Successful legacy tunnel connections since this process started.
+let queryTokenFallbackUses = 0;
 
 let routeConfig = loadRoutes();
 
@@ -90,6 +94,7 @@ app.get('/health', (req, res) => {
       routesFile: routeConfig.file,
       routeCount: routeConfig.routes.size,
       agents: listAgents().length,
+      queryTokenFallbackUses,
     });
   }
   res.json({ ok: true, version: VERSION });
@@ -117,13 +122,22 @@ app.get('/_fastdog/agents', requireOperator, (_req, res) => {
   res.json({ agents: listAgents() });
 });
 
+// A present Authorization header is authoritative, including malformed headers.
+// Never log credentials, request URLs, or authentication error details here.
+function agentToken(req, legacyToken) {
+  if (req.headers.authorization !== undefined) {
+    return /^Bearer ([^\s]+)$/i.exec(req.headers.authorization)?.[1] || '';
+  }
+  return legacyToken;
+}
+
 app.post('/_fastdog/agents/register', (req, res) => {
   try {
     const result = registerAgent({
       name: req.body?.name,
       hostname: req.body?.hostname,
       localUpstream: req.body?.localUpstream,
-      token: req.body?.token || req.headers['x-fastdog-token'],
+      token: agentToken(req, req.body?.token || req.headers['x-fastdog-token']),
       expectedToken: AGENT_TOKEN,
     });
     res.status(201).json(result);
@@ -188,12 +202,16 @@ const wss = new WebSocketServer({ server, path: '/_fastdog/tunnel' });
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const agentId = url.searchParams.get('agentId');
-  const token = url.searchParams.get('token') || req.headers['x-fastdog-token'];
+  // Deprecated: query tokens support 0.1.0 only; remove after migration to 0.1.1+.
+  const queryToken = ALLOW_QUERY_TOKEN ? url.searchParams.get('token') : null;
+  const token = agentToken(req, queryToken || req.headers['x-fastdog-token']);
 
   if (!agentId || !attachWs(agentId, ws, token)) {
     ws.close(4401, 'unauthorized');
     return;
   }
+
+  if (req.headers.authorization === undefined && queryToken) queryTokenFallbackUses++;
 
   ws.send(JSON.stringify({ type: 'welcome', agentId, protocol: 'fastdog-tunnel-v0' }));
 
@@ -203,7 +221,6 @@ wss.on('connection', (ws, req) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  assertSafeStartup();
   if (OPERATOR_BIND !== '127.0.0.1' && OPERATOR_BIND !== '::1') throw new Error('OPERATOR_BIND must be a loopback address');
   if (!Number.isSafeInteger(OPERATOR_PORT) || OPERATOR_PORT < 1 || OPERATOR_PORT > 65535) throw new Error('invalid OPERATOR_PORT');
   if (OPERATOR_PORT === PORT && OPERATOR_BIND === BIND) throw new Error('operator and edge listeners conflict');

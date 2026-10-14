@@ -74,7 +74,9 @@ test('portal installer is byte-identical and bash syntax is valid', () => {
 test('container uses only agent runtime files and the locked production dependency', () => {
   const manifest = JSON.parse(readFileSync('agent/package.json'));
   const lock = JSON.parse(readFileSync('agent/package-lock.json'));
-  assert.equal(manifest.version, '0.1.0');
+  assert.equal(manifest.version, '0.1.1');
+  assert.equal(lock.version, manifest.version);
+  assert.equal(lock.packages[''].version, manifest.version);
   assert.deepEqual(Object.keys(manifest.dependencies), ['ws']);
   assert.equal(lock.packages['node_modules/ws'].version, manifest.dependencies.ws);
   const docker = readFileSync('agent/Dockerfile', 'utf8');

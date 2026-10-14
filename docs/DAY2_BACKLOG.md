@@ -83,7 +83,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - MEDIUM (re-check): a tenant that controls its own authoritative DNS can answer conclusively once every few checks and so never reach the inconclusive cap. Consider a cumulative inconclusive ratio over a window instead of a streak.
 - MEDIUM (suspension): suspending a tenant does not yet remove its edge hosts, tunnels or credentials. Until that ships, the operator revokes them per host (runbooks/portal-invites.md).
 - MEDIUM (outbox): files in the outbox hold live verify and reset links and are never swept. Add a TTL sweep, or delete each file after delivery.
-- MEDIUM (agent): the agent token still travels in the WebSocket query string. Move it to a header and confirm access logs drop the query string (they already do).
+- DONE (lane K): agent 0.1.1 sends Bearer headers for registration and the tunnel; offline coverage verifies credential-free logs. Existing proxy query redaction remains required.
 
 ## Lane D (documentation refresh)
 - DONE: root `AGENTS.md` documents layout, build/test/deploy procedures, documentation index and operational locks.
@@ -92,6 +92,9 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE: offline validation: `npm test` 280 passed and `npm run test:portal` 38 passed, zero failures/skips; name scanner, documentation links and decision structure checks pass. No runtime behavior changes or new tests.
 
 ## Open after the agent image review (Oct 13)
-- MEDIUM (agent): the token still travels in the WebSocket query string (`agent/index.js`). Move it to a header on both the agent and the edge, then publish agent 0.1.1.
-- MEDIUM (agent): the agent falls back to a built-in dev token, hostname and name when AGENT_TOKEN is unset. In production it should refuse to start instead.
-- LOW (agent): PID 1 doesn't exit on SIGTERM (Docker needs 10 seconds to kill it). Handle SIGTERM, or add `--init` to the docker run commands and the unit.
+- DONE (lane K): agent and edge support Bearer headers with strict header precedence; package and lockfile are 0.1.1. Publishing the image remains operator work.
+- DONE (lane K): removed built-in token, hostname and name defaults; missing or empty AGENT_TOKEN exits 1, while test imports remain supported.
+- DONE (lane K): SIGTERM and SIGINT close the socket and exit 0 promptly; offline process tests cover both signals.
+
+- OPEN (lane K migration): remove the deprecated tunnel query-token fallback after all agents are on 0.1.1+. Publish and verify 0.1.1 before changing installer or portal image pins.
+- DONE (lane K follow-up): edge rejects missing, blank and built-in development tokens unless `FASTDOG_ALLOW_DEV_TOKEN=1` explicitly permits local development. `ALLOW_QUERY_TOKEN` defaults on for 0.1.0 compatibility; set it to `0` to reject query-only tunnel credentials. Local `/health` reports `queryTokenFallbackUses`, the successful query-authenticated tunnel connection count since process start, without credentials. Bearer precedence and default-off TLS/re-check behavior are unchanged.

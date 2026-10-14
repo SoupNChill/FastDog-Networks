@@ -117,6 +117,12 @@ Loopback only. `200` with empty body iff `<host>` normalizes to an `active` tena
 
 On :8787 the following require `x-fastdog-token: <AGENT_TOKEN>` (or `token` in the JSON body) and return `401 {"error":"unauthorized"}` otherwise: everything under `/_fastdog/dns`, plus `GET /_fastdog/agents`, `GET /_fastdog/routes`, `GET /_fastdog/metrics` and `POST /_fastdog/routes/reload`. Still unauthenticated by design: `/health`, `/status`, `/status.json`, `POST /_fastdog/agents/register` (its own token check), the WebSocket `/_fastdog/tunnel` (its own token check), `/pricing`. The operator UI and CLI already send the token; any in-repo caller of these routes must be updated in the same PR.
 
+### Agent authentication (0.1.1)
+
+Agent 0.1.1 sends `Authorization: Bearer <token>` on both `POST /_fastdog/agents/register` and the WebSocket upgrade to `/_fastdog/tunnel`. It never sends the credential in a URL or registration body. A present Authorization header takes precedence, even when invalid; an invalid header cannot fall back to another credential. Token comparison remains constant-time, and tenant ownership and revocation checks are unchanged.
+
+For compatibility, registration still accepts the existing JSON `token` and `x-fastdog-token` mechanisms. The tunnel still accepts `x-fastdog-token` and the **deprecated, temporary** `?token=` fallback for 0.1.0 agents. Remove query authentication only after all agents run 0.1.1 or later. Never log Authorization, query strings, or credentials, including on rejected requests. Proxy access logs must continue dropping queries and authentication headers.
+
 ## 7. Portal (browser-facing) API summary
 
 All JSON, same-origin, `__Host-fd_session` cookie, `Origin` check and `x-fd-csrf` token on every non-GET. Errors use the same `{ "error": "<code>" }` shape.
