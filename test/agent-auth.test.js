@@ -86,12 +86,14 @@ test('agent never logs reflected registration errors or socket close reasons', {
   assert.equal(child.output.includes(token), false);
 });
 
-test('edge Bearer auth, legacy fallback, header precedence and credential-free logs', { timeout: 10000 }, async (t) => {
+for (const allowQuery of [undefined, '1', '0']) test(`edge auth and fallback counter with ALLOW_QUERY_TOKEN=${allowQuery}`,  { timeout: 10000 }, async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'agent-auth-'));
   Object.assign(process.env, { NODE_ENV: 'test', AGENT_TOKEN: token, DATA_DIR: directory, INTERNAL_ENABLED: '0', BILLING_ENABLED: 'false' });
   const logs = [];
   for (const method of ['log', 'warn', 'error']) t.mock.method(console, method, (...args) => logs.push(args.join(' ')));
-  const { server } = await import('../src/edge/server.js');
+  if (allowQuery === undefined) delete process.env.ALLOW_QUERY_TOKEN;
+  else process.env.ALLOW_QUERY_TOKEN = allowQuery;
+  const { server } = await import(`../src/edge/server.js?query=${allowQuery}`);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); rmSync(directory, { recursive: true, force: true }); });
   const base = `127.0.0.1:${server.address().port}`;
@@ -104,7 +106,7 @@ test('edge Bearer auth, legacy fallback, header precedence and credential-free l
   const response = await register(`Bearer ${token}`);
   assert.equal(response.status, 201);
   const { id } = await response.json();
-  for (const [header, query, accepted] of [[`Bearer ${token}`, '', true], [undefined, token, true], ['Bearer wrong', token, false], ['Basic wrong', token, false], ['', token, false], [`Bearer ${token}`, 'wrong', true]]) {
+  for (const [header, query, accepted] of [[`Bearer ${token}`, '', true], [undefined, token, allowQuery !== '0'], [undefined, 'wrong', false], ['Bearer wrong', token, false], ['Basic wrong', token, false], ['', token, false], [`Bearer ${token}`, 'wrong', true]]) {
     const ws = new WebSocket(`ws://${base}/_fastdog/tunnel?agentId=${id}&token=${query}`, { headers: header === undefined ? {} : { Authorization: header } });
     const outcome = new Promise((resolve, reject) => {
       ws.once('error', reject);
@@ -114,6 +116,11 @@ test('edge Bearer auth, legacy fallback, header precedence and credential-free l
     assert.equal(await outcome, accepted);
     if (accepted) { ws.removeAllListeners('close'); const closed = once(ws, 'close'); ws.close(); await closed; }
   }
+  const health = await (await fetch(`http://${base}/health`)).json();
+  assert.equal(health.queryTokenFallbackUses, allowQuery === '0' ? 0 : 1);
+  assert.equal(JSON.stringify(health).includes(token), false);
+  const publicHealth = await (await fetch(`http://${base}/health`, { headers: { 'x-forwarded-for': '192.0.2.1' } })).json();
+  assert.equal(publicHealth.queryTokenFallbackUses, undefined);
   assert.equal(logs.join('\n').includes(token), false);
   assert.equal(logs.join('\n').includes('Bearer wrong'), false);
 });

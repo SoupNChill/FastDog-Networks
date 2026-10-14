@@ -97,3 +97,4 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE (lane K): SIGTERM and SIGINT close the socket and exit 0 promptly; offline process tests cover both signals.
 
 - OPEN (lane K migration): remove the deprecated tunnel query-token fallback after all agents are on 0.1.1+. Publish and verify 0.1.1 before changing installer or portal image pins.
+- DONE (lane K follow-up): edge rejects missing, blank and built-in development tokens unless `FASTDOG_ALLOW_DEV_TOKEN=1` explicitly permits local development. `ALLOW_QUERY_TOKEN` defaults on for 0.1.0 compatibility; set it to `0` to reject query-only tunnel credentials. Local `/health` reports `queryTokenFallbackUses`, the successful query-authenticated tunnel connection count since process start, without credentials. Bearer precedence and default-off TLS/re-check behavior are unchanged.
