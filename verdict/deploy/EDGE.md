@@ -133,7 +133,8 @@ if the production API needs force disabled. No running Caddy configuration is ch
 `dial_timeout 50ms` limits TCP connection setup only; `response_header_timeout 200ms`
 limits waiting for auth response headers. Auth dial errors, 5xx and timeouts fail open.
 `VERDICT_EDGE_GOODBOT_DNS=0` is the default: edge-auth never does DNS and claimed
-Googlebot/Bingbot requests get `good_bot_pending` risk (at least challenge).
+bots outside published ranges get `good_bot_pending` risk (at least challenge).
+Published-range matches allow with `verified_good_bot` even with DNS off.
 Opting into `VERDICT_EDGE_GOODBOT_DNS=1` permits reverse/forward DNS with a 200ms
 DNS deadline. HTTP overhead means this can exceed Caddy's 200ms response header
 timeout and fail open. `/v1/decide` still verifies claimed bots asynchronously.
@@ -184,3 +185,18 @@ All set Nice≥10, CPUQuota=10%, MemoryMax≤200M.
 `node scripts/verdict-hosts.js set app.customer.com enable=1 mode=enforce fail=open`
 then `node scripts/caddy-apply-hosts.js` to generate reviewable snippets. Automatic `--apply` is disabled in 0.3.1; validate and reload through the operator workflow after reviewing the output. Never import the generated directory directly into live config.
 Denylist hosts can never be enforce.
+
+
+## Published bot ranges
+
+The primary verification path uses free published lists:
+
+- https://developers.google.com/static/search/apis/ipranges/googlebot.json
+- https://developers.google.com/static/search/apis/ipranges/google-special-crawlers.json
+- https://www.bing.com/toolbox/bingbot.json
+
+URLs are configured sources, not live-probed during repository work. Any HTTP error (including a Bing 404), malformed CIDR, or undersized source aborts the entire refresh and preserves the previous file. Minimum distinct CIDR counts per source are respectively 100, 10, and 10. Google lists combine under `bots.google`; Bing uses `bots.bing`. Both IP families are supported. Refresh uses a same-directory temporary file and atomic rename; no full published lists belong in git. Missing/invalid runtime files retain the last valid snapshot or the tiny built-in Google seed. Empty valid lists permit DNS fallback for all claims.
+
+After release backup and review, copy `deploy/verdict-bot-ranges-refresh.{service,timer}` into `/etc/systemd/system/`, ensure `/opt/verdict/data` exists, and run `systemctl daemon-reload`. The oneshot runs with Nice=15, CPUQuota=10%, MemoryMax=200M and filesystem writes restricted to that data directory. The default output is `/opt/verdict/data/bot-ranges.json`; if overriding `VERDICT_BOT_RANGES_FILE` or `VERDICT_DATA_DIR`, align the unit's `ReadWritePaths`. An authorized operator may run `systemctl start verdict-bot-ranges-refresh.service`, inspect its success, then separately choose `systemctl enable --now verdict-bot-ranges-refresh.timer` for weekly updates. These files do not activate anything. Keep Verdict in shadow, DNS opt-in, fail-open behavior, demo-force restrictions and guardrail exclusions unchanged.
+
+Rescore a saved Caddy access JSONL from `/opt/verdict` (original client IP required; existing shadow logs retain only prefixes and cannot faithfully reverify): `VERDICT_EDGE_GOODBOT_DNS=0 node --input-type=module -e 'import {createReadStream} from "node:fs"; import {createInterface} from "node:readline"; import {scoreAccessLogLine} from "./src/shadow/score.js"; for await (const line of createInterface({input:createReadStream(process.argv[1]),crlfDelay:Infinity})) { const row=await scoreAccessLogLine(line); if(row) console.log(JSON.stringify(row)); }' /path/to/saved-access.jsonl > /path/to/rescored.jsonl`

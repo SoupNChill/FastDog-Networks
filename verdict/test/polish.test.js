@@ -1,4 +1,3 @@
-import { promisify } from 'node:util';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as dns } from 'node:dns';
@@ -110,9 +109,9 @@ test('steady-rate load refuses non-loopback targets and unsafe paths before requ
 
 test('steady-rate load produces loopback JSON for both endpoints', () => serve({}, async base => {
   const { key } = await (await post(base + '/v1/keys', {})).json();
-  const { stdout } = await promisify(execFile)(process.execPath, ['scripts/load-step.js'], {
+  const stdout = await new Promise((resolve, reject) => execFile(process.execPath, ['scripts/load-step.js'], {
     env: { ...process.env, TARGET: base, RPS: '20', SECONDS: '1', PATHS: '/v1/edge-auth,/v1/decide', VERDICT_API_KEY: key },
-  });
+  }, (error, stdout) => error ? reject(error) : resolve(stdout)));
   const report = JSON.parse(stdout);
   assert.equal(report.rps_target, 20);
   assert.ok(report.requests >= 10 && report.requests <= 20);

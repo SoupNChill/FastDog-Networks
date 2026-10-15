@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { binding, clientIP, validClearance, seal, DEMO_HOST, isLoopbackAddr } from './security.js';
 import { challengeRouter } from './challenge.js';
 import { Router } from 'express';
-import { localDecision, localHeuristic } from '../engine/heuristic.js';
+import { localDecision } from '../engine/heuristic.js';
 import { lookupAsn } from '../asn/lookup.js';
 import { loadHostingAsns } from '../asn/lookup.js';
 
@@ -62,7 +62,7 @@ export function edgeRouter({ secret, ttl = 300, demoForce = false, edgeGoodBotDN
           asn_name: asnInfo?.as_name,
           hosting_asn: asnInfo ? hosting().has(asnInfo.asn) : false,
         };
-        decision = edgeGoodBotDNS ? await localDecision(state) : localHeuristic(state, { goodBot: 'pending' });
+        decision = await localDecision(state, { dnsEnabled: edgeGoodBotDNS });
       }
       let returnPath = safeNext(path);
       if (demoForceAllowed(req, demoForce)) {
