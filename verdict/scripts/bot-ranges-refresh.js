@@ -6,8 +6,8 @@ import { randomUUID } from 'node:crypto';
 import { compileRanges, parseCIDR, rangesFile } from '../src/engine/bot-ranges.js';
 
 export const sources = [
-  { bot: 'google', url: 'https://developers.google.com/static/search/apis/ipranges/googlebot.json', min: 100 },
-  { bot: 'google', url: 'https://developers.google.com/static/search/apis/ipranges/google-special-crawlers.json', min: 10 },
+  { bot: 'google', url: 'https://developers.google.com/static/crawling/ipranges/common-crawlers.json', min: 100 },
+  { bot: 'google', url: 'https://developers.google.com/static/crawling/ipranges/special-crawlers.json', min: 10 },
   { bot: 'bing', url: 'https://www.bing.com/toolbox/bingbot.json', min: 10 },
 ];
 export async function refreshBotRanges({ fetchImpl = globalThis.fetch, file = rangesFile() } = {}) {
