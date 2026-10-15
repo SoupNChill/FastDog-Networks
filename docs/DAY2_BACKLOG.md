@@ -98,3 +98,6 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 
 - OPEN (lane K migration): remove the deprecated tunnel query-token fallback after all agents are on 0.1.1+. Publish and verify 0.1.1 before changing installer or portal image pins.
 - DONE (lane K follow-up): edge rejects missing, blank and built-in development tokens unless `FASTDOG_ALLOW_DEV_TOKEN=1` explicitly permits local development. `ALLOW_QUERY_TOKEN` defaults on for 0.1.0 compatibility; set it to `0` to reject query-only tunnel credentials. Local `/health` reports `queryTokenFallbackUses`, the successful query-authenticated tunnel connection count since process start, without credentials. Bearer precedence and default-off TLS/re-check behavior are unchanged.
+
+## Lane V (good-bot false positives)
+- DONE: published IPv4/IPv6 bot ranges precede DNS in edge and shadow scoring; tiny Google bootstrap seed, special crawler claims, atomic validated refresh and resource-capped weekly unit files. Offline regression samples cover desktop/mobile bots and DNS fallbacks. OPEN: the shadow tailer needs a one-line await for opt-in DNS results (outside lane V file scope; approval pending). Deployment and timer activation remain operator work; shadow and DNS-off defaults remain unchanged.

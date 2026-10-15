@@ -29,6 +29,6 @@ export function localHeuristic(input, { now = Date.now(), goodBot } = {}) {
     reason: action === 'block' ? 'high_risk_signals' : action === 'challenge' ? 'ambiguous_automation' : 'low_risk',
     reasons: fired.map(signal => signal.id), engine, request_id };
 }
-export async function localDecision(state, { verifyBot = verifyGoodBot, ...options } = {}) {
-  return localHeuristic(state, { ...options, goodBot: claimedGoodBot(state) ? await verifyBot(state) : null });
+export async function localDecision(state, { verifyBot = verifyGoodBot, dnsEnabled = true, ...options } = {}) {
+  return localHeuristic(state, { ...options, goodBot: claimedGoodBot(state) ? await verifyBot(state, { dnsEnabled }) : null });
 }

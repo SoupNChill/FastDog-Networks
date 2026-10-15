@@ -1,0 +1,23 @@
+[Unit]
+Description=Verdict published bot ranges refresh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateDevices=yes
+WorkingDirectory=/opt/verdict
+Environment=VERDICT_DATA_DIR=/opt/verdict/data
+Environment=VERDICT_BOT_RANGES_FILE=/opt/verdict/data/bot-ranges.json
+ExecStart=/usr/bin/node /opt/verdict/scripts/bot-ranges-refresh.js
+Nice=15
+CPUQuota=10%
+MemoryMax=200M
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+ProtectSystem=strict
+ReadWritePaths=/opt/verdict/data
+PrivateTmp=true

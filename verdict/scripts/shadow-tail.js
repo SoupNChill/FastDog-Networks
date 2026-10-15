@@ -45,7 +45,7 @@ async function consume(path) {
   const stream = createReadStream(path, { encoding: 'utf8', start });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
   for await (const line of rl) {
-    const scored = scoreAccessLogLine(line, { hosting });
+    const scored = await scoreAccessLogLine(line, { hosting });
     if (scored) await writeRow(scored);
     await new Promise(r => setImmediate(r));
   }
