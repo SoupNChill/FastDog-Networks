@@ -3,7 +3,7 @@ import { isIP } from 'node:net';
 import { join } from 'node:path';
 
 // Deliberately small bootstrap subset; refresh replaces it with published lists.
-export const seed = { version: 1, updated_at: '2026-10-15', sources: ['https://developers.google.com/static/search/apis/ipranges/googlebot.json'], bots: {
+export const seed = { version: 1, updated_at: '2026-10-15', sources: ['https://developers.google.com/static/crawling/ipranges/common-crawlers.json'], bots: {
   google: ['192.178.6.0/24', '66.249.72.0/24'], bing: [],
 } };
 export const rangesFile = () => process.env.VERDICT_BOT_RANGES_FILE || join(process.env.VERDICT_DATA_DIR || 'data', 'bot-ranges.json');

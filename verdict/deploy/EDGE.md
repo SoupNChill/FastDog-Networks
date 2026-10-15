@@ -191,8 +191,8 @@ Denylist hosts can never be enforce.
 
 The primary verification path uses free published lists:
 
-- https://developers.google.com/static/search/apis/ipranges/googlebot.json
-- https://developers.google.com/static/search/apis/ipranges/google-special-crawlers.json
+- https://developers.google.com/static/crawling/ipranges/common-crawlers.json
+- https://developers.google.com/static/crawling/ipranges/special-crawlers.json
 - https://www.bing.com/toolbox/bingbot.json
 
 URLs are configured sources, not live-probed during repository work. Any HTTP error (including a Bing 404), malformed CIDR, or undersized source aborts the entire refresh and preserves the previous file. Minimum distinct CIDR counts per source are respectively 100, 10, and 10. Google lists combine under `bots.google`; Bing uses `bots.bing`. Both IP families are supported. Refresh uses a same-directory temporary file and atomic rename; no full published lists belong in git. Missing/invalid runtime files retain the last valid snapshot or the tiny built-in Google seed. Empty valid lists permit DNS fallback for all claims.
