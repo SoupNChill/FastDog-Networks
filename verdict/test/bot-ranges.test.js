@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { compileRanges, createBotRanges, seed } from '../src/engine/bot-ranges.js';
+import { compileRanges, createBotRanges, parseCIDR, seed } from '../src/engine/bot-ranges.js';
 import { claimedGoodBot, createGoodBotVerifier } from '../src/engine/goodbots.js';
 import { asnDb } from '../src/asn/lookup.js';
 import { localDecision } from '../src/engine/heuristic.js';
@@ -93,6 +93,13 @@ test('refresh validates each source and atomically preserves prior file on failu
   const result = await refreshBotRanges({ file, fetchImpl: async url => ({ ok: true, json: async () => ({ prefixes: Array.from({ length: sources.find(s => s.url === url).min }, (_, i) => ({ ipv4Prefix: `198.51.${i}.0/24` })) }) }) });
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), result);
   assert.equal(result.sources.length, 3);
+});
+
+test('rejects over-broad CIDRs', () => {
+  assert.throws(() => parseCIDR('0.0.0.0/0'), /invalid_prefix/);
+  assert.throws(() => parseCIDR('10.0.0.0/8'), /invalid_prefix/);
+  assert.throws(() => parseCIDR('::/0'), /invalid_prefix/);
+  assert.doesNotThrow(() => parseCIDR('192.178.6.0/24'));
 });
 
 test('edge-auth uses seed ranges with DNS off and omits datacenter/spoof signals', async t => {

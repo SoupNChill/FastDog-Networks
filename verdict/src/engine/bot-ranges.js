@@ -25,7 +25,8 @@ export function parseCIDR(cidr) {
   if (typeof cidr !== 'string' || !/^.+\/\d+$/.test(cidr)) throw new Error('invalid_cidr');
   const [ip, prefix] = cidr.split('/');
   const [bits, value] = address(ip), size = Number(prefix);
-  if (size > bits) throw new Error('invalid_prefix');
+  // Reject over-broad ranges so a bad list cannot allow the whole Internet for claimed bots.
+  if (size > bits || (bits === 32 && size < 12) || (bits === 128 && size < 24)) throw new Error('invalid_prefix');
   const shift = BigInt(bits - size), start = (value >> shift) << shift;
   return { bits, start, end: start + (1n << shift) - 1n };
 }
