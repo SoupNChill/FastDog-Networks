@@ -4,6 +4,7 @@ import { equalToken } from '../control/auth.js';
 import { normalizeHostname } from '../onboard/hostname.js';
 import { createClaims, fail } from './claims.js';
 import { createTlsAsk } from './tls-ask.js';
+import { createSiteStatus } from './site-status-service.js';
 
 export function isLoopback(address) {
   return address === '::1' || (isIP(address) === 4 && address.startsWith('127.')) ||
@@ -54,6 +55,7 @@ export function createInternalServer(opts = {}) {
   const claims = createClaims(opts, () => server.emit('routesChanged'));
   const tlsAskEnabled = opts.tlsAskEnabled ?? (process.env.TLS_ASK_ENABLED === '1');
   const tlsAsk = createTlsAsk({ ...opts, tlsAskEnabled });
+  const siteStatus = createSiteStatus({ ...opts, agent: (tid, host) => claims.agent(tid, host) });
 
   if (opts.recheckEnabled) {
     let timer;
@@ -99,12 +101,12 @@ export function createInternalServer(opts = {}) {
         return send(res, result.status, result.retry_after ? { error: 'rate_limited', retry_after: result.retry_after } : undefined);
       }
       if (!equalToken(req.headers['x-fastdog-portal-key'], opts.portalKey)) throw fail(401, 'unauthorized');
-      const match = url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/hostnames(?:\/([^/]+)(?:\/(verify|credentials\/rotate|agent))?)?$/);
+      const match = url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/hostnames(?:\/([^/]+)(?:\/(verify|credentials\/rotate|agent|status|test))?)?$/);
       if (!match) throw fail(404, 'not_found');
       const [, tid, rawHost, action] = match;
       route = '/internal/v1/tenants/:tid/hostnames' + (rawHost ? '/:hostname' : '') + (action ? `/${action}` : '');
       if (!/^t_[a-z2-7]{20}$/.test(tid)) throw fail(400, 'invalid_tenant');
-      const allowed = !rawHost ? ['GET', 'POST'] : action === 'agent' ? ['GET'] : action ? ['POST'] : ['GET', 'DELETE'];
+      const allowed = !rawHost ? ['GET', 'POST'] : ['agent', 'status'].includes(action) ? ['GET'] : action ? ['POST'] : ['GET', 'DELETE'];
       if (!allowed.includes(req.method)) throw fail(405, 'method_not_allowed');
       if (Number(req.headers['content-length']) > 16384) throw fail(413, 'payload_too_large');
       const body = await readBody(req);
@@ -121,6 +123,8 @@ export function createInternalServer(opts = {}) {
       if (action === 'verify') result = await claims.verify(tid, host, abort.signal);
       else if (action === 'credentials/rotate') result = claims.rotate(tid, host);
       else if (action === 'agent') result = claims.agent(tid, host);
+      else if (action === 'status') result = await siteStatus.status(tid, host);
+      else if (action === 'test') result = await siteStatus.test(tid, host);
       else if (req.method === 'DELETE') result = claims.delete(tid, host);
       else result = claims.get(tid, host);
       send(res, 200, result);

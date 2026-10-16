@@ -15,6 +15,8 @@ export function createEdgeClient({ baseUrl = 'http://127.0.0.1:8789', portalKey,
     verifyHostname: (tid, hostname) => call(`${route(tid, hostname)}/verify`, 'POST'),
     rotateCredential: (tid, hostname) => call(`${route(tid, hostname)}/credentials/rotate`, 'POST'),
     getAgent: (tid, hostname) => call(`${route(tid, hostname)}/agent`),
+    getStatus: (tid, hostname) => call(`${route(tid, hostname)}/status`),
+    testSite: (tid, hostname) => call(`${route(tid, hostname)}/test`, 'POST'),
     deleteHostname: (tid, hostname) => call(route(tid, hostname), 'DELETE'),
   };
 }

@@ -90,8 +90,9 @@ export function touch(agentId) {
   if (a) a.lastSeen = new Date().toISOString();
 }
 
-export function setOriginStatus(agentId, { origin_reachable: reachable, origin_checked_at: checkedAt } = {}) {
+export function setOriginStatus(agentId, { origin_reachable: reachable, origin_checked_at: checkedAt, agent_version: version } = {}) {
   const a = agents.get(agentId);
+  if (a && typeof version === 'string' && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(version)) a.agentVersion = version;
   if (!a || typeof reachable !== 'boolean') return;
   a.originReachable = reachable;
   const parsed = Date.parse(checkedAt);

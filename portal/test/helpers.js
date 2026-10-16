@@ -88,6 +88,20 @@ export function fakeEdge() {
       return { credential: credential(host) };
     },
     async getAgent(tid, host) { calls.push(['agent', tid, host]); find(tid, host); return { connected: false, last_seen: null, registered_at: null }; },
+    async getStatus(tid, host) {
+      calls.push(['status', tid, host]);
+      if (find(tid, host).status !== 'active') throw fail('not_active');
+      return { hostname: host, live: true, reasons: [], checked_at: new Date(0).toISOString(), log_path: '/internal/only',
+        agent: { connected: true, origin_reachable: true, agent_version: '0.1.2', origin_address: '127.0.0.1:3000' },
+        cert: { valid: true, expires_at: '2099-01-01T00:00:00.000Z', issuer: 'Test CA', serial: 'internal' },
+        traffic: { available: true, total: 1, hourly: new Array(24).fill(0), p50_ms: 2, errors_5xx: 0, file: '/internal' },
+        verdict: { available: true, shadow: true, scored: 1, would_block: 0, would_challenge: 1, file: '/internal' } };
+    },
+    async testSite(tid, host) {
+      calls.push(['test', tid, host]);
+      if (find(tid, host).status !== 'active') throw fail('not_active');
+      return { hostname: host, tested_at: new Date(0).toISOString(), ok: true, status: 200, ms: 9, error: null, cert: null, upstream: '10.0.0.1' };
+    },
     async deleteHostname(tid, host) { calls.push(['delete', tid, host]); find(tid, host); records.delete(key(tid, host)); return { hostname: host, detached: true }; },
   };
   return { edge, records, calls };

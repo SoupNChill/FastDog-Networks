@@ -22,7 +22,16 @@ const pick = (value, keys) => Object.fromEntries(keys.filter((key) => value?.[ke
 function hostnameRecord(record) {
   const result = pick(record, ['hostname', 'status', 'created_at', 'expires_at', 'verified_at']);
   if (record.status === 'pending' && record.dns) result.dns = record.dns;
-  if (record.agent) result.agent = pick(record.agent, ['connected', 'last_seen', 'registered_at', 'origin_reachable', 'origin_checked_at', 'origin_address']);
+  if (record.agent) result.agent = pick(record.agent, ['connected', 'last_seen', 'registered_at', 'origin_reachable', 'origin_checked_at', 'origin_address', 'agent_version']);
+  return result;
+}
+// Allow-list the edge status payload so nothing internal (paths, addresses) reaches the browser.
+function siteStatus(value) {
+  const result = pick(value, ['hostname', 'live', 'reasons', 'checked_at']);
+  result.agent = pick(value.agent, ['connected', 'last_seen', 'origin_reachable', 'origin_checked_at', 'agent_version']);
+  result.cert = value.cert ? pick(value.cert, ['valid', 'expires_at', 'issuer']) : null;
+  result.traffic = pick(value.traffic, ['available', 'total', 'hourly', 'p50_ms', 'errors_5xx']);
+  result.verdict = pick(value.verdict, ['available', 'shadow', 'scored', 'would_block', 'would_challenge']);
   return result;
 }
 async function readBody(request) {
@@ -111,8 +120,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         template = 'static';
         return serveStatic(path, response);
       }
-      const match = path.match(/^\/api\/hostnames\/([^/]+)(?:\/(verify|rotate|agent))?$/);
-      const allowed = staticRoutes.get(path) || (match ? (match[2] === 'agent' ? ['GET'] : match[2] ? ['POST'] : ['GET', 'DELETE']) : null);
+      const match = path.match(/^\/api\/hostnames\/([^/]+)(?:\/(verify|rotate|agent|status|test))?$/);
+      const allowed = staticRoutes.get(path) || (match ? (['agent', 'status'].includes(match[2]) ? ['GET'] : match[2] ? ['POST'] : ['GET', 'DELETE']) : null);
       if (!allowed) throw fail('not_found');
       template = match ? `/api/hostnames/:hostname${match[2] ? `/${match[2]}` : ''}` : path;
       if (!allowed.includes(request.method)) return send(405, { error: 'method_not_allowed' }, { Allow: allowed.join(', ') });
@@ -181,7 +190,15 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         return send(200, removed);
       }
       if (!match[2]) return send(200, hostnameRecord(await edge.getHostname(tenant.id, hostname)));
-      if (match[2] === 'agent') return send(200, pick(await edge.getAgent(tenant.id, hostname), ['connected', 'last_seen', 'registered_at', 'origin_reachable', 'origin_checked_at', 'origin_address']));
+      if (match[2] === 'agent') return send(200, pick(await edge.getAgent(tenant.id, hostname), ['connected', 'last_seen', 'registered_at', 'origin_reachable', 'origin_checked_at', 'origin_address', 'agent_version']));
+      if (match[2] === 'status') {
+        limits.take(`status:${tenant.id}`, 60, 60000);
+        return send(200, siteStatus(await edge.getStatus(tenant.id, hostname)));
+      }
+      if (match[2] === 'test') {
+        limits.take(`test:${tenant.id}`, 6, 60000);
+        return send(200, pick(await edge.testSite(tenant.id, hostname), ['hostname', 'tested_at', 'ok', 'status', 'ms', 'error', 'cert']));
+      }
       if (!user.email_verified_at) throw fail('unauthorized');
       if (match[2] === 'verify') {
         limits.take(`verify:${tenant.id}`, 6, 60000);
