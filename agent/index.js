@@ -83,6 +83,24 @@ function fetchLocal(method, path, headers, bodyBuf) {
   });
 }
 
+// Any HTTP response means the app is listening; only reachability is reported, never response content.
+export function probeOrigin(upstream = LOCAL_UPSTREAM, { timeoutMs = 3000 } = {}) {
+  return new Promise((resolve) => {
+    let url;
+    try { url = new URL(`${upstream}/`); } catch { resolve(false); return; }
+    const client = url.protocol === 'https:' ? https : http;
+    const req = client.request(url, { method: 'HEAD', timeout: timeoutMs, rejectUnauthorized: false }, (res) => { res.resume(); resolve(true); });
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+    req.end();
+  });
+}
+let originStatus = {};
+async function refreshOrigin() {
+  originStatus = { origin_reachable: await probeOrigin(), origin_checked_at: new Date().toISOString() };
+}
+export const currentOriginStatus = () => originStatus;
+
 async function handleFrame(ws, msg) {
   if (msg.type !== 'http_req') return;
   try {
@@ -125,7 +143,11 @@ export function connectWs(agentId, onWelcome) {
     activeSocket = ws;
     ws.on('open', () => {
       console.log('[agent] tunnel connected');
-      startHeartbeat(ws);
+      refreshOrigin();
+      const probe = setInterval(refreshOrigin, 20000);
+      probe.unref?.();
+      ws.once('close', () => clearInterval(probe));
+      startHeartbeat(ws, { status: currentOriginStatus });
     });
     ws.on('message', (data) => {
       let msg;

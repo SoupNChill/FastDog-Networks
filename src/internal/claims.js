@@ -11,6 +11,8 @@ export const fail = (status, code, extra = {}) => Object.assign(new Error(code),
 const DAY = 86400000;
 const MIN_OUTAGE_SAMPLE = 10;
 
+const originAddress = (upstream) => { try { return upstream ? new URL(upstream).host || null : null; } catch { return null; } };
+
 export function createClaims(opts, changed) {
   const directory = opts.dataDir ?? defaultDataDir();
   const now = opts.now ?? Date.now;
@@ -43,7 +45,10 @@ export function createClaims(opts, changed) {
     const value = registry?.getAgentByHost(host);
     return { connected: Boolean(value && (value.connected ?? (value.ws?.readyState === 1))),
       last_seen: value?.last_seen ?? value?.lastSeen ?? null,
-      registered_at: value?.registered_at ?? value?.registeredAt ?? null };
+      registered_at: value?.registered_at ?? value?.registeredAt ?? null,
+      origin_reachable: typeof value?.originReachable === 'boolean' ? value.originReachable : null,
+      origin_checked_at: value?.originCheckedAt ?? null,
+      origin_address: originAddress(value?.localUpstream) };
   }
   function present(c) {
     const record = { hostname: c.hostname, status: c.status, created_at: c.created_at };

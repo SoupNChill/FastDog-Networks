@@ -1,4 +1,4 @@
-import { touch } from './tunnels.js';
+import { touch, setOriginStatus } from './tunnels.js';
 
 export function watchTunnel(ws, agentId, { intervalMs = 20000, staleMs = 60000, now = Date.now } = {}) {
   let lastFrame = now();
@@ -6,7 +6,11 @@ export function watchTunnel(ws, agentId, { intervalMs = 20000, staleMs = 60000, 
     lastFrame = now();
     touch(agentId);
     try {
-      if (JSON.parse(String(data)).type === 'ping' && ws.readyState === 1) ws.send(JSON.stringify({ type: 'pong' }));
+      const frame = JSON.parse(String(data));
+      if (frame.type === 'ping') {
+        setOriginStatus(agentId, frame);
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'pong' }));
+      }
     } catch { /* Other v0 frames still count as activity. */ }
   };
   const timer = setInterval(() => {
