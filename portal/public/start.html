@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get started · Portal</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/css/portal.css">
+<link rel="stylesheet" href="/css/guide.css">
+<script type="module" src="/js/start.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap">
+<a class="brand" href="/hostname" aria-label="FastDog Networks Portal">
+<picture>
+<source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)">
+<img src="/logos/hound-light.svg" width="70" height="21" alt="FastDog Networks">
+</picture>
+<span>Portal</span>
+</a>
+<nav aria-label="Main navigation">
+<a href="/start" aria-current="page">Start</a>
+<a href="/hostname">Website</a>
+<a href="/connect">Server</a>
+<a href="/domains">Domains</a>
+<a href="/plan">Plan</a>
+<a href="/login" id="signin">Sign in</a>
+<button type="button" id="logout" hidden>Sign out</button>
+</nav>
+</header>
+<main id="main" class="wrap split">
+<div class="section-marker">Get started</div>
+<div class="section-body portal-body">
+<p class="eyebrow">Your first website</p>
+<h1>Put your site on FastDog in 3 steps</h1>
+<p>Start with an address you own, then connect the server where your app runs.</p>
+<noscript><p>Enable JavaScript to see your progress. Follow the links below to set up your website.</p></noscript>
+<p id="message" role="status" aria-live="polite">Checking your progress…</p>
+<ol id="start-steps" class="start-steps setup-guide">
+<li><a href="/hostname">Add your website address</a><p>Add the DNS records shown on the Website page and verify your address.</p></li>
+<li><a href="/connect">Install the agent on the server where your app runs</a><p>After your address is verified, follow the Server page instructions.</p></li>
+<li><a href="/hostname#hostnames">Wait for the live check</a><p>The Website page shows when your verified address has a connected agent. We then switch on HTTPS for it.</p></li>
+</ol>
+<section aria-labelledby="dns-note">
+<h2 id="dns-note">Keep your existing setup</h2>
+<p>One CNAME record points your address at FastDog. You also add a TXT record to prove you own it. Keep both records in place.</p>
+<p>Your existing DNS provider, whether Cloudflare or another provider, stays where it is. Leave your other DNS records unchanged. The agent connects to your existing app; you do not need to move it or change its code.</p>
+</section>
+<aside class="start-optional" aria-label="Optional steps">
+<p>Domains is optional - only if you want to buy a new domain.</p>
+<p>Plan can wait - you can choose one later with support. Your account’s assigned plan and limits apply; billing is handled by the operator.</p>
+</aside>
+</div>
+</main>
+<footer class="footer wrap">
+<a class="brand" href="/login">FastDog <span class="brand-second">Networks</span>
+</a>
+<div>
+<span>Private customer portal</span>
+<span>Access by invitation only</span>
+</div>
+</footer>
+</body>
+</html>

@@ -8,3 +8,11 @@
 .hostname-help dd { margin: 0 0 12px; }
 .hostname-note { color: var(--sub); font-size: 14px; }
 .hostname-support { border-top: 1px solid var(--rule); padding-top: 20px; }
+
+.start-steps { list-style: none; padding: 0; }
+.start-steps li { margin-block: 16px; overflow-wrap: anywhere; }
+.start-steps .step-state { display: block; font-size: 14px; }
+.start-steps li p { font-weight: 400; }
+.start-steps > li { padding: 8px 0 8px 16px; }
+.start-optional { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--rule); }
+.start-optional p { margin: 0 0 8px; }

@@ -23,6 +23,13 @@ export async function init(required = false) {
   const me = await api('/api/me');
   csrf = me.csrf;
   if (required && !me.tenant) { location.assign('/login'); throw new Error('Please sign in.'); }
+  const nav = document.querySelector('nav');
+  if (me.tenant && nav && !nav.querySelector('a[href="/start"]')) {
+    const start = document.createElement('a');
+    start.href = '/start';
+    start.textContent = 'Start';
+    nav.prepend(start);
+  }
   const logout = document.querySelector('#logout');
   const signin = document.querySelector('#signin');
   if (logout) logout.hidden = !me.tenant;
