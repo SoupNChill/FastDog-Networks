@@ -120,3 +120,11 @@ test('tokens end when the hostname leaves the account or the issuer resets their
   f.store.write('accounts', accounts);
   assert.equal((await request(f.port, '/api/connect/v1/hostname', { headers: bearer(beforeReset) })).status, 401);
 });
+
+test('server command uses the same pinned agent image as the browser', async () => {
+  const { AGENT_IMAGE } = await import('../src/connect-command.js');
+  const { readFileSync } = await import('node:fs');
+  const browserSource = readFileSync(new URL('../public/js/agent-view.js', import.meta.url), 'utf8');
+  assert.ok(browserSource.includes(`'${AGENT_IMAGE}'`));
+  assert.match(AGENT_IMAGE, /@sha256:[a-f0-9]{64}$/);
+});

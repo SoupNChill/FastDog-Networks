@@ -1,6 +1,14 @@
 // Server-side twin of the browser connect command (portal/public/js/agent-view.js), used by the
 // connect-token API so an AI assistant gets the same command a person would copy.
-const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.0@sha256:9597421f707d048d6f904b239ac7e7e536cbd06959999cdc4e5c4ee44092a5a1';
+import { readFileSync } from 'node:fs';
+
+// Single source of truth: the pinned image in the browser command builder.
+export const AGENT_IMAGE = (() => {
+  const source = readFileSync(new URL('../public/js/agent-view.js', import.meta.url), 'utf8');
+  const match = source.match(/const AGENT_IMAGE = '([a-z0-9./:@_-]+)';/);
+  if (!match) throw new Error('Agent image pin not found');
+  return match[1];
+})();
 const shellQuote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
 const PRIVATE_V4 = /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|169\.254\.)/;
 
