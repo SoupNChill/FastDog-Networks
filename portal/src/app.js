@@ -307,10 +307,11 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         if (!user.email_verified_at) throw fail('unauthorized');
         if (!planAllowsKeys(tenant)) throw fail('plan_required');
         const parsed = apiKeys.parse(body);
-        limits.take(`api-key-create:${tenant.id}`, 5, 3600000, true);
-        // Re-authenticate: a stolen session alone cannot mint a long-lived key.
+        // Re-authenticate: a stolen session alone cannot mint a long-lived key. Wrong passwords spend
+        // only the per-user budget, never the tenant's creation budget.
         limits.take(`api-key-password:${user.id}`, 10, 3600000, true);
         if (!(await verifyPassword(body.password, user.password_hash))) throw fail('password_required');
+        limits.take(`api-key-create:${tenant.id}`, 5, 3600000, true);
         return send(201, apiKeys.create(tenant.id, { user_id: user.id, auth_version: user.auth_version ?? null }, parsed));
       }
       if (path === '/api/hostnames') {

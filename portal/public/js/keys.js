@@ -1,6 +1,6 @@
 import { api, init, message, copy, button } from './api.js';
 
-const scopeText = { 'status:read': 'read status', 'hostnames:create': 'add websites', connect: 'connect command' };
+const scopeLabels = { 'status:read': 'read status', 'hostnames:create': 'add websites', connect: 'connect command' };
 const when = (iso) => (iso ? new Date(iso).toLocaleDateString([], { dateStyle: 'medium' }) : 'never');
 
 function render(data) {
@@ -12,7 +12,7 @@ function render(data) {
     const title = document.createElement('strong');
     title.textContent = `${key.name || 'Unnamed key'} (${key.prefix}?)`;
     const detail = document.createElement('span');
-    detail.textContent = ` ${key.scopes.map((s) => scopeText[s] || s).join(', ')}; ${key.hostnames ? key.hostnames.join(', ') : 'all your websites'}; `
+    detail.textContent = ` ${key.scopes.map((s) => scopeLabels[s] || s).join(', ')}; ${key.hostnames ? key.hostnames.join(', ') : 'all your websites'}; `
       + (key.state === 'active' ? `expires ${when(key.expires_at)}; last used ${when(key.last_used_at)}` : key.state);
     item.append(title, detail);
     if (key.state === 'active') {
