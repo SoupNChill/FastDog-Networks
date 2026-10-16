@@ -76,6 +76,23 @@
 <p>Tokens are never accepted in a URL. Your password and sudo prompts stay with you.</p>
 </section>
 
+<section class="section" id="api-keys"><h2>API keys</h2>
+<p>For scripts and AI assistants that do more than one connection, create an API key on the portal?s <strong>API keys</strong> page (every paid plan). You choose what it can do, optionally which websites it covers, and when it expires (30 days by default, 90 at most). It is shown once, stored only as a hash, and you can revoke it at any time. Changing your password ends all your keys.</p>
+<ul>
+<li><code>hostnames:create</code>: add a website and check its DNS records.</li>
+<li><code>status:read</code>: read the live status of your websites.</li>
+<li><code>connect</code>: get a connect command. Each one replaces the current server connection.</li>
+</ul>
+<p>Removing a website is only possible in the portal. Send the key as <code>Authorization: Bearer &lt;key&gt;</code>, never in a URL.</p>
+<ul>
+<li><code>POST /api/v1/hostnames</code> with <code>{"hostname": "app.example.com"}</code>: adds it and returns the two DNS records.</li>
+<li><code>GET /api/v1/hostnames/&lt;hostname&gt;</code>: the address, its state and the records still to add.</li>
+<li><code>POST /api/v1/hostnames/&lt;hostname&gt;/verify</code>: checks the DNS records.</li>
+<li><code>GET /api/v1/hostnames/&lt;hostname&gt;/status</code>: the same data as the Status page.</li>
+<li><code>POST /api/v1/hostnames/&lt;hostname&gt;/connect</code> with <code>{"origin": "http://127.0.0.1:3000", "platform": "linux"}</code>: returns a connect command.</li>
+</ul>
+<p>Limits: 60 requests a minute per key, 5 new keys an hour, 10 active keys per account. Every use is logged with the key?s name, never the key itself, and the portal shows when each key was last used.</p>
+</section>
 <section class="section" id="troubleshooting"><h2>Troubleshooting</h2>
 <dl>
 <dt>“We haven’t seen your records yet”</dt><dd>Wait a few minutes and check again. Make sure the TXT name starts with <code>_fastdog-challenge.</code> and your provider didn’t add your domain twice.</dd>

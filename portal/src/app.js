@@ -13,12 +13,14 @@ import { safePath, serveStatic, pages } from './static.js';
 import { createFileMailer } from './mailer-file.js';
 import { createConnectTokens, assistantPrompt } from './connect-tokens.js';
 import { buildCommand, validOrigin } from './connect-command.js';
+import { verifyPassword } from './passwords.js';
+import { createApiKeys, planAllowsKeys, API_KEY_SCOPES, DEFAULT_DAYS, MAX_DAYS } from './api-keys.js';
 
 const authPaths = new Set(['/api/signup', '/api/login', '/api/logout', '/api/verify-email', '/api/password-reset', '/api/password-reset/confirm']);
 const staticRoutes = new Map([
   ...[...authPaths].map((path) => [path, ['POST']]),
   ['/api/me', ['GET']], ['/api/hostnames', ['GET', 'POST']], ['/api/domains/search', ['GET']],
-  ['/api/domain-requests', ['GET', 'POST']], ['/api/plan', ['GET']],
+  ['/api/domain-requests', ['GET', 'POST']], ['/api/plan', ['GET']], ['/api/keys', ['GET', 'POST']],
 ]);
 const pick = (value, keys) => Object.fromEntries(keys.filter((key) => value?.[key] !== undefined).map((key) => [key, value[key]]));
 function hostnameRecord(record) {
@@ -89,6 +91,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
   const limits = createRateLimits(now, store);
   const auth = createAuth({ store, sessions, limits, now, mailer, config });
   const connectTokens = createConnectTokens(store, now);
+  const apiKeys = createApiKeys(store, now);
   const docsUrl = typeof config.docsUrl === 'string' && /^https:\/\/[a-z0-9.-]+(?:\/[a-z0-9/_-]*)?$/i.test(config.docsUrl) ? config.docsUrl : null;
   const server = http.createServer(async (request, response) => {
     const started = now();
@@ -123,6 +126,71 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         }
         template = 'static';
         return serveStatic(path, response);
+      }
+      if (path.startsWith('/api/v1/')) {
+        // Scoped API keys (Bearer fdak_...). Cookies are ignored, so CSRF does not apply and a key
+        // cannot ride on a session; key management itself is session-only (a key never makes a key).
+        const m = path.match(/^\/api\/v1\/hostnames(?:\/([^/]+)(?:\/(status|verify|connect))?)?$/);
+        if (!m) { template = '/api/v1/unknown'; throw fail('not_found'); }
+        template = `/api/v1/hostnames${m[1] ? `/:hostname${m[2] ? `/${m[2]}` : ''}` : ''}`;
+        const methods = !m[1] || ['verify', 'connect'].includes(m[2]) ? ['POST'] : ['GET'];
+        if (!methods.includes(request.method)) return send(405, { error: 'method_not_allowed' }, { Allow: methods.join(', ') });
+        limits.take(`api-ip:${clientIp(request, config.trustProxy)}`, 300, 600000);
+        const header = request.headers.authorization;
+        const key = apiKeys.find(typeof header === 'string' && /^Bearer /.test(header) ? header.slice(7).trim() : null);
+        if (!key) throw fail('unauthorized');
+        const scope = !m[1] || m[2] === 'verify' ? 'hostnames:create' : m[2] === 'status' ? 'status:read' : m[2] === 'connect' ? 'connect' : 'hostnames:read';
+        response.on('finish', () => {
+          try { apiKeys.audit({ key_id: key.id, tenant_id: key.tenant_id, scope, route: template, method: request.method, status: response.statusCode }); }
+          catch { /* Auditing cannot affect a response. */ }
+        });
+        const accounts = store.read('accounts', { tenants: [], users: [] });
+        const tenant = accounts.tenants.find((t) => t.id === key.tenant_id);
+        const issuer = accounts.users.find((u) => u.id === key.user_id && u.tenant_id === key.tenant_id);
+        // Suspension, losing a paid plan, or a password change (auth_version bump) ends every key.
+        if (!planAllowsKeys(tenant) || !issuer || !issuer.email_verified_at || (issuer.auth_version ?? null) !== (key.auth_version ?? null)) throw fail('unauthorized');
+        limits.take(`api-key:${key.id}`, 60, 60000);
+        const allowedScope = scope === 'hostnames:read' ? key.scopes.some((s) => ['status:read', 'hostnames:create'].includes(s)) : key.scopes.includes(scope);
+        if (!allowedScope) throw fail('forbidden');
+        const body = request.method === 'GET' ? {} : await readBody(request);
+        const hostname = normalizeHostname(m[1] ? m[1] : body.hostname);
+        // The tenant always comes from the key; the edge re-checks ownership on every route.
+        if (key.hostnames && !key.hostnames.includes(hostname)) throw fail('forbidden');
+        apiKeys.touch(key.id);
+        const tid = key.tenant_id;
+        if (!m[1]) {
+          limits.take(`api-create:${tid}`, 10, 3600000, true);
+          const created = hostnameRecord(await edge.createHostname(tid, hostname, tenant.hostname_limit));
+          const commands = store.read('connect_commands', {});
+          if (delete commands[commandKey(tid, hostname)]) store.write('connect_commands', commands);
+          return send(201, created);
+        }
+        if (!m[2]) return send(200, hostnameRecord(await edge.getHostname(tid, hostname)));
+        if (m[2] === 'status') {
+          limits.take(`status:${tid}`, 60, 60000);
+          return send(200, siteStatus(await edge.getStatus(tid, hostname)));
+        }
+        if (m[2] === 'verify') {
+          limits.take(`verify:${tid}`, 6, 60000);
+          // The first verify mints an agent credential; only the connect scope may see one.
+          return send(200, pick(await edge.verifyHostname(tid, hostname), ['hostname', 'status', 'verified', 'verified_at', 'method', 'checks']));
+        }
+        const upstream = validOrigin(body.origin);
+        const platform = body.platform === undefined ? 'linux' : body.platform;
+        if (!upstream || !['linux', 'docker'].includes(platform)) throw fail('invalid_origin');
+        if (!edgeUrl) throw fail('internal_error');
+        if ((await edge.getHostname(tid, hostname)).status !== 'active') throw fail('not_active');
+        // Key-driven rotations get their own budget on top of the shared 5/day rotate limit, so a
+        // leaked key cannot use up the customer's own rotations. Budgets stay spent once the edge is called.
+        limits.take(`api-rotate:${tid}:${hostname}`, 3, 86400000, true);
+        try { limits.take(`rotate:${tid}:${hostname}`, 5, 86400000, true); }
+        catch (error) { limits.refund(`api-rotate:${tid}:${hostname}`, true); throw error; }
+        const rotated = withConnection(await edge.rotateCredential(tid, hostname));
+        markCommand(tid, hostname);
+        const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
+        if (!command) throw fail('internal_error');
+        return send(200, { hostname, platform, origin: upstream, command,
+          note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it.' });
       }
       if (path.startsWith('/api/connect/v1/')) {
         // Bearer-only API for AI assistants. Cookies are ignored here, so CSRF does not apply.
@@ -180,9 +248,10 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
           note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it. Delete fastdog-agent.env (Docker) after the container starts if you keep no copy.' });
       }
       const match = path.match(/^\/api\/hostnames\/([^/]+)(?:\/(verify|rotate|agent|status|test|connect-token))?$/);
-      const allowed = staticRoutes.get(path) || (match ? (match[2] === 'connect-token' ? ['GET', 'POST', 'DELETE'] : ['agent', 'status'].includes(match[2]) ? ['GET'] : match[2] ? ['POST'] : ['GET', 'DELETE']) : null);
+      const keyMatch = path.match(/^\/api\/keys\/([0-9a-f-]{36})$/);
+      const allowed = staticRoutes.get(path) || (keyMatch ? ['DELETE'] : match ? (match[2] === 'connect-token' ? ['GET', 'POST', 'DELETE'] : ['agent', 'status'].includes(match[2]) ? ['GET'] : match[2] ? ['POST'] : ['GET', 'DELETE']) : null);
       if (!allowed) throw fail('not_found');
-      template = match ? `/api/hostnames/:hostname${match[2] ? `/${match[2]}` : ''}` : path;
+      template = keyMatch ? '/api/keys/:id' : match ? `/api/hostnames/:hostname${match[2] ? `/${match[2]}` : ''}` : path;
       if (!allowed.includes(request.method)) return send(405, { error: 'method_not_allowed' }, { Allow: allowed.join(', ') });
       const ip = clientIp(request, config.trustProxy);
       let session = sessions.get(request.headers.cookie);
@@ -229,6 +298,22 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         await notifications.send({ to: config.notificationTo || 'operator', kind: 'domain-request', link: `${config.origin}/domains#request=${record.id}` });
         return send(201, record);
       }
+      if (path === '/api/keys' || keyMatch) {
+        if (request.method === 'GET') {
+          return send(200, { available: planAllowsKeys(tenant), scopes: API_KEY_SCOPES, default_days: DEFAULT_DAYS, max_days: MAX_DAYS,
+            keys: apiKeys.list(tenant.id), recent_use: apiKeys.auditFor(tenant.id) });
+        }
+        if (request.method === 'DELETE') return send(200, apiKeys.revoke(tenant.id, keyMatch[1]));
+        if (!user.email_verified_at) throw fail('unauthorized');
+        if (!planAllowsKeys(tenant)) throw fail('plan_required');
+        const parsed = apiKeys.parse(body);
+        // Re-authenticate: a stolen session alone cannot mint a long-lived key. Wrong passwords spend
+        // only the per-user budget, never the tenant's creation budget.
+        limits.take(`api-key-password:${user.id}`, 10, 3600000, true);
+        if (!(await verifyPassword(body.password, user.password_hash))) throw fail('password_required');
+        limits.take(`api-key-create:${tenant.id}`, 5, 3600000, true);
+        return send(201, apiKeys.create(tenant.id, { user_id: user.id, auth_version: user.auth_version ?? null }, parsed));
+      }
       if (path === '/api/hostnames') {
         if (request.method === 'GET') {
           const result = await edge.listHostnames(tenant.id);
@@ -245,6 +330,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
       if (request.method === 'DELETE' && !match[2]) {
         const removed = pick(await edge.deleteHostname(tenant.id, hostname), ['hostname', 'detached']);
         connectTokens.revokeAll(tenant.id, hostname);
+        apiKeys.revokeForHostname(tenant.id, hostname);
         const all = store.read('connect_commands', {});
         if (delete all[commandKey(tenant.id, hostname)]) store.write('connect_commands', all);
         return send(200, removed);

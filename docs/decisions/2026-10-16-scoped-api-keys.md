@@ -1,13 +1,21 @@
 ---
 type: decision
-title: "Scoped API keys (design, not built)"
+title: "Scoped API keys (v1 built)"
 description: "Tenant API keys are opt-in, scoped, hostname-restricted, expiring, hashed at rest and revocable; the 1-hour connect token is the first, narrowest instance."
 timestamp: 2026-10-16
 ---
 
 ## Status
 
-Proposed. Only the connect token (scope `connect`, below) is implemented, in `portal/src/connect-tokens.js`. Nothing else in this document is built.
+v1 built (`portal/src/api-keys.js`, routes under `/api/v1/`, UI at `/keys`), with the owner's decisions of 2026-10-16:
+
+- v1 scopes are `hostnames:create` (add and verify), `status:read` and `connect`. Deleting hostnames is held for v2 and stays portal-only. `hostnames:read` is not a separate scope: reading one hostname needs `status:read` or `hostnames:create`. `credentials:rotate` is folded into `connect`.
+- Keys work on every paid plan, Hobby included. There is no free plan.
+- 90 days maximum, 30 by default; no renew action in v1 (create a new key). Connect tokens stay at 1 hour.
+- Limits as below, except live keys are capped at 10 per tenant (not per hostname). The CIDR allow-list is not in v1.
+- Verify through a key never returns an agent credential; only `connect` does.
+
+The connect token (`portal/src/connect-tokens.js`) is unchanged.
 
 ## Context
 

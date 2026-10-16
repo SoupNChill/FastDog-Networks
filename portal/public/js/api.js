@@ -10,6 +10,10 @@ const errors = {
   invalid_limit: 'You can have up to three open domain requests.',
   not_active: 'Verify the hostname before connecting an origin.',
   rate_limited: 'Please wait before trying again.',
+  invalid_key: 'Pick at least one permission, a lifetime of up to 90 days, and full website addresses.',
+  key_limit_reached: 'You already have 10 active keys. Revoke one first.',
+  password_required: 'Enter your current password to create a key.',
+  plan_required: 'API keys come with every paid plan.',
 };
 export async function api(path, method = 'GET', body) {
   const response = await fetch(path, { method, credentials: 'same-origin', headers: {
