@@ -5,7 +5,7 @@ import { fail } from './errors.js';
 const root = dirname(fileURLToPath(import.meta.url));
 const publicRoot = resolve(root, '../public');
 export const pages = { '/': 'hostname.html', '/login': 'login.html', '/signup': 'signup.html', '/hostname': 'hostname.html',
-  '/verify-email': 'verify-email.html', '/dashboard': 'hostname.html', '/connect': 'connect.html', '/domains': 'domains.html', '/plan': 'plan.html' };
+  '/verify-email': 'verify-email.html', '/dashboard': 'hostname.html', '/start': 'start.html', '/connect': 'connect.html', '/domains': 'domains.html', '/plan': 'plan.html' };
 const types = { '.sh': 'text/plain; charset=utf-8', '.svg': 'image/svg+xml', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.ttf': 'font/ttf' };
 const supportFallback = 'support@example.invalid';
 export function supportEmail(env = process.env) {
