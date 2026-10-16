@@ -69,9 +69,13 @@ app.use('/www', express.static(fileURLToPath(new URL('../../site/', import.meta.
 // Never let the default error handler echo filesystem paths for missing marketing files.
 app.use('/www', (err, req, res, next) => {
   if (res.headersSent) return next(err);
-  const status = err && (err.status === 404 || err.statusCode === 404 || err.code === 'ENOENT') ? 404 : (err && (err.status || err.statusCode)) || 500;
-  const code = status >= 400 && status < 600 ? status : 500;
-  const text = code === 404 ? 'Not Found' : 'Error';
+  const notFound = ['ENOENT', 'ENOTDIR', 'ENAMETOOLONG'].includes(err && err.code);
+  const raw = notFound ? 404 : Number((err && (err.status || err.statusCode)) || 500);
+  const code = raw >= 400 && raw < 600 ? raw : 500;
+  if (code >= 500) console.error('www_static_error', (err && err.code) || code);
+  const text = { 400: 'Bad Request', 403: 'Forbidden', 404: 'Not Found', 405: 'Method Not Allowed' }[code] || 'Error';
+  if (err && err.headers && typeof err.headers === 'object') res.set(err.headers);
+  res.set('X-Content-Type-Options', 'nosniff');
   res.status(code).type('html').send(`<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"><title>${code} ${text}</title></head><body><h1>${code} ${text}</h1></body></html>\n`);
 });
 app.post('/_fastdog/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billingWebhook);

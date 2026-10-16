@@ -102,6 +102,15 @@ describe('health endpoint (live server)', () => {
     assert.doesNotMatch(body, /ENOENT|\/opt\/|site\/|stat /);
   });
 
+  it('error pages for odd /www requests never leak paths or stacks', async () => {
+    for (const [path, method] of [['/www/%2e%2e/x', 'GET'], ['/www/.env', 'GET'], ['/www/index.html', 'POST'], ['/www/a/b/c', 'GET']]) {
+      const r = await fetch(`http://127.0.0.1:${port}${path}`, { method });
+      if (r.status < 400) continue;
+      const body = await r.text();
+      assert.doesNotMatch(body, /\/home|\/opt|node_modules|Error:|\bat /, `${method} ${path}`);
+    }
+  });
+
   it('serves the marketing preview at /www/', async () => {
     const page = await fetch(`http://127.0.0.1:${port}/www/`);
     assert.equal(page.status, 200);
