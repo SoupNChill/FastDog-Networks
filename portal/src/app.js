@@ -148,7 +148,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
           throw error;
         }
         // Same tenant re-adding the hostname creates a new claim; tokens for the old claim end.
-        if (record.claim_created_at && claim.created_at !== record.claim_created_at) { connectTokens.revokeAll(record.tenant_id, record.hostname); throw fail('unauthorized'); }
+        if (!record.claim_created_at || claim.created_at !== record.claim_created_at) { connectTokens.revokeAll(record.tenant_id, record.hostname); throw fail('unauthorized'); }
         if (claim.status !== 'active') throw fail('not_active');
         if (path === '/api/connect/v1/hostname') {
           const agent = pick(await edge.getAgent(record.tenant_id, record.hostname), ['connected', 'last_seen', 'origin_reachable', 'origin_checked_at']);
@@ -159,26 +159,23 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const platform = body.platform === undefined ? 'linux' : body.platform;
         if (!upstream || !['linux', 'docker'].includes(platform)) throw fail('invalid_origin');
         if (!edgeUrl) throw fail('internal_error');
-        if (record.command_issued_at) throw fail('token_used');
+        if (record.command_issued_at || !connectTokens.markCommand(record.id)) throw fail('token_used');
         // Token-driven rotations get their own small budget on top of the shared 5/day rotate limit,
-        // so a leaked prompt cannot use up the customer's own rotations.
-        limits.take(`connect-token-rotate:${record.tenant_id}:${record.hostname}`, 3, 86400000, true);
-        try { limits.take(`rotate:${record.tenant_id}:${record.hostname}`, 5, 86400000, true); }
-        catch (error) { limits.refund(`connect-token-rotate:${record.tenant_id}:${record.hostname}`, true); throw error; }
-        if (!connectTokens.markCommand(record.id)) throw fail('token_used');
-        let command;
+        // so a leaked prompt cannot use up the customer's own rotations. Budgets are spent by any
+        // attempt that reaches the edge, because a rotate may commit even if its response is lost.
         try {
-          const rotated = withConnection(await edge.rotateCredential(record.tenant_id, record.hostname));
-          command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
-          if (!command) throw fail('internal_error');
-          markCommand(record.tenant_id, record.hostname);
-        } catch (error) {
-          // Nothing usable was returned: the token and both budgets stay available for a retry.
-          connectTokens.unmarkCommand(record.id);
-          limits.refund(`connect-token-rotate:${record.tenant_id}:${record.hostname}`, true);
-          limits.refund(`rotate:${record.tenant_id}:${record.hostname}`, true);
-          throw error;
-        }
+          limits.take(`connect-token-rotate:${record.tenant_id}:${record.hostname}`, 3, 86400000, true);
+          try { limits.take(`rotate:${record.tenant_id}:${record.hostname}`, 5, 86400000, true); }
+          catch (error) { limits.refund(`connect-token-rotate:${record.tenant_id}:${record.hostname}`, true); throw error; }
+        } catch (error) { connectTokens.unmarkCommand(record.id); throw error; }
+        let rotated;
+        // The edge refused or failed: the token may be retried (budgets stay spent).
+        try { rotated = withConnection(await edge.rotateCredential(record.tenant_id, record.hostname)); }
+        catch (error) { connectTokens.unmarkCommand(record.id); throw error; }
+        // From here the old credential is gone; the token stays used whatever happens.
+        markCommand(record.tenant_id, record.hostname);
+        const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
+        if (!command) throw fail('internal_error');
         return send(200, { hostname: record.hostname, platform, origin: upstream, command,
           note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it. Delete fastdog-agent.env (Docker) after the container starts if you keep no copy.' });
       }
@@ -259,6 +256,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         if (request.method === 'DELETE') return send(200, { revoked: connectTokens.revokeAll(tenant.id, hostname) });
         if (!user.email_verified_at) throw fail('unauthorized');
         if (record.status !== 'active') throw fail('not_active');
+        if (typeof record.created_at !== 'string') throw fail('internal_error');
         limits.take(`connect-token:${tenant.id}`, 5, 3600000, true);
         const issued = connectTokens.issue(tenant.id, hostname, { user_id: user.id, auth_version: user.auth_version, claim_created_at: record.created_at });
         return send(201, { ...issued, hostname, scope: 'connect',
