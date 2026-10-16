@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Website status · Portal</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/css/site.css"><link rel="stylesheet" href="/css/portal.css"><link rel="stylesheet" href="/css/status.css"><script type="module" src="/js/status.js"></script></head>
+<body><a class="skip" href="#main">Skip to content</a><header class="site-header wrap"><a class="brand" href="/hostname" aria-label="FastDog Networks Portal"><picture><source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/hound-light.svg" width="70" height="21" alt="FastDog Networks"></picture><span>Portal</span></a><nav aria-label="Main navigation"><a href="/hostname">Website</a><a href="/connect">Server</a><a href="/status" aria-current="page">Status</a><a href="/domains">Domains</a><a href="/plan">Plan</a><a href="/login" id="signin">Sign in</a><button type="button" id="logout" hidden>Sign out</button></nav></header>
+<main id="main" class="wrap split"><div class="section-marker">Website status</div><div class="section-body portal-body">
+<p class="eyebrow">Your account</p><h1>Website status</h1>
+<noscript><p>JavaScript is needed to load your website status.</p></noscript>
+<p id="message" role="status" aria-live="polite"></p>
+<p id="status-empty" hidden>No connected website yet. <a href="/hostname">Add your website address</a></p>
+<div id="status-picker" hidden><label for="hostname">Website</label><select id="hostname" name="hostname"></select></div>
+<section id="status" hidden aria-labelledby="live-state">
+<div class="live-card" id="live-card" data-live="unknown"><p class="live-label">Right now</p><p id="live-state" class="live-state">Checking…</p><p id="live-reason" class="live-reason"></p><p id="checked" class="checked-at"></p></div>
+<dl class="status-grid">
+<div><dt>Server connection</dt><dd id="agent-state">—</dd></div>
+<div><dt>Your app on that server</dt><dd id="origin-state">—</dd></div>
+<div><dt>HTTPS certificate</dt><dd id="cert-state">—</dd></div>
+<div><dt>Typical response time (p50)</dt><dd id="p50">—</dd></div>
+</dl>
+<section class="traffic" aria-labelledby="traffic-title"><h2 id="traffic-title">Requests, last 24 hours</h2><p id="traffic-total" class="traffic-total">—</p><div id="sparkline" class="sparkline" role="img" aria-label="Requests per hour"></div><p class="small-note">Oldest hour on the left, the current hour on the right.</p></section>
+<section class="verdict" aria-labelledby="verdict-title"><h2 id="verdict-title">Bot check <span class="shadow-tag">shadow</span></h2><p id="verdict-state">—</p><p class="small-note">Shadow mode only watches and counts. Nothing was blocked or challenged; these are the visits it would have stopped or asked to prove they’re human.</p></section>
+<section class="test" aria-labelledby="test-title"><h2 id="test-title">Test it</h2><p>We load your website’s home page through FastDog, the same way a visitor does, and show what came back.</p><button type="button" id="test-site">Test it now</button><div id="test-result" class="test-result" role="status" aria-live="polite"></div></section>
+</section>
+<p>Stuck? <a href="mailto:{{SUPPORT_EMAIL}}">Email {{SUPPORT_EMAIL}}</a></p>
+</div></main><footer class="footer wrap"><a class="brand" href="/login">FastDog <span class="brand-second">Networks</span></a><div><span>Private customer portal</span><span>Access by invitation only</span></div></footer></body></html>

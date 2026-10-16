@@ -49,7 +49,8 @@ export function createClaims(opts, changed) {
       registered_at: value?.registered_at ?? value?.registeredAt ?? null,
       origin_reachable: typeof value?.originReachable === 'boolean' ? value.originReachable : null,
       origin_checked_at: value?.originCheckedAt ?? null,
-      origin_address: originAddress(value?.localUpstream) };
+      origin_address: originAddress(value?.localUpstream),
+      agent_version: typeof value?.agentVersion === 'string' ? value.agentVersion : null };
   }
   function present(c) {
     const record = { hostname: c.hostname, status: c.status, created_at: c.created_at };

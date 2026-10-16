@@ -1,0 +1,28 @@
+#status-picker { margin-block: 12px 24px; max-width: 420px; }
+.live-card { border: 1px solid var(--border); border-left: 6px solid var(--muted); background: var(--panel); padding: 20px 24px; margin-block: 8px 24px; }
+.live-card[data-live="yes"] { border-left-color: var(--healthy); }
+.live-card[data-live="no"] { border-left-color: #E5484D; }
+.live-label { margin: 0; color: var(--muted); font-size: 14px; }
+.live-state { margin: 4px 0; font: 700 clamp(40px, 9vw, 64px)/1.05 Space, Arial, sans-serif; color: var(--ink); }
+.live-card[data-live="yes"] .live-state { color: var(--healthy); }
+.live-reason { margin: 6px 0 0; color: var(--ink); }
+.checked-at { color: var(--sub); font-size: 14px; margin: 6px 0 0; }
+.status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 0 0 28px; }
+.status-grid div { border: 1px solid var(--border); background: var(--panel); padding: 14px 16px; min-width: 0; }
+.status-grid dt { color: var(--muted); font-size: 14px; }
+.status-grid dd { margin: 4px 0 0; color: var(--ink); overflow-wrap: anywhere; }
+.traffic-total { font: 600 28px/1.2 Space, Arial, sans-serif; color: var(--ink); margin: 0 0 8px; }
+.sparkline .bars { display: flex; align-items: flex-end; gap: 2px; height: 64px; }
+.sparkline .bar { flex: 1 1 0; min-width: 0; background: var(--accent); }
+.sparkline .bar.zero { background: var(--rule); }
+.shadow-tag { display: inline-block; vertical-align: middle; font: 600 12px/1 Mulish, Arial, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--bg); background: var(--muted); padding: 4px 8px; margin-left: 6px; }
+.test button { width: auto; min-height: 44px; }
+.test-result { margin-top: 12px; }
+.test-result dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+.test-result dt { color: var(--muted); }
+.test-result dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+section.traffic, section.verdict, section.test { margin-block: 28px; }
+#test-site[aria-busy="true"]::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 8px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: -1px; animation: fd-spin .8s linear infinite; }
+@keyframes fd-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { #test-site[aria-busy="true"]::before { animation: none; } }
