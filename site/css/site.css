@@ -160,3 +160,7 @@ nav a[aria-current]{color:var(--accent)}
 .domain-result .text-link{align-self:center;justify-self:start;gap:0}
 #domain-search-fallback a{display:inline-flex;align-items:center;min-height:44px;max-width:100%;overflow-wrap:anywhere}
 @media(max-width:600px){.domain-search-controls{flex-direction:column}.domain-search-controls input{flex:auto}.domain-result{grid-template-columns:minmax(0,1fr);gap:8px}.domain-result .text-link{margin-top:4px}}
+.docs .section{padding-block:28px}
+.docs .section h2{margin-top:0}
+.docs dl dt{font-weight:600;color:var(--ink);margin-top:12px}
+.docs dl dd{margin:4px 0 0;color:var(--sub)}

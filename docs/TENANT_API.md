@@ -147,6 +147,9 @@ All JSON, same-origin, `__Host-fd_session` cookie, `Origin` check and `x-fd-csrf
 | GET | `/api/hostnames/:hostname/agent` | connected indicator |
 | GET | `/api/hostnames/:hostname/status` | live status page (allow-listed fields; 60/min per tenant) |
 | POST | `/api/hostnames/:hostname/test` | Test it (CSRF; 6/min per tenant) |
+| GET/POST/DELETE | `/api/hostnames/:hostname/connect-token` | list / issue (CSRF, verified, active host, 5/hour per tenant) / revoke all 1-hour connect tokens for the AI-assistant prompt |
+| GET | `/api/connect/v1/hostname` | Bearer connect token only (cookies ignored): one hostname's connection status |
+| POST | `/api/connect/v1/command` | Bearer connect token only: `{origin, platform: linux|docker}` returns the connect command once per token (rotates the credential; own budget of 3/day per hostname plus the shared 5/day rotate limit; a failed rotate does not consume the token, but every attempt that reaches the edge spends budget). Every bearer call re-checks that the hostname is still the tenant's active claim (404 revokes its tokens) and that the issuing user has not reset their password |
 | GET | `/api/domains/search?q=` | existing domain-search service (unchanged) |
 | GET/POST | `/api/domain-requests` | list / create a request (max 3 open); no registrar write path |
 | GET | `/api/plan` | operator-set plan and limits |

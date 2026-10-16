@@ -16,3 +16,5 @@ Reconstructed on 2026-10-12 from repository documents, implementation and commit
 - [2026-10-12: Default-off TLS and re-check](2026-10-12-optional-tls-recheck.md)
 - [2026-10-12: Review before flag enablement](2026-10-12-enablement-review.md)
 - [2026-10-12: Portal login and release recovery](2026-10-12-portal-release-operations.md)
+- [2026-10-16: Scoped API keys (design)](2026-10-16-scoped-api-keys.md)
+- [2026-10-16: MCP server plan (plan only)](2026-10-16-mcp-server-plan.md)
