@@ -25,8 +25,8 @@ async function tailLines(file) {
     handle = await open(file, 'r');
     const start = Math.max(0, size - TAIL_BYTES);
     const buffer = Buffer.alloc(size - start);
-    await handle.read(buffer, 0, buffer.length, start);
-    const lines = buffer.toString('utf8').split('\n');
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, start);
+    const lines = buffer.subarray(0, bytesRead).toString('utf8').split('\n');
     if (start > 0) lines.shift();
     return lines;
   } catch { return null; }
