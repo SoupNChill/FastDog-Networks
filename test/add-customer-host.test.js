@@ -26,7 +26,7 @@ exit "\${VALIDATE_STATUS:-0}"
   writeFileSync(fixtureScript, readFileSync(script, 'utf8')
     .replace('[[ $EUID == 0 ]]', '[[ 0 == 0 ]]')
     .replace(/^repo=.*$/m, `repo='${resolve('.').replaceAll("'", "'\\''")}'`));
-  const run = (args, extra = {}) => spawnSync('bash', [fixtureScript, ...args], { encoding: 'utf8', env: { ...process.env, CADDYFILE: file, BIN: dir, CADDY_LOG_DIR: dir, CADDY_LOG_OWNER: `${process.getuid()}:${process.getgid()}`, ...extra } });
+  const run = (args, extra = {}) => spawnSync('bash', [fixtureScript, ...args], { encoding: 'utf8', env: { ...process.env, CADDYFILE: file, BIN: dir, CADDY_LOG_DIR: dir, ...extra } });
   return { dir, file, initial, run };
 }
 test('add host rejects all canonical guardrails and their subdomains', t => {
@@ -68,14 +68,47 @@ test('successful writes back up, validate, reload and print rollback', t => {
   assert.match(readFileSync(f.file, 'utf8'), /import fdlog app.example.test/);
   assert.equal(readFileSync(join(f.dir, 'calls'), 'utf8'), `validate --config ${f.file} --adapter caddyfile\nreload caddy\n`);
 });
-test('existing logs are normalized to mode 0640', t => {
+test('existing empty logs are accepted and set to 0640', t => {
   const f = fixture(t);
   const logfile = join(f.dir, 'app.example.test.log');
-  writeFileSync(logfile, 'existing log\n', { mode: 0o600 });
+  writeFileSync(logfile, '', { mode: 0o600 });
   const result = f.run(['app.example.test']);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(statSync(logfile).mode & 0o777, 0o640);
-  assert.equal(readFileSync(logfile, 'utf8'), 'existing log\n');
+});
+test('existing non-empty logs are refused and restore the Caddyfile', t => {
+  const f = fixture(t);
+  const logfile = join(f.dir, 'app.example.test.log');
+  writeFileSync(logfile, 'old tenant log\n', { mode: 0o600 });
+  const result = f.run(['app.example.test']);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /rotate it first/);
+  assert.equal(readFileSync(f.file, 'utf8'), f.initial);
+  assert.equal(readFileSync(logfile, 'utf8'), 'old tenant log\n');
+  assert.equal(statSync(logfile).mode & 0o777, 0o600);
+  assert.equal(existsSync(join(f.dir, 'calls')), false);
+});
+test('failed validation removes a newly created log but keeps a pre-existing one', t => {
+  const f = fixture(t);
+  const logfile = join(f.dir, 'app.example.test.log');
+  assert.notEqual(f.run(['app.example.test'], { VALIDATE_STATUS: '1' }).status, 0);
+  assert.equal(existsSync(logfile), false);
+  assert.equal(readFileSync(f.file, 'utf8'), f.initial);
+  writeFileSync(logfile, '');
+  assert.notEqual(f.run(['app.example.test'], { VALIDATE_STATUS: '1' }).status, 0);
+  assert.equal(existsSync(logfile), true);
+});
+test('symlinked log directories are refused', t => {
+  const f = fixture(t);
+  const real = mkdtempSync(join(tmpdir(), 'add-host-logs-'));
+  t.after(() => rmSync(real, { recursive: true, force: true }));
+  const link = join(f.dir, 'logs');
+  symlinkSync(real, link);
+  const result = f.run(['app.example.test'], { CADDY_LOG_DIR: link });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /real directory/);
+  assert.equal(readFileSync(f.file, 'utf8'), f.initial);
+  assert.deepEqual(readdirSync(real), []);
 });
 test('symlinked logs are refused and restore the Caddyfile before validate', t => {
   const f = fixture(t);
@@ -84,7 +117,7 @@ test('symlinked logs are refused and restore the Caddyfile before validate', t =
   symlinkSync(target, join(f.dir, 'app.example.test.log'));
   const result = f.run(['app.example.test']);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /symlinked log file/);
+  assert.match(result.stderr, /empty regular file/);
   assert.equal(readFileSync(f.file, 'utf8'), f.initial);
   assert.equal(existsSync(join(f.dir, 'calls')), false);
   assert.equal(statSync(target).mode & 0o777, 0o600);

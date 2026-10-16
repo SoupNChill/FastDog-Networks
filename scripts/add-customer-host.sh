@@ -47,20 +47,34 @@ if $dry_run; then printf '%s\n' "$block"; exit 0; fi
 backup="${caddyfile}.bak-addhost-${host}-$(date -u +%Y%m%dT%H%M%S%N)"
 cp -p -- "$caddyfile" "$backup"
 printf 'Rollback: cp -p -- %q %q && %q validate --config %q --adapter caddyfile && %q reload caddy\n' "$backup" "$caddyfile" "$caddy" "$caddyfile" "$systemctl"
-restore() { cp -p -- "$backup" "$caddyfile"; }
+created_log=false
+logfile=
+restore() {
+  cp -p -- "$backup" "$caddyfile"
+  if $created_log; then rm -f -- "$logfile"; fi
+}
 trap 'restore' ERR
 trap 'restore; exit 1' HUP INT TERM
 printf '\n%s\n' "$block" >> "$caddyfile"
-logdir=${CADDY_LOG_DIR:-/var/log/caddy}
-logowner=${CADDY_LOG_OWNER:-caddy:caddy}
+# Precreate the site log as the caddy user so a root validate cannot leave a root-owned
+# 0600 log that breaks the reload. Root never chowns or chmods a caddy-writable path.
+# CADDY_LOG_DIR is honoured only for non-root fixture runs.
+if (( EUID == 0 )); then logdir=/var/log/caddy; as_log=(runuser -u caddy --); else logdir=${CADDY_LOG_DIR:-/var/log/caddy}; as_log=(); fi
 logfile="$logdir/$host.log"
-if [[ -L $logfile ]]; then
-  echo 'Refusing a symlinked log file.' >&2
+if [[ ! -d $logdir || -L $logdir ]]; then
+  echo 'Log directory must be a real directory.' >&2
   false
 fi
-touch -- "$logfile"
-chown -- "$logowner" "$logfile"
-chmod 640 -- "$logfile"
+if [[ -e $logfile || -L $logfile ]]; then
+  if [[ ! -f $logfile || -L $logfile || -s $logfile ]]; then
+    echo 'Existing log file must be an empty regular file; rotate it first.' >&2
+    false
+  fi
+else
+  "${as_log[@]}" sh -c 'umask 037; set -C; : > "$1"' sh "$logfile"
+  created_log=true
+fi
+"${as_log[@]}" chmod 640 -- "$logfile"
 "$caddy" validate --config "$caddyfile" --adapter caddyfile
 "$systemctl" reload caddy
 trap - ERR HUP INT TERM
