@@ -156,6 +156,10 @@ All JSON, same-origin, `__Host-fd_session` cookie, `Origin` check and `x-fd-csrf
 
 The portal derives `tenant_id` from the session only. It never accepts a tenant id or hostname-owner field from the browser. Rate limits (per section 3 of the plan): login 5 fails/15 min/account, 20/IP; signup 3/h/IP; verify 6/min/tenant; rotate 5/day.
 
+### Scoped API keys (v1)
+
+See `docs/decisions/2026-10-16-scoped-api-keys.md`. Session routes (CSRF, verified email, any paid plan): `GET /api/keys` (list, recent use), `POST /api/keys` `{name?, scopes[], hostnames?[], expires_in_days? (1-90, default 30), password}` returns the `fdak_` secret once, `DELETE /api/keys/:id` revokes. Bearer-only routes (cookies ignored): `POST /api/v1/hostnames` (`hostnames:create`), `GET /api/v1/hostnames/:hostname` (`status:read` or `hostnames:create`), `POST /api/v1/hostnames/:hostname/verify` (`hostnames:create`, never returns a credential), `GET /api/v1/hostnames/:hostname/status` (`status:read`), `POST /api/v1/hostnames/:hostname/connect` (`connect`, active hostnames only, 3/day per hostname on top of the shared 5/day rotate limit). No delete over the API. Errors: `forbidden` 403 (scope or allow-list), `plan_required` 403, `password_required` 403, `invalid_key` 400, `key_limit_reached` 409 (10 live per tenant). Limits: 60/min per key, 300/10 min per IP, 5 creations/hour per tenant. Audit: key id, tenant, scope, route template, method, status (capped per tenant).
+
 ## 8. Error codes
 
 `unauthorized` 401 · `not_found` 404 · `hostname_not_found` 404 · `method_not_allowed` 405 · `invalid_hostname` 400 · `reserved_hostname` 400 · `invalid_limit` 400 · `invalid_tenant` 400 · `invalid_json` 400 · `payload_too_large` 413 · `hostname_unavailable` 409 · `hostname_limit_reached` 409 · `not_active` 409 · `rate_limited` 429 (with `retry_after` seconds) · `internal_error` 500 (generic, no detail). Errors never echo secrets or full upstream details.

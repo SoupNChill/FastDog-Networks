@@ -13,6 +13,7 @@ import { safePath, serveStatic, pages } from './static.js';
 import { createFileMailer } from './mailer-file.js';
 import { createConnectTokens, assistantPrompt } from './connect-tokens.js';
 import { buildCommand, validOrigin } from './connect-command.js';
+import { verifyPassword } from './passwords.js';
 import { createApiKeys, planAllowsKeys, API_KEY_SCOPES, DEFAULT_DAYS, MAX_DAYS } from './api-keys.js';
 
 const authPaths = new Set(['/api/signup', '/api/login', '/api/logout', '/api/verify-email', '/api/password-reset', '/api/password-reset/confirm']);
@@ -178,6 +179,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const platform = body.platform === undefined ? 'linux' : body.platform;
         if (!upstream || !['linux', 'docker'].includes(platform)) throw fail('invalid_origin');
         if (!edgeUrl) throw fail('internal_error');
+        if ((await edge.getHostname(tid, hostname)).status !== 'active') throw fail('not_active');
         // Key-driven rotations get their own budget on top of the shared 5/day rotate limit, so a
         // leaked key cannot use up the customer's own rotations. Budgets stay spent once the edge is called.
         limits.take(`api-rotate:${tid}:${hostname}`, 3, 86400000, true);
@@ -306,6 +308,9 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         if (!planAllowsKeys(tenant)) throw fail('plan_required');
         const parsed = apiKeys.parse(body);
         limits.take(`api-key-create:${tenant.id}`, 5, 3600000, true);
+        // Re-authenticate: a stolen session alone cannot mint a long-lived key.
+        limits.take(`api-key-password:${user.id}`, 10, 3600000, true);
+        if (!(await verifyPassword(body.password, user.password_hash))) throw fail('password_required');
         return send(201, apiKeys.create(tenant.id, { user_id: user.id, auth_version: user.auth_version ?? null }, parsed));
       }
       if (path === '/api/hostnames') {

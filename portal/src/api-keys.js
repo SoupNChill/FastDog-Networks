@@ -14,7 +14,8 @@ export const DEFAULT_DAYS = 30;
 export const MAX_DAYS = 90;
 export const MAX_LIVE_PER_TENANT = 10;
 const MAX_ALLOW_HOSTS = 20;
-const AUDIT_KEEP = 5000;
+const AUDIT_KEEP_PER_TENANT = 1000;
+const TOUCH_EVERY_MS = 60000;
 // There is no free plan; these names are refused defensively in case one is ever assigned.
 const UNPAID_PLANS = new Set(['free', 'none', 'trial', 'suspended']);
 
@@ -86,14 +87,18 @@ export function createApiKeys(store, now) {
     touch(id) {
       const records = all();
       const record = records.find((k) => k.id === id);
-      if (record) { record.last_used_at = new Date(now()).toISOString(); store.write('api_keys', records); }
+      // Written at most once a minute per key, so busy keys do not rewrite the file on every call.
+      if (record && !(Date.parse(record.last_used_at) > now() - TOUCH_EVERY_MS)) { record.last_used_at = new Date(now()).toISOString(); store.write('api_keys', records); }
     },
     // Audit trail: key id (never the secret), tenant, scope, route template, status, time.
     audit(entry) {
       const log = store.read('api_key_audit', []);
       log.push({ at: new Date(now()).toISOString(), key_id: entry.key_id ?? null, tenant_id: entry.tenant_id ?? null,
         scope: entry.scope ?? null, route: entry.route, method: entry.method, status: entry.status });
-      store.write('api_key_audit', log.slice(-AUDIT_KEEP));
+      // Capped per tenant, so one tenant's traffic can never push out another tenant's history.
+      const mine = log.reduce((n, e) => n + (e.tenant_id === entry.tenant_id), 0);
+      if (mine > AUDIT_KEEP_PER_TENANT) log.splice(log.findIndex((e) => e.tenant_id === entry.tenant_id), 1);
+      store.write('api_key_audit', log);
     },
     auditFor(tenantId, limit = 50) {
       return store.read('api_key_audit', []).filter((e) => e.tenant_id === tenantId).slice(-limit).reverse()

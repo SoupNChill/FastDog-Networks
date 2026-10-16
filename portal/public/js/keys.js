@@ -46,7 +46,7 @@ async function main() {
       const scopes = [...form.querySelectorAll('input[name="scope"]:checked')].map((box) => box.value);
       const hostnames = form.hostnames.value.split(/\s+/).map((h) => h.trim()).filter(Boolean);
       const made = await api('/api/keys', 'POST', { name: form.name.value, scopes, hostnames,
-        expires_in_days: Number(form.expires_in_days.value) });
+        expires_in_days: Number(form.expires_in_days.value), password: form.password.value });
       document.querySelector('#key-secret').textContent = made.key;
       document.querySelector('#key-new').hidden = false;
       document.querySelector('#key-copy').onclick = () => copy(made.key);

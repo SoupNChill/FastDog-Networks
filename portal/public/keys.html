@@ -16,6 +16,7 @@
 <p class="small-note">Removing a website is only possible here in the portal, never with a key.</p></fieldset>
 <label for="key-hosts">Only these websites (optional, one per line; empty means all of yours)</label><textarea id="key-hosts" name="hostnames" rows="3" autocomplete="off"></textarea>
 <label for="key-days">Expires after</label><select id="key-days" name="expires_in_days"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="60">60 days</option><option value="90">90 days (longest)</option></select>
+<label for="key-password">Your current password (to confirm it?s you)</label><input id="key-password" name="password" type="password" autocomplete="current-password" required>
 <button type="submit">Create key</button>
 </form>
 <section id="key-new" hidden aria-labelledby="key-new-title"><h2 id="key-new-title">Your new key</h2><p><strong>Copy it now. It won?t be shown again.</strong> Keep it out of URLs, logs, commits and chats.</p><pre><code id="key-secret"></code></pre><button type="button" id="key-copy">Copy key</button></section>

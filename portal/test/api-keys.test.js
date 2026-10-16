@@ -11,9 +11,11 @@ const api = (f, key, path, method = 'GET', body) => request(f.port, path, { meth
 async function setup(t) {
   const f = await fixture(t, { edgeUrl });
   const a = await f.seed();
+  pw = a.password;
   return { f, a };
 }
-const create = (client, body) => client.call('/api/keys', 'POST', body);
+let pw;
+const create = (client, body) => client.call('/api/keys', 'POST', { password: pw, ...body });
 
 test('keys are created by a verified session with CSRF, shown once and stored as a digest', async (t) => {
   const { f, a } = await setup(t);
@@ -30,6 +32,7 @@ test('keys are created by a verified session with CSRF, shown once and stored as
   assert.equal(list.data.keys[0].state, 'active');
   assert.equal(JSON.stringify(list.data).includes(made.data.key), false, 'never shown again');
   assert.deepEqual(list.data.scopes, ['hostnames:create', 'status:read', 'connect']);
+  assert.equal((await create(a.client, { scopes: ['status:read'], password: 'wrong-password-123' })).status, 403, 'current password required');
   const unverified = await f.seed(1, false);
   assert.equal((await create(unverified.client, { scopes: ['status:read'] })).status, 401);
 });
@@ -71,11 +74,13 @@ test('scopes gate each route; delete is never available over the API', async (t)
   const status = (await create(a.client, { scopes: ['status:read'] })).data.key;
   const creator = (await create(a.client, { scopes: ['hostnames:create'] })).data.key;
   const connect = (await create(a.client, { scopes: ['connect'] })).data.key;
+  assert.equal((await api(f, connect, '/api/v1/hostnames/app.example.test/connect', 'POST', { origin: 'http://127.0.0.1:3000' })).status, 404);
   assert.equal((await api(f, status, '/api/v1/hostnames', 'POST', { hostname: 'app.example.test' })).status, 403);
   const made = await api(f, creator, '/api/v1/hostnames', 'POST', { hostname: 'app.example.test' });
   assert.equal(made.status, 201);
   assert.ok(made.data.dns.cname);
   assert.deepEqual(f.calls.at(-1), ['create', tids[0], 'app.example.test', 3]);
+  assert.equal((await api(f, connect, '/api/v1/hostnames/app.example.test/connect', 'POST', { origin: 'http://127.0.0.1:3000' })).status, 409, 'pending hostnames cannot be connected');
   const verified = await api(f, creator, '/api/v1/hostnames/app.example.test/verify', 'POST');
   assert.equal(verified.status, 200);
   assert.equal(verified.data.credential, undefined, 'verify never hands out an agent credential');
@@ -87,6 +92,7 @@ test('scopes gate each route; delete is never available over the API', async (t)
   assert.equal((await api(f, status, '/api/v1/hostnames/app.example.test')).status, 200);
   assert.equal((await api(f, connect, '/api/v1/hostnames/app.example.test')).status, 403);
   assert.equal((await api(f, status, '/api/v1/hostnames/app.example.test/connect', 'POST', { origin: 'http://127.0.0.1:3000' })).status, 403);
+  await f.client.call('/api/me');
   const cmd = await api(f, connect, '/api/v1/hostnames/app.example.test/connect', 'POST', { origin: 'http://127.0.0.1:3000' });
   assert.equal(cmd.status, 200);
   assert.match(cmd.data.command, /--hostname 'app\.example\.test'/);
