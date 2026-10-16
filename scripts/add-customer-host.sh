@@ -49,9 +49,10 @@ cp -p -- "$caddyfile" "$backup"
 printf 'Rollback: cp -p -- %q %q && %q validate --config %q --adapter caddyfile && %q reload caddy\n' "$backup" "$caddyfile" "$caddy" "$caddyfile" "$systemctl"
 created_log=false
 logfile=
+as_log=()
 restore() {
   cp -p -- "$backup" "$caddyfile"
-  if $created_log; then rm -f -- "$logfile"; fi
+  if $created_log; then "${as_log[@]}" rm -f -- "$logfile"; fi
 }
 trap 'restore' ERR
 trap 'restore; exit 1' HUP INT TERM
@@ -66,7 +67,7 @@ if [[ ! -d $logdir || -L $logdir ]]; then
   false
 fi
 if [[ -e $logfile || -L $logfile ]]; then
-  if [[ ! -f $logfile || -L $logfile || -s $logfile ]]; then
+  if [[ ! -f $logfile || -L $logfile || -s $logfile || $(stat -c %h -- "$logfile") != 1 ]]; then
     echo 'Existing log file must be an empty regular file; rotate it first.' >&2
     false
   fi
@@ -75,7 +76,9 @@ else
   created_log=true
 fi
 "${as_log[@]}" chmod 640 -- "$logfile"
-"$caddy" validate --config "$caddyfile" --adapter caddyfile
+# Validate as the caddy user too, so validate's log provisioning never opens a
+# caddy-writable path with root privileges.
+"${as_log[@]}" "$caddy" validate --config "$caddyfile" --adapter caddyfile
 "$systemctl" reload caddy
 trap - ERR HUP INT TERM
 printf 'Added %s. Backup: %s\n' "$host" "$backup"
