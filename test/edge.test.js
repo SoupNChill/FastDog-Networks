@@ -94,6 +94,14 @@ describe('health endpoint (live server)', () => {
     assert.equal(body.agents, undefined, 'public should not include agents');
   });
 
+  it('returns a plain 404 for missing marketing files without leaking paths', async () => {
+    const r = await fetch(`http://127.0.0.1:${port}/www/no-such-file.txt`);
+    assert.equal(r.status, 404);
+    const body = await r.text();
+    assert.match(body, /404 Not Found/);
+    assert.doesNotMatch(body, /ENOENT|\/opt\/|site\/|stat /);
+  });
+
   it('serves the marketing preview at /www/', async () => {
     const page = await fetch(`http://127.0.0.1:${port}/www/`);
     assert.equal(page.status, 200);

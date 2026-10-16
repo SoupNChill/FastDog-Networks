@@ -66,6 +66,14 @@ const app = express();
 app.disable('x-powered-by');
 // Marketing preview only. Keep /www separate from the edge APIs and operator listener.
 app.use('/www', express.static(fileURLToPath(new URL('../../site/', import.meta.url)), { index: 'index.html', fallthrough: false }));
+// Never let the default error handler echo filesystem paths for missing marketing files.
+app.use('/www', (err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status = err && (err.status === 404 || err.statusCode === 404 || err.code === 'ENOENT') ? 404 : (err && (err.status || err.statusCode)) || 500;
+  const code = status >= 400 && status < 600 ? status : 500;
+  const text = code === 404 ? 'Not Found' : 'Error';
+  res.status(code).type('html').send(`<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"><title>${code} ${text}</title></head><body><h1>${code} ${text}</h1></body></html>\n`);
+});
 app.post('/_fastdog/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billingWebhook);
 // JSON only for control/billing APIs — never the catch-all reverse proxy.
 // A global express.json() consumes the body; proxyViaTunnel then waits forever on 'end'.
