@@ -39,7 +39,7 @@ fi
 block=$(cat <<BLOCK
 $host {
     import fdlog $host
-    reverse_proxy localhost:8787
+    reverse_proxy 127.0.0.1:8787
 }
 BLOCK
 )
@@ -47,11 +47,38 @@ if $dry_run; then printf '%s\n' "$block"; exit 0; fi
 backup="${caddyfile}.bak-addhost-${host}-$(date -u +%Y%m%dT%H%M%S%N)"
 cp -p -- "$caddyfile" "$backup"
 printf 'Rollback: cp -p -- %q %q && %q validate --config %q --adapter caddyfile && %q reload caddy\n' "$backup" "$caddyfile" "$caddy" "$caddyfile" "$systemctl"
-restore() { cp -p -- "$backup" "$caddyfile"; }
+created_log=false
+logfile=
+as_log=()
+restore() {
+  cp -p -- "$backup" "$caddyfile"
+  if $created_log; then "${as_log[@]}" rm -f -- "$logfile"; fi
+}
 trap 'restore' ERR
 trap 'restore; exit 1' HUP INT TERM
 printf '\n%s\n' "$block" >> "$caddyfile"
-"$caddy" validate --config "$caddyfile" --adapter caddyfile
+# Precreate the site log as the caddy user so a root validate cannot leave a root-owned
+# 0600 log that breaks the reload. Root never chowns or chmods a caddy-writable path.
+# CADDY_LOG_DIR is honoured only for non-root fixture runs.
+if (( EUID == 0 )); then logdir=/var/log/caddy; as_log=(runuser -u caddy --); else logdir=${CADDY_LOG_DIR:-/var/log/caddy}; as_log=(); fi
+logfile="$logdir/$host.log"
+if [[ ! -d $logdir || -L $logdir ]]; then
+  echo 'Log directory must be a real directory.' >&2
+  false
+fi
+if [[ -e $logfile || -L $logfile ]]; then
+  if [[ ! -f $logfile || -L $logfile || -s $logfile || $(stat -c %h -- "$logfile") != 1 ]]; then
+    echo 'Existing log file must be an empty regular file; rotate it first.' >&2
+    false
+  fi
+else
+  "${as_log[@]}" sh -c 'umask 037; set -C; : > "$1"' sh "$logfile"
+  created_log=true
+fi
+"${as_log[@]}" chmod 640 -- "$logfile"
+# Validate as the caddy user too, so validate's log provisioning never opens a
+# caddy-writable path with root privileges.
+"${as_log[@]}" "$caddy" validate --config "$caddyfile" --adapter caddyfile
 "$systemctl" reload caddy
 trap - ERR HUP INT TERM
 printf 'Added %s. Backup: %s\n' "$host" "$backup"
