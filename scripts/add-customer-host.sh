@@ -39,7 +39,7 @@ fi
 block=$(cat <<BLOCK
 $host {
     import fdlog $host
-    reverse_proxy localhost:8787
+    reverse_proxy 127.0.0.1:8787
 }
 BLOCK
 )
@@ -51,6 +51,16 @@ restore() { cp -p -- "$backup" "$caddyfile"; }
 trap 'restore' ERR
 trap 'restore; exit 1' HUP INT TERM
 printf '\n%s\n' "$block" >> "$caddyfile"
+logdir=${CADDY_LOG_DIR:-/var/log/caddy}
+logowner=${CADDY_LOG_OWNER:-caddy:caddy}
+logfile="$logdir/$host.log"
+if [[ -L $logfile ]]; then
+  echo 'Refusing a symlinked log file.' >&2
+  false
+fi
+touch -- "$logfile"
+chown -- "$logowner" "$logfile"
+chmod 640 -- "$logfile"
 "$caddy" validate --config "$caddyfile" --adapter caddyfile
 "$systemctl" reload caddy
 trap - ERR HUP INT TERM
