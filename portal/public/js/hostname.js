@@ -107,7 +107,7 @@ export function providerFields(provider, record, zone) {
   }
 }
 const providerNotes = {
-  cloudflare: 'Cloudflare adds your domain to the Name automatically. Set Proxy status to DNS only (grey cloud), not Proxied.',
+  cloudflare: 'Cloudflare adds your domain to the Name automatically. Set Proxy status to DNS only (grey cloud), not Proxied. Grey cloud means Cloudflare only answers DNS and visitors go straight to FastDog; orange cloud puts Cloudflare in the middle, which hides your record from our check and stops your HTTPS certificate.',
   namecheap: 'Find these under Domain List, Manage, Advanced DNS. Namecheap adds your domain to the Host automatically.',
   godaddy: 'Find these under My Products, DNS. GoDaddy adds your domain to the Name automatically.',
   route53: 'Open your hosted zone and choose Create record. Route 53 adds your domain to the Record name automatically.',
@@ -122,7 +122,7 @@ function showDns(record) {
   const zone = zoneOf(record.hostname);
   const note = document.createElement('p');
   note.className = 'dns-cloudflare-note';
-  note.textContent = 'If your DNS is on Cloudflare, set Proxy status to DNS only (grey cloud).';
+  note.textContent = 'If your DNS is on Cloudflare, set Proxy status to DNS only (grey cloud). Grey cloud means Cloudflare just answers DNS; it doesn’t sit between your visitors and FastDog.';
   const tabs = document.createElement('div');
   tabs.className = 'provider-tabs';
   tabs.setAttribute('role', 'tablist');
@@ -140,6 +140,11 @@ function showDns(record) {
       block.className = 'dns-record';
       const title = document.createElement('h3');
       title.textContent = value.type === 'CNAME' ? 'Record 1: points your address at FastDog' : 'Record 2: proves you own the domain';
+      const why = document.createElement('p');
+      why.className = 'why';
+      why.textContent = value.type === 'CNAME'
+        ? 'Why: visitors who type your address are sent to FastDog, which serves HTTPS and passes each request to your server.'
+        : 'Why: only someone who controls your domain’s DNS can add this value, so only you can connect this address.';
       const list = document.createElement('dl');
       for (const [label, text] of providerFields(provider, value, zone)) {
         const term = document.createElement('dt');
@@ -154,7 +159,7 @@ function showDns(record) {
         }
         list.append(term, detail);
       }
-      block.append(title, list);
+      block.append(title, why, list);
       return block;
     });
     body.replaceChildren(help, ...blocks);

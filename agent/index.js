@@ -12,6 +12,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { URL } from 'node:url';
 import { pathToFileURL } from 'node:url';
+import { readFileSync } from 'node:fs';
 import WebSocket from 'ws';
 import { computeBackoffMs } from './backoff.js';
 import { startHeartbeat } from './heartbeat.js';
@@ -96,9 +97,20 @@ export function probeOrigin(upstream = LOCAL_UPSTREAM, { timeoutMs = 3000 } = {}
     req.end();
   });
 }
+// Reported in heartbeats so the portal can tell which agent version is connected.
+const AGENT_VERSION = (() => {
+  for (const rel of ['./package.json', '../package.json']) {
+    try {
+      const pkg = JSON.parse(readFileSync(new URL(rel, import.meta.url), 'utf8'));
+      if (pkg.name === 'fastdog-agent' && /^\d+\.\d+\.\d+$/.test(pkg.version)) return pkg.version;
+    } catch { /* try the next location */ }
+  }
+  return null;
+})();
 let originStatus = {};
 async function refreshOrigin() {
-  originStatus = { origin_reachable: await probeOrigin(), origin_checked_at: new Date().toISOString() };
+  originStatus = { origin_reachable: await probeOrigin(), origin_checked_at: new Date().toISOString(),
+    ...(AGENT_VERSION ? { agent_version: AGENT_VERSION } : {}) };
 }
 export const currentOriginStatus = () => originStatus;
 

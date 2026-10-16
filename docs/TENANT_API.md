@@ -97,6 +97,12 @@ Only for `active` claims. Invalidates the previous credential, closes the live t
 ### GET `/tenants/:tid/hostnames/:hostname/agent`
 `200 { "connected": true, "last_seen": "<iso>", "registered_at": "<iso>" }` or `{ "connected": false, "last_seen": null, "registered_at": null }`. Active claims only (`409 not_active` otherwise). Also returns `origin_reachable` (`true|false|null`; null when the agent is older than 0.1.2 or has not reported), `origin_checked_at` (`<iso>|null`) and `origin_address` (host:port of the agent's local upstream, or null). Reachability is a boolean from the agent heartbeat; no app content is sent.
 
+### GET `/tenants/:tid/hostnames/:hostname/status`
+Active claims of `:tid` only (other tenants: 404; pending: 409). Returns `{ hostname, live, reasons[], checked_at, agent, cert, traffic, verdict }`. `live` = agent connected, origin check not failing (agents that send no origin check report `origin_reachable: null`, treated as unknown, not down), and a valid unexpired certificate. `cert` comes from a loopback TLS handshake to `STATUS_TLS_ADDR` (default `127.0.0.1:443`, must be loopback) with SNI = hostname. `traffic` (24 hourly buckets, `p50_ms`, `errors_5xx`) is read from `FASTDOG_ACCESS_LOG_DIR/<hostname>.log` (default `/var/log/caddy`); `verdict` counts (`would_block`, `would_challenge`, always `shadow: true`) from `VERDICT_SHADOW_FILE`. An unreadable file yields `{ available: false }`, never an error. Probes are cached 30 s per host.
+
+### POST `/tenants/:tid/hostnames/:hostname/test`
+"Test it": one `GET /` with `Host: <hostname>` over TLS to `STATUS_TLS_ADDR` (never to an address derived from the hostname, so no SSRF), redirects not followed, body discarded, 4 s timeout. Returns `{ hostname, tested_at, ok, status, ms, error, cert }`. Rate limits: 10/min per tenant and 30/hour per host (429 with `retry_after`).
+
 ### DELETE `/tenants/:tid/hostnames/:hostname`
 `200 { "hostname": "...", "detached": true }`. Idempotent for the owner after success is `404 hostname_not_found`.
 
@@ -139,6 +145,8 @@ All JSON, same-origin, `__Host-fd_session` cookie, `Origin` check and `x-fd-csrf
 | POST | `/api/hostnames/:hostname/rotate` | edge rotate |
 | DELETE | `/api/hostnames/:hostname` | edge detach |
 | GET | `/api/hostnames/:hostname/agent` | connected indicator |
+| GET | `/api/hostnames/:hostname/status` | live status page (allow-listed fields; 60/min per tenant) |
+| POST | `/api/hostnames/:hostname/test` | Test it (CSRF; 6/min per tenant) |
 | GET/POST/DELETE | `/api/hostnames/:hostname/connect-token` | list / issue (CSRF, verified, active host, 5/hour per tenant) / revoke all 1-hour connect tokens for the AI-assistant prompt |
 | GET | `/api/connect/v1/hostname` | Bearer connect token only (cookies ignored): one hostname's connection status |
 | POST | `/api/connect/v1/command` | Bearer connect token only: `{origin, platform: linux|docker}` returns the connect command once per token (rotates the credential; own budget of 3/day per hostname plus the shared 5/day rotate limit; a failed rotate does not consume the token). Every bearer call re-checks that the hostname is still the tenant's active claim (404 revokes its tokens) and that the issuing user has not reset their password |

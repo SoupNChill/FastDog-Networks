@@ -5,7 +5,7 @@ import { fail } from './errors.js';
 const root = dirname(fileURLToPath(import.meta.url));
 const publicRoot = resolve(root, '../public');
 export const pages = { '/': 'hostname.html', '/login': 'login.html', '/signup': 'signup.html', '/hostname': 'hostname.html',
-  '/verify-email': 'verify-email.html', '/dashboard': 'hostname.html', '/start': 'start.html', '/connect': 'connect.html', '/domains': 'domains.html', '/plan': 'plan.html' };
+  '/verify-email': 'verify-email.html', '/dashboard': 'hostname.html', '/start': 'start.html', '/connect': 'connect.html', '/domains': 'domains.html', '/plan': 'plan.html', '/status': 'status.html' };
 const types = { '.sh': 'text/plain; charset=utf-8', '.svg': 'image/svg+xml', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.ttf': 'font/ttf' };
 const supportFallback = 'support@example.invalid';
 export function supportEmail(env = process.env) {
@@ -26,7 +26,7 @@ export function serveStatic(path, response) {
   let base = publicRoot;
   let relative = pages[path.replace(/\/$/, '') || '/'];
   if (/^\/js\/[a-z-]+\.js$/.test(path)) relative = path.slice(1);
-  if (['/favicon.svg', '/logos/hound-dark.svg', '/logos/hound-light.svg'].includes(path) || path === '/css/site.css' || path === '/css/portal.css' || path === '/css/guide.css' || path === '/css/connect.css' || /^\/fonts\/[A-Za-z-]+\.ttf$/.test(path)) {
+  if (['/favicon.svg', '/logos/hound-dark.svg', '/logos/hound-light.svg'].includes(path) || path === '/css/site.css' || path === '/css/portal.css' || path === '/css/guide.css' || path === '/css/connect.css' || path === '/css/status.css' || /^\/fonts\/[A-Za-z-]+\.ttf$/.test(path)) {
     base = publicRoot;
     relative = path.slice(1);
   }

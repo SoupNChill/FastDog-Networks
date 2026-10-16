@@ -23,7 +23,7 @@
 </a>
 <nav aria-label="Main navigation">
 <a href="/hostname" aria-current="page">Website</a>
-<a href="/connect">Server</a>
+<a href="/connect">Server</a><a href="/status">Status</a>
 <a href="/domains">Domains</a>
 <a href="/plan">Plan</a>
 <a href="/login" id="signin">Sign in</a>
@@ -73,6 +73,7 @@
 <section id="claim" hidden>
 <h2 id="claim-hostname"></h2>
 <p>Add these two records in your domain provider’s DNS settings. Choose your provider to see the exact field names. Keep both records in place.</p>
+<p class="why"><strong>Why two records?</strong> The CNAME sends visitors for your address to FastDog; the TXT proves you own the domain, so nobody else can connect it.</p>
 <div id="dns"></div>
 <div id="verify-actions"></div>
 </section>
