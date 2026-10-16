@@ -161,7 +161,14 @@ export function watchAgent(hostname, record = {}) {
       const agent = await api(`${path}/agent`);
       if (stopped) return;
       status.textContent = agentStatusText(agent);
-      status.classList.toggle('healthy', Boolean(agent.connected) && agent.origin_reachable !== false);
+      const healthy = Boolean(agent.connected) && agent.origin_reachable !== false;
+      status.classList.toggle('healthy', healthy);
+      const explainer = document.querySelector('#what-happened');
+      if (explainer) {
+        explainer.hidden = !healthy;
+        const statusLink = explainer.querySelector('a[href^="/status"]');
+        if (statusLink) statusLink.href = `/status?hostname=${encodeURIComponent(hostname)}`;
+      }
     } catch (error) { if (!stopped) status.textContent = error.message; }
     finally {
       if (checkButton) { checkButton.disabled = false; checkButton.removeAttribute('aria-busy'); }

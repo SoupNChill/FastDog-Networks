@@ -198,3 +198,8 @@ button:disabled {
   .site-header nav { gap: 4px 12px; }
   #connect-empty a { width: 100%; justify-content: center; }
 }
+.why { color: var(--sub); font-size: 15px; }
+.why strong { color: var(--ink); }
+.what-happened { border: 1px solid var(--rule); border-left: 4px solid var(--healthy); background: var(--panel); padding: 16px 20px; margin-block: 20px; }
+.what-happened h2 { margin-top: 0; }
+.what-happened ol { padding-left: 1.2em; color: var(--sub); }
