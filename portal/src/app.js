@@ -22,7 +22,7 @@ const pick = (value, keys) => Object.fromEntries(keys.filter((key) => value?.[ke
 function hostnameRecord(record) {
   const result = pick(record, ['hostname', 'status', 'created_at', 'expires_at', 'verified_at']);
   if (record.status === 'pending' && record.dns) result.dns = record.dns;
-  if (record.agent) result.agent = pick(record.agent, ['connected', 'last_seen', 'registered_at']);
+  if (record.agent) result.agent = pick(record.agent, ['connected', 'last_seen', 'registered_at', 'origin_reachable', 'origin_checked_at', 'origin_address']);
   return result;
 }
 async function readBody(request) {
@@ -168,7 +168,10 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         }
         if (!user.email_verified_at) throw fail('unauthorized');
         const hostname = normalizeHostname(body.hostname);
-        return send(201, hostnameRecord(await edge.createHostname(tenant.id, hostname, tenant.hostname_limit)));
+        const created = hostnameRecord(await edge.createHostname(tenant.id, hostname, tenant.hostname_limit));
+        const commands = store.read('connect_commands', {});
+        if (delete commands[commandKey(tenant.id, hostname)]) store.write('connect_commands', commands);
+        return send(201, created);
       }
       const hostname = normalizeHostname(match[1]);
       if (request.method === 'DELETE') {
@@ -178,7 +181,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         return send(200, removed);
       }
       if (!match[2]) return send(200, hostnameRecord(await edge.getHostname(tenant.id, hostname)));
-      if (match[2] === 'agent') return send(200, pick(await edge.getAgent(tenant.id, hostname), ['connected', 'last_seen', 'registered_at']));
+      if (match[2] === 'agent') return send(200, pick(await edge.getAgent(tenant.id, hostname), ['connected', 'last_seen', 'registered_at', 'origin_reachable', 'origin_checked_at', 'origin_address']));
       if (!user.email_verified_at) throw fail('unauthorized');
       if (match[2] === 'verify') {
         limits.take(`verify:${tenant.id}`, 6, 60000);

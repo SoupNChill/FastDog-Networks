@@ -90,9 +90,17 @@ export function touch(agentId) {
   if (a) a.lastSeen = new Date().toISOString();
 }
 
+export function setOriginStatus(agentId, { origin_reachable: reachable, origin_checked_at: checkedAt } = {}) {
+  const a = agents.get(agentId);
+  if (!a || typeof reachable !== 'boolean') return;
+  a.originReachable = reachable;
+  const parsed = Date.parse(checkedAt);
+  a.originCheckedAt = Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
+}
+
 export function detachWs(agentId, ws) {
   const a = agents.get(agentId);
-  if (a && a.ws === ws) a.ws = null;
+  if (a && a.ws === ws) { a.ws = null; delete a.originReachable; delete a.originCheckedAt; }
 }
 
 /**

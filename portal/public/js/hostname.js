@@ -83,19 +83,114 @@ function displayCredential(credential) {
   control.onclick = () => copyFeedback(document.querySelector('#command').textContent, control, document.querySelector('#command'));
 }
 function guide(record, agent) { renderGuide(document.querySelector('#getting-started'), record, agent); }
+const TWO_PART = ['co.uk', 'org.uk', 'me.uk', 'com.au', 'net.au', 'org.au', 'co.nz', 'co.jp', 'co.in', 'com.br', 'co.za'];
+// The zone a provider form usually appends; a guess for display only.
+export function zoneOf(hostname) {
+  const labels = hostname.split('.');
+  return labels.slice(TWO_PART.includes(labels.slice(-2).join('.')) ? -3 : -2).join('.');
+}
+export function relativeName(name, zone) { return name === zone ? '@' : name.endsWith(`.${zone}`) ? name.slice(0, -zone.length - 1) : name; }
+export const PROVIDERS = [
+  ['cloudflare', 'Cloudflare'], ['namecheap', 'Namecheap'], ['godaddy', 'GoDaddy'], ['route53', 'Route 53'], ['porkbun', 'Porkbun'], ['other', 'Other'],
+];
+// Field labels and values as each provider's "add record" form shows them.
+export function providerFields(provider, record, zone) {
+  const rel = relativeName(record.name, zone);
+  const cname = record.type === 'CNAME';
+  switch (provider) {
+    case 'cloudflare': return [['Type', record.type], ['Name', rel], [cname ? 'Target' : 'Content', record.value], ...(cname ? [['Proxy status', 'DNS only (grey cloud)']] : []), ['TTL', 'Auto']];
+    case 'namecheap': return [['Type', `${record.type} Record`], ['Host', rel], ['Value', record.value], ['TTL', 'Automatic']];
+    case 'godaddy': return [['Type', record.type], ['Name', rel], ['Value', record.value], ['TTL', 'Default']];
+    case 'route53': return [['Record name', rel === '@' ? '(leave blank)' : rel], ['Record type', record.type], ['Value', record.value], ['TTL (seconds)', String(record.ttl)], ['Routing policy', 'Simple routing']];
+    case 'porkbun': return [['Type', record.type], ['Host', rel === '@' ? '(leave blank)' : rel], ['Answer', record.value], ['TTL', '600']];
+    default: return [['Type', record.type], ['Name', record.name], ['Value', record.value], ['TTL', String(record.ttl)]];
+  }
+}
+const providerNotes = {
+  cloudflare: 'Cloudflare adds your domain to the Name automatically. Set Proxy status to DNS only (grey cloud), not Proxied.',
+  namecheap: 'Find these under Domain List, Manage, Advanced DNS. Namecheap adds your domain to the Host automatically.',
+  godaddy: 'Find these under My Products, DNS. GoDaddy adds your domain to the Name automatically.',
+  route53: 'Open your hosted zone and choose Create record. Route 53 adds your domain to the Record name automatically.',
+  porkbun: 'Open Domain Management, then DNS. Porkbun adds your domain to the Host automatically.',
+  other: 'Use the full names below. If your provider adds your domain automatically, enter only the part before it.',
+};
 function showDns(record) {
   selected = record.hostname;
   guide(record);
   const panel = document.querySelector('#dns');
-  panel.replaceChildren();
-  for (const value of [record.dns?.cname, record.dns?.txt].filter(Boolean)) {
-    const text = `Type: ${value.type}\nName: ${value.name}\nValue: ${value.value}\nTTL (cache time in seconds): ${value.ttl}`;
-    const code = document.createElement('pre');
-    code.tabIndex = 0;
-    code.textContent = text;
-    const control = button(`Copy ${value.type} record`, () => copyFeedback(text, control, code));
-    panel.append(code, control);
-  }
+  const records = [record.dns?.cname, record.dns?.txt].filter(Boolean);
+  const zone = zoneOf(record.hostname);
+  const note = document.createElement('p');
+  note.className = 'dns-cloudflare-note';
+  note.textContent = 'If your DNS is on Cloudflare, set Proxy status to DNS only (grey cloud).';
+  const tabs = document.createElement('div');
+  tabs.className = 'provider-tabs';
+  tabs.setAttribute('role', 'tablist');
+  tabs.setAttribute('aria-label', 'Your DNS provider');
+  const body = document.createElement('div');
+  body.id = 'provider-panel';
+  body.setAttribute('role', 'tabpanel');
+  body.tabIndex = 0;
+  const render = (provider) => {
+    const help = document.createElement('p');
+    help.className = 'hostname-note';
+    help.textContent = providerNotes[provider];
+    const blocks = records.map((value) => {
+      const block = document.createElement('div');
+      block.className = 'dns-record';
+      const title = document.createElement('h3');
+      title.textContent = value.type === 'CNAME' ? 'Record 1: points your address at FastDog' : 'Record 2: proves you own the domain';
+      const list = document.createElement('dl');
+      for (const [label, text] of providerFields(provider, value, zone)) {
+        const term = document.createElement('dt');
+        term.textContent = label;
+        const detail = document.createElement('dd');
+        const code = document.createElement('code');
+        code.textContent = text;
+        detail.append(code);
+        if (text === value.value || text === relativeName(value.name, zone) || text === value.name) {
+          const control = button(`Copy ${label}`, () => copyFeedback(text, control, code));
+          detail.append(control);
+        }
+        list.append(term, detail);
+      }
+      block.append(title, list);
+      return block;
+    });
+    body.replaceChildren(help, ...blocks);
+  };
+  const buttons = PROVIDERS.map(([id, label], index) => {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.id = `provider-tab-${id}`;
+    tab.textContent = label;
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-controls', 'provider-panel');
+    return tab;
+  });
+  const activate = (index, focus = false) => {
+    buttons.forEach((tab, i) => { tab.setAttribute('aria-selected', String(i === index)); tab.tabIndex = i === index ? 0 : -1; });
+    body.setAttribute('aria-labelledby', buttons[index].id);
+    render(PROVIDERS[index][0]);
+    if (focus) buttons[index].focus?.();
+  };
+  buttons.forEach((tab, index) => {
+    tab.addEventListener('click', () => activate(index));
+    tab.addEventListener('keydown', (event) => {
+      const next = { ArrowRight: (index + 1) % buttons.length, ArrowLeft: (index + buttons.length - 1) % buttons.length, Home: 0, End: buttons.length - 1 }[event.key];
+      if (next !== undefined) { event.preventDefault(); activate(next, true); }
+    });
+  });
+  tabs.append(...buttons);
+  const zoneFile = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = 'Zone file format (advanced)';
+  const pre = document.createElement('pre');
+  pre.tabIndex = 0;
+  pre.textContent = records.map((value) => `${value.name}. ${value.ttl} IN ${value.type} ${value.type === 'TXT' ? `"${value.value}"` : `${value.value}.`}`).join('\n');
+  zoneFile.append(summary, pre);
+  panel.replaceChildren(note, tabs, body, zoneFile);
+  activate(0);
   updateRootHelp(record.hostname, record.dns?.cname?.value);
   if (!record.dns) {
     const note = document.createElement('p');
@@ -121,6 +216,7 @@ function showDns(record) {
     }
     const corrections = [];
     if (result.checks?.routing?.error === 'cname_wrong_target' || result.checks?.routing?.error === 'a_wrong_target') corrections.push('The address points somewhere else. Compare its value with the routing record above.');
+    if (result.checks?.routing?.error === 'dns_proxied') corrections.push('Your record is proxied by Cloudflare (orange cloud). Set Proxy status to DNS only (grey cloud), then check again.');
     if (result.checks?.ownership?.error === 'txt_mismatch') corrections.push('The TXT value does not match. Copy the value above into your DNS settings.');
     message(`${pending} ${corrections.join(' ')}`.trim());
     if (Date.now() < deadline) poll = setTimeout(check, 30000);

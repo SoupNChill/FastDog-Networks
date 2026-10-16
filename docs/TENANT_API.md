@@ -89,13 +89,13 @@ No body. Runs the DNS checks now (rate limited per tenant: 6/min; at most one re
 ```
 When both checks pass: `status:"active"`, `verified:true`, `verified_at`, `method`, and a **`credential` object returned exactly once**:
 `"credential": { "id": "<uuid>", "token": "<64 hex>", "agent_env": { "AGENT_TOKEN": "<token>", "AGENT_HOSTNAME": "app.example.com", "AGENT_NAME": "<hostname>" } }`.
-Re-verifying an active host returns `status:"active"` with **no** credential. Check error codes: routing `no_dns_record|cname_wrong_target|a_wrong_target|dns_timeout`; ownership `txt_not_found|txt_mismatch|dns_timeout`. Other errors: `404 hostname_not_found`, `409 hostname_unavailable` (someone else activated first), `429 rate_limited`.
+Re-verifying an active host returns `status:"active"` with **no** credential. Check error codes: routing `no_dns_record|cname_wrong_target|a_wrong_target|dns_proxied|dns_timeout` (`dns_proxied`: the name answers only with Cloudflare proxy addresses, i.e. an orange-cloud record); ownership `txt_not_found|txt_mismatch|dns_timeout`. Other errors: `404 hostname_not_found`, `409 hostname_unavailable` (someone else activated first), `429 rate_limited`.
 
 ### POST `/tenants/:tid/hostnames/:hostname/credentials/rotate`
 Only for `active` claims. Invalidates the previous credential, closes the live tunnel, returns `200 { "credential": {...same shape...} }`. `409 not_active`. Rate limited 5/day per hostname.
 
 ### GET `/tenants/:tid/hostnames/:hostname/agent`
-`200 { "connected": true, "last_seen": "<iso>", "registered_at": "<iso>" }` or `{ "connected": false, "last_seen": null, "registered_at": null }`. Active claims only (`409 not_active` otherwise).
+`200 { "connected": true, "last_seen": "<iso>", "registered_at": "<iso>" }` or `{ "connected": false, "last_seen": null, "registered_at": null }`. Active claims only (`409 not_active` otherwise). Also returns `origin_reachable` (`true|false|null`; null when the agent is older than 0.1.2 or has not reported), `origin_checked_at` (`<iso>|null`) and `origin_address` (host:port of the agent's local upstream, or null). Reachability is a boolean from the agent heartbeat; no app content is sent.
 
 ### DELETE `/tenants/:tid/hostnames/:hostname`
 `200 { "hostname": "...", "detached": true }`. Idempotent for the owner after success is `404 hostname_not_found`.

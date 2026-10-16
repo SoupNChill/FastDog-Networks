@@ -1,6 +1,6 @@
 FROM node:20-bookworm-slim
 LABEL org.opencontainers.image.source="https://github.com/SoupNChill/FastDog-Networks" \
-      org.opencontainers.image.version="0.1.0" \
+      org.opencontainers.image.version="0.1.2" \
       org.opencontainers.image.description="Outbound agent for connecting a verified hostname to a local web service"
 WORKDIR /app
 COPY package.json package-lock.json ./

@@ -4,7 +4,7 @@ const powershellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
 const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.0@sha256:9597421f707d048d6f904b239ac7e7e536cbd06959999cdc4e5c4ee44092a5a1';
 const LOCAL = (port) => `http:${'//'}127.0.0.1:${port}`;
 const PRIVATE_V4 = /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|169\.254\.)/;
-// Returns { value } for a usable local app address or { error } with plain-language advice.
+// Advisory only (the agent runs on the customer's own server). Returns { value } for a usable local app address or { error } with plain-language advice.
 export function validateOrigin(input) {
   const text = String(input ?? '').trim();
   if (!text) return { error: `Enter the address your app listens on, such as ${LOCAL(5000)}.` };
@@ -118,6 +118,7 @@ function wireOrigin() {
 }
 export function agentStatusText(agent) {
   if (!agent.connected) return 'Waiting for your server. Run your connect command on the server where your app runs.';
+  if (agent.origin_reachable === false) return `Agent connected, but your app at ${agent.origin_address || 'the address you entered'} isn't answering. Start your app, or check the address you entered.`;
   return 'Server connected. Open your website to check that it loads securely.';
 }
 export function watchAgent(hostname, record = {}) {
@@ -125,6 +126,8 @@ export function watchAgent(hostname, record = {}) {
   const container = document.querySelector('#origin-actions');
   const credentialSection = document.querySelector('#credential');
   if (credentialSection) credentialSection.hidden = true;
+  const commandOutput = document.querySelector('#command');
+  if (commandOutput) commandOutput.textContent = '';
   const validate = wireOrigin();
   let issued = Boolean(record?.command_issued);
   const warning = document.createElement('p');
@@ -153,12 +156,12 @@ export function watchAgent(hostname, record = {}) {
   const check = async () => {
     clearTimeout(timer);
     if (checkButton) { checkButton.disabled = true; checkButton.setAttribute('aria-busy', 'true'); }
-    status.textContent = 'Checking?';
+    status.textContent = 'Checking…';
     try {
       const agent = await api(`${path}/agent`);
       if (stopped) return;
       status.textContent = agentStatusText(agent);
-      status.classList.toggle('healthy', Boolean(agent.connected));
+      status.classList.toggle('healthy', Boolean(agent.connected) && agent.origin_reachable !== false);
     } catch (error) { if (!stopped) status.textContent = error.message; }
     finally {
       if (checkButton) { checkButton.disabled = false; checkButton.removeAttribute('aria-busy'); }

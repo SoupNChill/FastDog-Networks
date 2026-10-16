@@ -16,3 +16,16 @@
 .start-steps > li { padding: 8px 0 8px 16px; }
 .start-optional { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--rule); }
 .start-optional p { margin: 0 0 8px; }
+
+.dns-cloudflare-note { font-weight: 600; }
+.provider-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 16px 12px; }
+.provider-tabs [role="tab"] { flex: 1 1 110px; width: auto; min-height: 44px; }
+.provider-tabs [aria-selected="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.dns-record { border-top: 1px solid var(--rule); padding-block: 12px; }
+.dns-record h3 { font-size: 16px; margin: 0 0 8px; }
+.dns-record dl { display: grid; grid-template-columns: minmax(96px, max-content) 1fr; gap: 8px 16px; margin: 0; }
+.dns-record dt { color: var(--sub); }
+.dns-record dd { margin: 0; min-width: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.dns-record code { overflow-wrap: anywhere; }
+.dns-record dd button { width: auto; min-height: 44px; padding: 0 12px; }
+@media (max-width: 420px) { .dns-record dl { grid-template-columns: 1fr; gap: 2px; } .dns-record dd { margin-bottom: 8px; } }

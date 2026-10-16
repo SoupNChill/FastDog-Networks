@@ -90,6 +90,23 @@ async function resolveA(hostname, resolver) {
   }
 }
 
+// Cloudflare's published proxy ranges (https://www.cloudflare.com/ips-v4). A proxied ("orange cloud") CNAME
+// hides the record and answers with these addresses instead of our target.
+const CLOUDFLARE_V4 = ['173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18',
+  '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15',
+  '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'];
+const ipv4 = (ip) => String(ip).split('.').reduce((n, part) => (n * 256) + Number(part), 0);
+export function isCloudflareProxyIp(ip) {
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(String(ip))) return false;
+  const value = ipv4(ip);
+  return CLOUDFLARE_V4.some((range) => {
+    const [base, bits] = range.split('/');
+    const size = 2 ** (32 - Number(bits));
+    const start = ipv4(base);
+    return value >= start && value < start + size;
+  });
+}
+
 export async function checkDnsVerification(hostname, opts = {}) {
   const resolver = opts.resolver || dns;
   const target = (opts.attachTarget ?? attachTarget()).toLowerCase().replace(/\.$/, '');
@@ -117,6 +134,7 @@ export async function checkDnsVerification(hostname, opts = {}) {
     if (aRecord.records.includes(edgeAddress)) {
       return { verified: true, method: 'a_record', target: edgeAddress };
     }
+    if (aRecord.records.every(isCloudflareProxyIp)) return { verified: false, error: 'dns_proxied', expected: target };
     return { verified: false, error: 'a_wrong_target', found: aRecord.records.join(', '), expected: edgeAddress };
   }
   return { verified: false, error: 'no_dns_record', expected: target };

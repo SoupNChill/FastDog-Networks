@@ -1,4 +1,4 @@
-export function startHeartbeat(ws, { intervalMs = 20000, maxMissed = 2 } = {}) {
+export function startHeartbeat(ws, { intervalMs = 20000, maxMissed = 2, status } = {}) {
   let awaiting = 0;
   const onMessage = (data) => {
     try { if (JSON.parse(String(data)).type === 'pong') awaiting = 0; }
@@ -8,7 +8,9 @@ export function startHeartbeat(ws, { intervalMs = 20000, maxMissed = 2 } = {}) {
     if (ws.readyState !== 1) return;
     if (awaiting >= maxMissed) { ws.terminate(); return; }
     awaiting += 1;
-    ws.send(JSON.stringify({ type: 'ping' }));
+    let extra = {};
+    try { extra = status?.() ?? {}; } catch { extra = {}; }
+    ws.send(JSON.stringify({ ...extra, type: 'ping' }));
   }, intervalMs);
   timer.unref?.();
   const stop = () => { clearInterval(timer); ws.off('message', onMessage); };
