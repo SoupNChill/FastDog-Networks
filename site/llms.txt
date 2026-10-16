@@ -1,6 +1,6 @@
 # FastDog Networks
 
-> FastDog puts a website that runs on your own server on the public internet over HTTPS, without opening ports. You add your address, add two DNS records, run a small agent on your server, and check a live status page. Human docs: https://fastdognetworks.com/docs/
+> FastDog puts a website that runs on your own server on the public internet over HTTPS, without opening ports. You add your address, add two DNS records, run a small agent on your server, and check a live status page. Human docs: /docs/ on this site.
 
 ## Concepts
 
@@ -37,5 +37,5 @@ Suggested flow: ask the user which port the app uses; call the command endpoint 
 
 ## Optional
 
-- [Edge](https://fastdognetworks.com/edge/): how the edge and tunnel work
-- [Verdict](https://fastdognetworks.com/verdict/): bot checks (shadow mode by default)
+- [Edge](/edge/): how the edge and tunnel work
+- [Verdict](/verdict/): bot checks (shadow mode by default)
