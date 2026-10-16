@@ -29,6 +29,23 @@ The user creates a prompt on the portal's Server page. It contains a connect tok
 
 Suggested flow: ask the user which port the app uses; call the command endpoint once; have the user run the command on the server (it uses sudo; the user types their own password); poll the hostname endpoint every 10 seconds until agent.connected is true; then open https://<hostname>/ to confirm.
 
+## API keys (scripts and assistants)
+
+Signed-in users with any paid plan create API keys on the portal's API keys page. A key (prefix fdak_) is shown once, stored only as a hash, belongs to one account, can be limited to exact hostnames, expires after 30 days by default (90 at most), and can be revoked at any time. A password change or a suspended account ends every key. Send it only as `Authorization: Bearer <key>`; keys in URLs, bodies or cookies are rejected. A key can never create another key.
+
+Scopes (a key holds one or more):
+- `hostnames:create`: add a hostname and check its DNS. Counts against the plan's hostname limit.
+- `status:read`: read live status.
+- `connect`: get a connect command (replaces the current server connection; at most 3 per hostname per day with keys).
+Removing a hostname is not possible with a key; it is done in the portal.
+
+- POST {portal}/api/v1/hostnames with JSON {"hostname": "app.example.com"} -> 201 {hostname, status, dns: {cname, txt}} (`hostnames:create`)
+- GET {portal}/api/v1/hostnames/<hostname> -> {hostname, status, dns?, agent?} (`status:read` or `hostnames:create`)
+- POST {portal}/api/v1/hostnames/<hostname>/verify -> {hostname, status, verified, checks} (`hostnames:create`)
+- GET {portal}/api/v1/hostnames/<hostname>/status -> {live, reasons, checked_at, agent, cert, traffic, verdict} (`status:read`; verdict counts are shadow only)
+- POST {portal}/api/v1/hostnames/<hostname>/connect with JSON {"origin": "http://127.0.0.1:<port>", "platform": "linux" | "docker"} -> {command} (`connect`)
+- Errors: 401 unauthorized (missing, expired or revoked key), 403 forbidden (scope or hostname not allowed by this key), 404 hostname_not_found, 409 hostname_limit_reached / not_active, 429 rate_limited (60 requests a minute per key; honour Retry-After).
+
 ## Troubleshooting
 
 - Records not seen: wait a few minutes; check the TXT name starts with _fastdog-challenge. and the provider did not append the domain twice.
