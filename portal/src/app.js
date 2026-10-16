@@ -125,9 +125,20 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const header = request.headers.authorization;
         const record = connectTokens.find(typeof header === 'string' && /^Bearer /.test(header) ? header.slice(7).trim() : null);
         if (!record) throw fail('unauthorized');
-        const tenant = store.read('accounts', { tenants: [] }).tenants.find((t) => t.id === record.tenant_id);
-        if (!tenant || (tenant.status && tenant.status !== 'active')) throw fail('unauthorized');
+        const accounts = store.read('accounts', { tenants: [], users: [] });
+        const tenant = accounts.tenants.find((t) => t.id === record.tenant_id);
+        const issuer = accounts.users.find((u) => u.id === record.user_id && u.tenant_id === record.tenant_id);
+        // A password reset (auth_version bump) or a suspended tenant ends every token that user issued.
+        if (!tenant || (tenant.status && tenant.status !== 'active') || !issuer || issuer.auth_version !== record.auth_version) throw fail('unauthorized');
         limits.take(`connect-token:${record.id}`, 30, 60000);
+        // Re-check ownership on every call: a hostname removed or detached anywhere ends its tokens.
+        let claim;
+        try { claim = await edge.getHostname(record.tenant_id, record.hostname); }
+        catch (error) {
+          if (error.code === 'hostname_not_found') { connectTokens.revokeAll(record.tenant_id, record.hostname); throw fail('unauthorized'); }
+          throw error;
+        }
+        if (claim.status !== 'active') throw fail('not_active');
         if (path === '/api/connect/v1/hostname') {
           const agent = pick(await edge.getAgent(record.tenant_id, record.hostname), ['connected', 'last_seen', 'origin_reachable', 'origin_checked_at']);
           return send(200, { hostname: record.hostname, scope: 'connect', expires_at: record.expires_at, command_issued: Boolean(record.command_issued_at), agent });
@@ -138,14 +149,20 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         if (!upstream || !['linux', 'docker'].includes(platform)) throw fail('invalid_origin');
         if (!edgeUrl) throw fail('internal_error');
         if (record.command_issued_at) throw fail('token_used');
+        // Token-driven rotations get their own small budget on top of the shared 5/day rotate limit,
+        // so a leaked prompt cannot use up the customer's own rotations.
+        limits.take(`connect-token-rotate:${record.tenant_id}:${record.hostname}`, 3, 86400000, true);
         limits.take(`rotate:${record.tenant_id}:${record.hostname}`, 5, 86400000, true);
         if (!connectTokens.markCommand(record.id)) throw fail('token_used');
-        const rotated = withConnection(await edge.rotateCredential(record.tenant_id, record.hostname));
+        let command;
+        try {
+          const rotated = withConnection(await edge.rotateCredential(record.tenant_id, record.hostname));
+          command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
+          if (!command) throw fail('internal_error');
+        } catch (error) { connectTokens.unmarkCommand(record.id); throw error; }
         markCommand(record.tenant_id, record.hostname);
-        const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
-        if (!command) throw fail('internal_error');
         return send(200, { hostname: record.hostname, platform, origin: upstream, command,
-          note: 'Run this once on the server where the app runs. It contains a private key; do not log or share it.' });
+          note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it. Delete fastdog-agent.env (Docker) after the container starts if you keep no copy.' });
       }
       const match = path.match(/^\/api\/hostnames\/([^/]+)(?:\/(verify|rotate|agent|connect-token))?$/);
       const allowed = staticRoutes.get(path) || (match ? (match[2] === 'connect-token' ? ['GET', 'POST', 'DELETE'] : match[2] === 'agent' ? ['GET'] : match[2] ? ['POST'] : ['GET', 'DELETE']) : null);
@@ -225,7 +242,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         if (!user.email_verified_at) throw fail('unauthorized');
         if (record.status !== 'active') throw fail('not_active');
         limits.take(`connect-token:${tenant.id}`, 5, 3600000, true);
-        const issued = connectTokens.issue(tenant.id, hostname);
+        const issued = connectTokens.issue(tenant.id, hostname, { user_id: user.id, auth_version: user.auth_version });
         return send(201, { ...issued, hostname, scope: 'connect',
           prompt: assistantPrompt({ hostname, token: issued.token, expiresAt: issued.expires_at, portalOrigin: config.origin, docsUrl }) });
       }

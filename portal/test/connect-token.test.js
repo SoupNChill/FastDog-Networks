@@ -97,3 +97,26 @@ test('server-side command builder matches the browser rules', () => {
   assert.equal(buildCommand(env, { platform: 'windows', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' }), null);
   assert.match(buildCommand(env, { platform: 'docker', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' }), /docker run -d/);
 });
+
+test('tokens end when the hostname leaves the account or the issuer resets their password, and a failed rotate does not burn them', async (t) => {
+  const { f, a } = await ready(t);
+  await a.client.call('/api/hostnames/app.example.test/verify', 'POST');
+  const issue = async () => (await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).data.token;
+  const post = (token) => request(f.port, '/api/connect/v1/command', { method: 'POST', headers: { ...bearer(token), 'content-type': 'application/json' }, body: JSON.stringify({ origin: '127.0.0.1:3000' }) });
+  const token = await issue();
+  const rotate = f.edge.rotateCredential;
+  f.edge.rotateCredential = async () => { throw Object.assign(new Error('internal_error'), { code: 'internal_error' }); };
+  assert.equal((await post(token)).status, 500);
+  f.edge.rotateCredential = rotate;
+  assert.equal((await post(token)).status, 200, 'token still usable after a failed rotate');
+  const detached = await issue();
+  f.records.delete(`${tids[0]}:app.example.test`);
+  assert.equal((await request(f.port, '/api/connect/v1/hostname', { headers: bearer(detached) })).status, 401, 'edge-side detach ends the token');
+  await a.client.call('/api/hostnames', 'POST', { hostname: 'app.example.test' });
+  await a.client.call('/api/hostnames/app.example.test/verify', 'POST');
+  const beforeReset = await issue();
+  const accounts = f.store.read('accounts', {});
+  accounts.users[0].auth_version += 1;
+  f.store.write('accounts', accounts);
+  assert.equal((await request(f.port, '/api/connect/v1/hostname', { headers: bearer(beforeReset) })).status, 401);
+});

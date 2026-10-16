@@ -12,14 +12,14 @@ export function createConnectTokens(store, now) {
   const all = () => store.read('connect_tokens', []).filter((t) => Date.parse(t.expires_at) > now() - 86400000);
   const live = (t) => !t.revoked_at && Date.parse(t.expires_at) > now();
   return {
-    issue(tenantId, hostname) {
+    issue(tenantId, hostname, issuer = {}) {
       const records = all();
       const mine = records.filter((t) => t.tenant_id === tenantId && t.hostname === hostname && live(t))
         .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
       for (const old of mine.slice(0, Math.max(0, mine.length - MAX_LIVE_PER_HOST + 1))) old.revoked_at = new Date(now()).toISOString();
       const secret = `${PREFIX}${randomBytes(32).toString('base64url')}`;
       const record = { id: randomUUID(), digest: digest(secret), tenant_id: tenantId, hostname,
-        scope: 'connect', created_at: new Date(now()).toISOString(),
+        scope: 'connect', user_id: issuer.user_id ?? null, auth_version: issuer.auth_version ?? null, created_at: new Date(now()).toISOString(),
         expires_at: new Date(now() + CONNECT_TOKEN_TTL_MS).toISOString(), revoked_at: null, command_issued_at: null };
       records.push(record);
       store.write('connect_tokens', records);
@@ -38,6 +38,11 @@ export function createConnectTokens(store, now) {
       record.command_issued_at = new Date(now()).toISOString();
       store.write('connect_tokens', records);
       return true;
+    },
+    unmarkCommand(id) {
+      const records = all();
+      const record = records.find((t) => t.id === id);
+      if (record) { record.command_issued_at = null; store.write('connect_tokens', records); }
     },
     list(tenantId, hostname) {
       return all().filter((t) => t.tenant_id === tenantId && t.hostname === hostname && live(t))
