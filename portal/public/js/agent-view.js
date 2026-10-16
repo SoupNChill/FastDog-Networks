@@ -163,6 +163,7 @@ export function watchAgent(hostname, record = {}) {
       status.textContent = agentStatusText(agent);
       const healthy = Boolean(agent.connected) && agent.origin_reachable !== false;
       status.classList.toggle('healthy', healthy);
+      // Cosmetic only: never gate a credential or action on this client-side state.
       const explainer = document.querySelector('#what-happened');
       if (explainer) {
         explainer.hidden = !healthy;
