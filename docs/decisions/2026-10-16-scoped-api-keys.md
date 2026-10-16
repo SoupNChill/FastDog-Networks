@@ -36,4 +36,4 @@ Customers increasingly set up servers with AI coding assistants and scripts. Tod
 
 - Assistants and scripts can do setup work without passwords or cookies, with a blast radius of one hostname and, for connect tokens, one hour.
 - `credentials:rotate` and `connect` close the current agent connection when used. The portal warns about that, and so do the API responses.
-- Open questions for Pete: whether `hostnames:write` ships at all in v1; whether API keys need a paid plan; maximum key lifetime (proposed 90 days).
+- Open questions for the owner: whether `hostnames:write` ships at all in v1; whether API keys need a paid plan; maximum key lifetime (proposed 90 days).

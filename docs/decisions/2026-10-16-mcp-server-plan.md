@@ -48,7 +48,7 @@ No tools for billing, account, invites, deleting hostnames, Verdict enforcement,
 
 1. Implement scoped API keys (portal) and `/api/v1` read routes behind them, with tests mirroring `portal/test/connect-token.test.js`.
 2. Build `mcp/` in this repo with tool handlers as thin HTTP wrappers, with unit tests against a fake portal (no network).
-3. Claude review, then publish to npm. Publishing needs Pete's approval.
+3. Claude review, then publish to npm. Publishing needs the owner's approval.
 4. Docs: an "Use with your AI assistant" section on /docs and in llms.txt, with example MCP configs.
 
 Estimate: about 1 day for keys, about 1 day for the MCP package and tests.
