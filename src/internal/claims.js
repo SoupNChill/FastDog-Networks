@@ -11,7 +11,8 @@ export const fail = (status, code, extra = {}) => Object.assign(new Error(code),
 const DAY = 86400000;
 const MIN_OUTAGE_SAMPLE = 10;
 
-const originAddress = (upstream) => { try { return upstream ? new URL(upstream).host || null : null; } catch { return null; } };
+// Host and port only (never userinfo or path); limited to address characters because the agent chooses it.
+const originAddress = (upstream) => { try { const host = upstream ? new URL(upstream).host : ''; return /^[a-z0-9.:[\]-]{1,100}$/i.test(host) ? host : null; } catch { return null; } };
 
 export function createClaims(opts, changed) {
   const directory = opts.dataDir ?? defaultDataDir();

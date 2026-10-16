@@ -83,7 +83,8 @@ function fetchLocal(method, path, headers, bodyBuf) {
   });
 }
 
-// Any HTTP response means the app is listening; only reachability is reported, never response content.
+// Reachability probe of the operator's own local app only. Any HTTP response means the app is listening; the
+// result is a boolean and no response content is read. Do not reuse this (TLS checks off) for forwarded traffic.
 export function probeOrigin(upstream = LOCAL_UPSTREAM, { timeoutMs = 3000 } = {}) {
   return new Promise((resolve) => {
     let url;

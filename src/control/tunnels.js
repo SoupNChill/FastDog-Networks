@@ -100,7 +100,7 @@ export function setOriginStatus(agentId, { origin_reachable: reachable, origin_c
 
 export function detachWs(agentId, ws) {
   const a = agents.get(agentId);
-  if (a && a.ws === ws) a.ws = null;
+  if (a && a.ws === ws) { a.ws = null; delete a.originReachable; delete a.originCheckedAt; }
 }
 
 /**

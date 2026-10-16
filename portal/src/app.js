@@ -168,7 +168,10 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         }
         if (!user.email_verified_at) throw fail('unauthorized');
         const hostname = normalizeHostname(body.hostname);
-        return send(201, hostnameRecord(await edge.createHostname(tenant.id, hostname, tenant.hostname_limit)));
+        const created = hostnameRecord(await edge.createHostname(tenant.id, hostname, tenant.hostname_limit));
+        const commands = store.read('connect_commands', {});
+        if (delete commands[commandKey(tenant.id, hostname)]) store.write('connect_commands', commands);
+        return send(201, created);
       }
       const hostname = normalizeHostname(match[1]);
       if (request.method === 'DELETE') {
