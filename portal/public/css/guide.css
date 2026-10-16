@@ -19,7 +19,7 @@
 
 .dns-cloudflare-note { font-weight: 600; }
 .provider-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 16px 12px; }
-.provider-tabs [role="tab"] { flex: 1 1 110px; width: auto; min-height: 44px; }
+.provider-tabs [role="tab"] { flex: 1 1 calc(33.333% - 8px); width: auto; min-height: 44px; padding: 0 8px; white-space: nowrap; }
 .provider-tabs [aria-selected="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .dns-record { border-top: 1px solid var(--rule); padding-block: 12px; }
 .dns-record h3 { font-size: 16px; margin: 0 0 8px; }
