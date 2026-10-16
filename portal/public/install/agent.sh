@@ -10,7 +10,7 @@ usage() {
     'Remove: bash agent.sh --uninstall [--name NAME]' \
     'The edge URL must start with https:// or wss://. The default name is default.'
 }
-image=ghcr.io/soupnchill/fastdog-agent:0.1.0@sha256:9597421f707d048d6f904b239ac7e7e536cbd06959999cdc4e5c4ee44092a5a1
+image=ghcr.io/soupnchill/fastdog-agent:0.1.2@sha256:6dcc855e5dcc5c058326d961133186b30cfa158a0173facd50d5e4e00cefd726
 token=${FASTDOG_AGENT_TOKEN:-}
 unset FASTDOG_AGENT_TOKEN
 edge='' hostname='' origin='http://127.0.0.1:8080' name='default' uninstall=0

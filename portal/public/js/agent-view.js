@@ -1,7 +1,7 @@
 import { api, button, copy, message } from './api.js';
 const shellQuote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
 const powershellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
-const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.0@sha256:9597421f707d048d6f904b239ac7e7e536cbd06959999cdc4e5c4ee44092a5a1';
+const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.2@sha256:6dcc855e5dcc5c058326d961133186b30cfa158a0173facd50d5e4e00cefd726';
 const LOCAL = (port) => `http:${'//'}127.0.0.1:${port}`;
 const PRIVATE_V4 = /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|169\.254\.)/;
 // Advisory only (the agent runs on the customer's own server). Returns { value } for a usable local app address or { error } with plain-language advice.

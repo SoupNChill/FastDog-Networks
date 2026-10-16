@@ -41,7 +41,7 @@ test('installer stores private configuration, starts the pinned container and re
   const unit = readFileSync(join(f.units, 'fastdog-agent-web-1.service'), 'utf8');
   assert.ok(unit.includes(`run --rm --name fastdog-agent-web-1 --env-file ${env} --network host ${publishedImage}`));
   assert.match(unit, /Restart=always/); assert.ok(!unit.includes(token));
-  assert.match(readFileSync(f.calls, 'utf8'), /docker pull .*:0\.1\.0@sha256:[a-f0-9]{64}\nsystemctl daemon-reload\nsystemctl enable --now fastdog-agent-web-1.service/);
+  assert.match(readFileSync(f.calls, 'utf8'), /docker pull .*:0\.1\.2@sha256:[a-f0-9]{64}\nsystemctl daemon-reload\nsystemctl enable --now fastdog-agent-web-1.service/);
   assert.equal(f.run(args).status, 1, 'existing credentials are not replaced');
   assert.equal(f.run(['--uninstall', '--name', 'web-1']).status, 0);
   assert.equal(existsSync(env), false);
@@ -111,7 +111,7 @@ test('portal and installer each define the same single image reference', () => {
   const portal = readFileSync('portal/public/js/agent-view.js', 'utf8');
   assert.equal(portal.match(/const AGENT_IMAGE = '([^']+)'/)[1], image);
   for (const text of [source, portal]) assert.equal(text.split(image).length, 2);
-  assert.match(image, /:0\.1\.0@sha256:[0-9a-f]{64}$/);
+  assert.match(image, /:0\.1\.2@sha256:[0-9a-f]{64}$/);
 });
 test('image publication uses tags only and rejects an existing registry tag before push', () => {
   const workflow = readFileSync('.github/workflows/agent-image.yml', 'utf8');

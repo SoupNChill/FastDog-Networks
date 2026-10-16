@@ -39,7 +39,7 @@ unset agent_token
 
 The token is passed in the environment (FASTDOG_AGENT_TOKEN), never in process arguments; `--token` is rejected. Run this on a trusted machine. The installer never prints it. It saves the token and connection settings in `/etc/fastdog-agent/web.env`, owned by root with mode 600, under a private directory. The service file is `/etc/systemd/system/fastdog-agent-web.service`. The container runs as the non-root `node` user. Host networking lets the container reach your web service on `127.0.0.1`.
 
-The installer accepts an HTTPS edge address or its WSS equivalent, with an optional `/_fastdog/tunnel` suffix. It sets both `EDGE_HTTP_URL` and `EDGE_WS_URL` for the same server, plus `AGENT_TOKEN`, `AGENT_NAME`, `AGENT_HOSTNAME` and `AGENT_LOCAL_UPSTREAM`. It downloads `ghcr.io/soupnchill/fastdog-agent:0.1.0` and enables automatic restarts and startup after reboot.
+The installer accepts an HTTPS edge address or its WSS equivalent, with an optional `/_fastdog/tunnel` suffix. It sets both `EDGE_HTTP_URL` and `EDGE_WS_URL` for the same server, plus `AGENT_TOKEN`, `AGENT_NAME`, `AGENT_HOSTNAME` and `AGENT_LOCAL_UPSTREAM`. It downloads `ghcr.io/soupnchill/fastdog-agent:0.1.2` (pinned by digest) and enables automatic restarts and startup after reboot.
 
 Check the service with `sudo systemctl status fastdog-agent-web.service`, then confirm the portal shows the hostname as connected. If requests fail, check that your local web service is running at the origin address. A connected agent does not itself provision the hostname's certificate; complete the operator certificate step above.
 
@@ -73,4 +73,4 @@ The source package and lockfile are now 0.1.1. This release requires a nonempty 
 
 Version 0.1.1 sends the credential only in an Authorization Bearer header on registration and tunnel connections. Deploy the compatible edge before upgrading agents. A present Authorization header wins over legacy credentials, including when the header is invalid. The edge temporarily accepts the deprecated tunnel query token for 0.1.0 installations. Keep proxy logs configured to drop queries and authentication headers throughout migration. Remove the query fallback after every agent is confirmed on 0.1.1 or later.
 
-The publication instructions above describe the published 0.1.0 image. Publishing 0.1.1 and updating any image metadata remain separate operator work. Installer and portal image references stay pinned to 0.1.0 until the operator publishes and verifies 0.1.1; only then update those references. This lane does not build, publish, pull or deploy an image.
+Version 0.1.2 is published as `ghcr.io/soupnchill/fastdog-agent:0.1.2@sha256:6dcc855e5dcc5c058326d961133186b30cfa158a0173facd50d5e4e00cefd726` (tag `agent-v0.1.2`). The installer and portal copy pin that digest. Existing installs keep their pinned image until reinstalled.
