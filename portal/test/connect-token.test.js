@@ -1,0 +1,99 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { fixture, tids, request } from './helpers.js';
+import { buildCommand, validOrigin } from '../src/connect-command.js';
+
+const edgeUrl = 'https://edge.example-edge.test';
+const bearer = (token) => ({ authorization: `Bearer ${token}` });
+async function ready(t, config = {}) {
+  const f = await fixture(t, { edgeUrl, docsUrl: 'https://docs.example.test', ...config });
+  const a = await f.seed();
+  await a.client.call('/api/hostnames', 'POST', { hostname: 'app.example.test' });
+  return { f, a };
+}
+
+test('connect tokens need an active owned hostname, CSRF and a verified session', async (t) => {
+  const { f, a } = await ready(t);
+  assert.equal((await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).status, 409);
+  await a.client.call('/api/hostnames/app.example.test/verify', 'POST');
+  assert.equal((await request(f.port, '/api/hostnames/app.example.test/connect-token', { method: 'POST' })).status, 401);
+  const b = await f.seed(1);
+  assert.equal((await b.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).status, 404);
+  const issued = await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST');
+  assert.equal(issued.status, 201);
+  assert.match(issued.data.token, /^fdct_[A-Za-z0-9_-]{43}$/);
+  assert.equal(issued.data.scope, 'connect');
+  assert.equal(Date.parse(issued.data.expires_at) - f.now(), 3600000);
+  assert.ok(issued.data.prompt.includes(issued.data.token));
+  assert.ok(issued.data.prompt.includes('app.example.test'));
+  assert.ok(issued.data.prompt.includes('https://docs.example.test/llms.txt'));
+  const stored = JSON.stringify(f.store.read('connect_tokens', []));
+  assert.equal(stored.includes(issued.data.token), false, 'only a digest is stored');
+  const list = await a.client.call('/api/hostnames/app.example.test/connect-token');
+  assert.equal(list.data.tokens.length, 1);
+  assert.equal(JSON.stringify(list.data).includes('fdct_'), false);
+});
+
+test('a connect token reads one hostname and issues its command exactly once', async (t) => {
+  const { f, a } = await ready(t);
+  await a.client.call('/api/hostnames/app.example.test/verify', 'POST');
+  const { token } = (await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).data;
+  assert.equal((await request(f.port, '/api/connect/v1/hostname')).status, 401);
+  assert.equal((await request(f.port, '/api/connect/v1/hostname', { headers: bearer('fdct_nope') })).status, 401);
+  assert.equal((await request(f.port, `/api/connect/v1/hostname?token=${token}`)).status, 401, 'never accepted in the URL');
+  const status = await request(f.port, '/api/connect/v1/hostname', { headers: bearer(token) });
+  assert.equal(status.status, 200);
+  assert.equal(status.data.hostname, 'app.example.test');
+  assert.equal(status.data.agent.connected, false);
+  assert.equal((await request(f.port, '/api/connect/v1/command', { headers: bearer(token) })).status, 405);
+  const post = (body) => request(f.port, '/api/connect/v1/command', { method: 'POST', headers: { ...bearer(token), 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post({ origin: 'http://203.0.113.9:80' })).status, 400, 'public origins are refused');
+  assert.equal((await post({ origin: 'http://127.0.0.1:3000', platform: 'windows' })).status, 400);
+  const command = await post({ origin: '127.0.0.1:4007' });
+  assert.equal(command.status, 200);
+  assert.match(command.data.command, /install\/agent\.sh/);
+  assert.match(command.data.command, /--hostname 'app\.example\.test'/);
+  assert.match(command.data.command, /--origin 'http:\/\/127\.0\.0\.1:4007'/);
+  assert.match(command.data.command, /--edge 'https:\/\/edge\.example-edge\.test'/);
+  assert.deepEqual(f.calls.at(-1), ['rotate', tids[0], 'app.example.test']);
+  assert.equal((await post({ origin: '127.0.0.1:4007' })).status, 409, 'single use');
+  const again = await request(f.port, '/api/connect/v1/hostname', { headers: bearer(token) });
+  assert.equal(again.data.command_issued, true);
+});
+
+test('connect tokens expire after an hour and are revocable, including by removing the hostname', async (t) => {
+  const { f, a } = await ready(t);
+  await a.client.call('/api/hostnames/app.example.test/verify', 'POST');
+  const first = (await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).data.token;
+  f.advance(3600001);
+  assert.equal((await request(f.port, '/api/connect/v1/hostname', { headers: bearer(first) })).status, 401);
+  const second = (await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).data.token;
+  assert.equal((await request(f.port, '/api/connect/v1/hostname', { headers: bearer(second) })).status, 200);
+  const revoked = await a.client.call('/api/hostnames/app.example.test/connect-token', 'DELETE');
+  assert.equal(revoked.data.revoked, 1);
+  assert.equal((await request(f.port, '/api/connect/v1/hostname', { headers: bearer(second) })).status, 401);
+  const third = (await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).data.token;
+  await a.client.call('/api/hostnames/app.example.test', 'DELETE');
+  assert.equal((await request(f.port, '/api/connect/v1/hostname', { headers: bearer(third) })).status, 401);
+});
+
+test('issuing is rate limited and keeps at most three live tokens per hostname', async (t) => {
+  const { f, a } = await ready(t);
+  await a.client.call('/api/hostnames/app.example.test/verify', 'POST');
+  const tokens = [];
+  for (let i = 0; i < 5; i++) tokens.push((await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).data.token);
+  assert.equal((await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).status, 429);
+  const live = [];
+  for (const token of tokens) live.push((await request(f.port, '/api/connect/v1/hostname', { headers: bearer(token) })).status);
+  assert.deepEqual(live, [401, 401, 200, 200, 200]);
+});
+
+test('server-side command builder matches the browser rules', () => {
+  assert.equal(validOrigin('127.0.0.1:5000'), 'http://127.0.0.1:5000');
+  assert.equal(validOrigin('http://example.com:80'), null);
+  assert.equal(validOrigin('http://127.0.0.1'), null);
+  assert.equal(validOrigin("http://127.0.0.1:5000/'x"), null);
+  const env = { AGENT_TOKEN: 'fake', AGENT_HOSTNAME: 'app.example.test', EDGE_HTTP_URL: 'https://edge.example-edge.test' };
+  assert.equal(buildCommand(env, { platform: 'windows', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' }), null);
+  assert.match(buildCommand(env, { platform: 'docker', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' }), /docker run -d/);
+});

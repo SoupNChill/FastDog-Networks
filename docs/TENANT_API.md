@@ -139,6 +139,9 @@ All JSON, same-origin, `__Host-fd_session` cookie, `Origin` check and `x-fd-csrf
 | POST | `/api/hostnames/:hostname/rotate` | edge rotate |
 | DELETE | `/api/hostnames/:hostname` | edge detach |
 | GET | `/api/hostnames/:hostname/agent` | connected indicator |
+| GET/POST/DELETE | `/api/hostnames/:hostname/connect-token` | list / issue (CSRF, verified, active host, 5/hour per tenant) / revoke all 1-hour connect tokens for the AI-assistant prompt |
+| GET | `/api/connect/v1/hostname` | Bearer connect token only (cookies ignored): one hostname's connection status |
+| POST | `/api/connect/v1/command` | Bearer connect token only: `{origin, platform: linux|docker}` returns the connect command once per token (rotates the credential; shares the 5/day rotate limit) |
 | GET | `/api/domains/search?q=` | existing domain-search service (unchanged) |
 | GET/POST | `/api/domain-requests` | list / create a request (max 3 open); no registrar write path |
 | GET | `/api/plan` | operator-set plan and limits |

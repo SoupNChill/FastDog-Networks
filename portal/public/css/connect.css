@@ -36,3 +36,7 @@
   border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: -1px; animation: fd-spin .8s linear infinite; }
 @keyframes fd-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { #check-agent[aria-busy="true"]::before { animation: none; } }
+.ai-prompt { margin-block: 28px; }
+.ai-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ai-actions button, #ai-copy { width: auto; min-height: 44px; }
+#ai-text { white-space: pre-wrap; overflow-wrap: anywhere; }

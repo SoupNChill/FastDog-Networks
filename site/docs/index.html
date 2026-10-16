@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#222831">
+  <title>Docs — FastDog Networks</title>
+  <meta name="description" content="How to put your website on FastDog: add your address, add two DNS records, connect your server, and check its live status.">
+  <link rel="canonical" href="https://fastdognetworks.com/docs/">
+  <meta property="og:title" content="Docs — FastDog Networks">
+  <meta property="og:description" content="How to put your website on FastDog: add your address, add two DNS records, connect your server, and check its live status.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://fastdognetworks.com/docs/">
+  <meta property="og:image" content="https://fastdognetworks.com/og/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="FastDog Networks. Fast by Design.">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/SpaceGrotesk-Medium.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="/fonts/SpaceGrotesk-Bold.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+  <link rel="alternate" type="text/plain" href="/llms.txt" title="Docs for AI assistants">
+  
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap">
+  <a class="brand" href="/" aria-label="FastDog Networks home"><picture><source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/hound-light.svg" width="70" height="21" alt=""></picture><span>FastDog <span class="brand-second">Networks</span></span></a>
+  <nav aria-label="Main navigation"><a href="/edge/">Edge</a><a href="/domains/">Domains</a><a href="/verdict/">Verdict</a><a href="/customers/punch-clock/">Customers</a><a href="/docs/" aria-current="page">Docs</a><a class="nav-contact" href="mailto:support@fastdognetworks.com?subject=FastDog%20Networks%20inquiry">Get in touch <span aria-hidden="true">↗</span></a></nav>
+</header>
+<main id="main" class="wrap docs">
+<section class="product-hero"><div><span class="eyebrow">Docs</span><h1>Put your website on FastDog.</h1><p class="hero-lede">Four steps: add your address, add two DNS records, connect your server, then check that it’s live. Your app keeps running where it is.</p><p class="small-note">For AI assistants: the same guide in plain text is at <a href="/llms.txt">/llms.txt</a>.</p></div></section>
+
+<section class="section" id="how-it-works"><h2>How it works</h2>
+<ol>
+<li>Visitors type your address. A CNAME record at your DNS provider sends them to FastDog’s edge.</li>
+<li>The edge answers over HTTPS with a certificate it gets for you automatically.</li>
+<li>A small program on your server (the agent) keeps one outbound connection open to the edge. Each request travels down that connection to your app.</li>
+</ol>
+<p><strong>Why no ports?</strong> The agent dials out, the way a browser does, so you don’t open ports, change your firewall or reveal your server’s IP address.</p>
+</section>
+
+<section class="section" id="step-1"><h2>1. Add your website address</h2>
+<p>In the portal, enter the address people will use, such as <code>app.example.com</code>. Use a subdomain: most DNS providers can’t put a CNAME on a root domain like <code>example.com</code>. If yours supports ALIAS, ANAME or CNAME flattening, that works too.</p>
+</section>
+
+<section class="section" id="step-2"><h2>2. Add two DNS records</h2>
+<p>The portal shows both records with the exact field names for Cloudflare, Namecheap, GoDaddy, Route 53, Porkbun and others.</p>
+<ul>
+<li><strong>CNAME</strong> on your address, pointing at the attach target the portal shows. It sends visitors to FastDog.</li>
+<li><strong>TXT</strong> on <code>_fastdog-challenge.</code> plus your address, with the value the portal shows. It proves you own the domain, so nobody else can connect it.</li>
+</ul>
+<p><strong>Why two records?</strong> One routes traffic and one proves ownership. Keep both in place; FastDog may re-check them.</p>
+<p><strong>Cloudflare: use grey cloud.</strong> Set Proxy status to “DNS only” (grey cloud). Grey cloud means Cloudflare only answers DNS and visitors go straight to FastDog. Orange cloud (Proxied) puts Cloudflare in the middle, which hides your record from our check and stops your HTTPS certificate.</p>
+<p>DNS changes can take a few minutes, sometimes a few hours, to spread. Press <em>Check</em> in the portal once they’re saved.</p>
+</section>
+
+<section class="section" id="step-3"><h2>3. Connect your server</h2>
+<p>On the <em>Server</em> page, enter where your app listens on that server, such as <code>http://127.0.0.1:3000</code>, then press <em>Get my connect command</em>. Run the command on that server. Linux is recommended; Docker, macOS and Windows commands are also offered.</p>
+<p>The command contains a private key and is shown once. Don’t paste it into chats, tickets or logs. Getting a new command replaces the old key and closes any current connection until you run the new one.</p>
+</section>
+
+<section class="section" id="step-4"><h2>4. Check it’s live</h2>
+<p>The <em>Status</em> page shows a big Live or Not live, when it was last checked, your certificate’s expiry, whether the agent is connected and your app is answering, requests over the last 24 hours, typical response time, and bot-check counts in shadow mode (counted only, nothing blocked). <em>Test it</em> loads your home page through FastDog and shows the status code, time and certificate.</p>
+</section>
+
+<section class="section" id="ai-assistant"><h2>Using an AI assistant</h2>
+<p>On the <em>Server</em> page, press <em>Create prompt</em> under “Copy prompt for your AI assistant”. The prompt includes a connect token that:</p>
+<ul>
+<li>works for one website address only,</li>
+<li>can only read that address’s connection status and get its connect command once,</li>
+<li>expires after one hour, and can be revoked at any time from the same page.</li>
+</ul>
+<p>The assistant sends it as <code>Authorization: Bearer &lt;token&gt;</code> to two endpoints on the portal:</p>
+<ul>
+<li><code>GET /api/connect/v1/hostname</code>: the address, token expiry, and <code>agent.connected</code> / <code>agent.origin_reachable</code>.</li>
+<li><code>POST /api/connect/v1/command</code> with <code>{"origin": "http://127.0.0.1:3000", "platform": "linux"}</code> (or <code>"docker"</code>): returns the connect command once. Origins must be local or private addresses with a port.</li>
+</ul>
+<p>Tokens are never accepted in a URL. Your password and sudo prompts stay with you.</p>
+</section>
+
+<section class="section" id="troubleshooting"><h2>Troubleshooting</h2>
+<dl>
+<dt>“We haven’t seen your records yet”</dt><dd>Wait a few minutes and check again. Make sure the TXT name starts with <code>_fastdog-challenge.</code> and your provider didn’t add your domain twice.</dd>
+<dt>“Your record is proxied by Cloudflare”</dt><dd>Switch the CNAME to DNS only (grey cloud).</dd>
+<dt>Agent connected, but your app isn’t answering</dt><dd>Start your app, or fix the address you entered. In Docker, <code>127.0.0.1</code> is the container itself; use <code>host.docker.internal</code> on Docker Desktop.</dd>
+<dt>Not live: no certificate yet</dt><dd>The certificate is issued on the first visit once DNS points at FastDog. Open your address once, then refresh Status.</dd>
+</dl>
+</section>
+</main>
+<footer class="footer wrap"><picture><source srcset="/logos/lockup-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/lockup-light.svg" width="180" height="110" alt="FastDog Networks. Fast by Design."></picture><div><span>DNS · tunnel · TLS</span><span>© FastDog Networks</span><a class="footer-link" href="mailto:support@fastdognetworks.com?subject=FastDog%20Networks%20inquiry">support@fastdognetworks.com <span aria-hidden="true">↗</span></a></div></footer>
+</body>
+</html>

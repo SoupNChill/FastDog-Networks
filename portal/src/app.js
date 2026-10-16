@@ -11,6 +11,8 @@ import { fail, statuses } from './errors.js';
 import { normalizeHostname } from './hostname.js';
 import { safePath, serveStatic, pages } from './static.js';
 import { createFileMailer } from './mailer-file.js';
+import { createConnectTokens, assistantPrompt } from './connect-tokens.js';
+import { buildCommand, validOrigin } from './connect-command.js';
 
 const authPaths = new Set(['/api/signup', '/api/login', '/api/logout', '/api/verify-email', '/api/password-reset', '/api/password-reset/confirm']);
 const staticRoutes = new Map([
@@ -77,6 +79,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
   const sessions = createSessions(store, now);
   const limits = createRateLimits(now, store);
   const auth = createAuth({ store, sessions, limits, now, mailer, config });
+  const connectTokens = createConnectTokens(store, now);
+  const docsUrl = typeof config.docsUrl === 'string' && /^https:\/\/[a-z0-9.-]+(?:\/[a-z0-9/_-]*)?$/i.test(config.docsUrl) ? config.docsUrl : null;
   const server = http.createServer(async (request, response) => {
     const started = now();
     let template = 'unknown';
@@ -111,8 +115,40 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         template = 'static';
         return serveStatic(path, response);
       }
-      const match = path.match(/^\/api\/hostnames\/([^/]+)(?:\/(verify|rotate|agent))?$/);
-      const allowed = staticRoutes.get(path) || (match ? (match[2] === 'agent' ? ['GET'] : match[2] ? ['POST'] : ['GET', 'DELETE']) : null);
+      if (path.startsWith('/api/connect/v1/')) {
+        // Bearer-only API for AI assistants. Cookies are ignored here, so CSRF does not apply.
+        template = path;
+        const routes = { '/api/connect/v1/hostname': 'GET', '/api/connect/v1/command': 'POST' };
+        if (!routes[path]) throw fail('not_found');
+        if (request.method !== routes[path]) return send(405, { error: 'method_not_allowed' }, { Allow: routes[path] });
+        limits.take(`connect-api:${clientIp(request, config.trustProxy)}`, 120, 600000);
+        const header = request.headers.authorization;
+        const record = connectTokens.find(typeof header === 'string' && /^Bearer /.test(header) ? header.slice(7).trim() : null);
+        if (!record) throw fail('unauthorized');
+        const tenant = store.read('accounts', { tenants: [] }).tenants.find((t) => t.id === record.tenant_id);
+        if (!tenant || (tenant.status && tenant.status !== 'active')) throw fail('unauthorized');
+        limits.take(`connect-token:${record.id}`, 30, 60000);
+        if (path === '/api/connect/v1/hostname') {
+          const agent = pick(await edge.getAgent(record.tenant_id, record.hostname), ['connected', 'last_seen', 'origin_reachable', 'origin_checked_at']);
+          return send(200, { hostname: record.hostname, scope: 'connect', expires_at: record.expires_at, command_issued: Boolean(record.command_issued_at), agent });
+        }
+        const body = await readBody(request);
+        const upstream = validOrigin(body.origin);
+        const platform = body.platform === undefined ? 'linux' : body.platform;
+        if (!upstream || !['linux', 'docker'].includes(platform)) throw fail('invalid_origin');
+        if (!edgeUrl) throw fail('internal_error');
+        if (record.command_issued_at) throw fail('token_used');
+        limits.take(`rotate:${record.tenant_id}:${record.hostname}`, 5, 86400000, true);
+        if (!connectTokens.markCommand(record.id)) throw fail('token_used');
+        const rotated = withConnection(await edge.rotateCredential(record.tenant_id, record.hostname));
+        markCommand(record.tenant_id, record.hostname);
+        const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
+        if (!command) throw fail('internal_error');
+        return send(200, { hostname: record.hostname, platform, origin: upstream, command,
+          note: 'Run this once on the server where the app runs. It contains a private key; do not log or share it.' });
+      }
+      const match = path.match(/^\/api\/hostnames\/([^/]+)(?:\/(verify|rotate|agent|connect-token))?$/);
+      const allowed = staticRoutes.get(path) || (match ? (match[2] === 'connect-token' ? ['GET', 'POST', 'DELETE'] : match[2] === 'agent' ? ['GET'] : match[2] ? ['POST'] : ['GET', 'DELETE']) : null);
       if (!allowed) throw fail('not_found');
       template = match ? `/api/hostnames/:hostname${match[2] ? `/${match[2]}` : ''}` : path;
       if (!allowed.includes(request.method)) return send(405, { error: 'method_not_allowed' }, { Allow: allowed.join(', ') });
@@ -174,13 +210,25 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         return send(201, created);
       }
       const hostname = normalizeHostname(match[1]);
-      if (request.method === 'DELETE') {
+      if (request.method === 'DELETE' && !match[2]) {
         const removed = pick(await edge.deleteHostname(tenant.id, hostname), ['hostname', 'detached']);
+        connectTokens.revokeAll(tenant.id, hostname);
         const all = store.read('connect_commands', {});
         if (delete all[commandKey(tenant.id, hostname)]) store.write('connect_commands', all);
         return send(200, removed);
       }
       if (!match[2]) return send(200, hostnameRecord(await edge.getHostname(tenant.id, hostname)));
+      if (match[2] === 'connect-token') {
+        const record = await edge.getHostname(tenant.id, hostname);
+        if (request.method === 'GET') return send(200, { tokens: connectTokens.list(tenant.id, hostname) });
+        if (request.method === 'DELETE') return send(200, { revoked: connectTokens.revokeAll(tenant.id, hostname) });
+        if (!user.email_verified_at) throw fail('unauthorized');
+        if (record.status !== 'active') throw fail('not_active');
+        limits.take(`connect-token:${tenant.id}`, 5, 3600000, true);
+        const issued = connectTokens.issue(tenant.id, hostname);
+        return send(201, { ...issued, hostname, scope: 'connect',
+          prompt: assistantPrompt({ hostname, token: issued.token, expiresAt: issued.expires_at, portalOrigin: config.origin, docsUrl }) });
+      }
       if (match[2] === 'agent') return send(200, pick(await edge.getAgent(tenant.id, hostname), ['connected', 'last_seen', 'registered_at', 'origin_reachable', 'origin_checked_at', 'origin_address']));
       if (!user.email_verified_at) throw fail('unauthorized');
       if (match[2] === 'verify') {
