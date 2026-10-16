@@ -57,6 +57,20 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
   if (origin.protocol !== 'https:' || origin.origin !== config.origin) throw new Error('HTTPS portal origin required');
   if (!Number.isInteger(config.defaultHostnameLimit) || config.defaultHostnameLimit < 1 || config.defaultHostnameLimit > 1000
     || typeof config.defaultPlan !== 'string' || !config.defaultPlan.trim()) throw new Error('Invalid default plan');
+  // Public edge address agents dial (PORTAL_EDGE_URL). Without it the portal never renders a connect command.
+  const edgeUrl = config.edgeUrl ? String(config.edgeUrl).replace(/\/$/, '') : null;
+  if (edgeUrl) {
+    let parsedEdge;
+    try { parsedEdge = new URL(edgeUrl); } catch { throw new Error('Invalid public edge URL'); }
+    if (parsedEdge.protocol !== 'https:' || parsedEdge.origin !== edgeUrl || !/^[a-z0-9.:\/-]+$/i.test(edgeUrl)) throw new Error('Invalid public edge URL');
+  }
+  const withConnection = (result) => result.credential && edgeUrl ? { ...result, credential: {
+    ...result.credential, agent_env: { ...result.credential.agent_env, EDGE_HTTP_URL: edgeUrl,
+      EDGE_WS_URL: `${edgeUrl.replace(/^https/, 'wss')}/_fastdog/tunnel` },
+  } } : result;
+  const commandKey = (tid, host) => `${tid}:${host}`;
+  const commandIssued = (tid, host) => Boolean(store.read('connect_commands', {})[commandKey(tid, host)]);
+  const markCommand = (tid, host) => { const all = store.read('connect_commands', {}); all[commandKey(tid, host)] = new Date(now()).toISOString(); store.write('connect_commands', all); };
   const store = createStore(dataDir);
   mailer ||= createFileMailer({ outboxDir: config.outboxDir || join(dataDir, 'outbox') });
   const notifications = createFileMailer({ outboxDir: config.outboxDir || join(dataDir, 'outbox') });
@@ -150,23 +164,30 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
       if (path === '/api/hostnames') {
         if (request.method === 'GET') {
           const result = await edge.listHostnames(tenant.id);
-          return send(200, { hostnames: result.hostnames.map(hostnameRecord) });
+          return send(200, { hostnames: result.hostnames.map((item) => ({ ...hostnameRecord(item), command_issued: commandIssued(tenant.id, item.hostname) })) });
         }
         if (!user.email_verified_at) throw fail('unauthorized');
         const hostname = normalizeHostname(body.hostname);
         return send(201, hostnameRecord(await edge.createHostname(tenant.id, hostname, tenant.hostname_limit)));
       }
       const hostname = normalizeHostname(match[1]);
-      if (request.method === 'DELETE') return send(200, pick(await edge.deleteHostname(tenant.id, hostname), ['hostname', 'detached']));
+      if (request.method === 'DELETE') {
+        const removed = pick(await edge.deleteHostname(tenant.id, hostname), ['hostname', 'detached']);
+        const all = store.read('connect_commands', {});
+        if (delete all[commandKey(tenant.id, hostname)]) store.write('connect_commands', all);
+        return send(200, removed);
+      }
       if (!match[2]) return send(200, hostnameRecord(await edge.getHostname(tenant.id, hostname)));
       if (match[2] === 'agent') return send(200, pick(await edge.getAgent(tenant.id, hostname), ['connected', 'last_seen', 'registered_at']));
       if (!user.email_verified_at) throw fail('unauthorized');
       if (match[2] === 'verify') {
         limits.take(`verify:${tenant.id}`, 6, 60000);
-        return send(200, pick(await edge.verifyHostname(tenant.id, hostname), ['hostname', 'status', 'verified', 'verified_at', 'method', 'checks', 'credential']));
+        return send(200, pick(withConnection(await edge.verifyHostname(tenant.id, hostname)), ['hostname', 'status', 'verified', 'verified_at', 'method', 'checks', 'credential']));
       }
       limits.take(`rotate:${tenant.id}:${hostname}`, 5, 86400000, true);
-      return send(200, pick(await edge.rotateCredential(tenant.id, hostname), ['credential']));
+      const rotated = pick(withConnection(await edge.rotateCredential(tenant.id, hostname)), ['credential']);
+      markCommand(tenant.id, hostname);
+      return send(200, rotated);
     } catch (error) {
       const code = Object.hasOwn(statuses, error.code) ? error.code : 'internal_error';
       const retry = Number.isFinite(error.retry_after) && error.retry_after > 0 ? Math.ceil(error.retry_after) : 60;

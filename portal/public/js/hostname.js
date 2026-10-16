@@ -70,6 +70,12 @@ export async function copyFeedback(text, control, output) {
     message('Automatic copy is unavailable. The text is selected. Use your device’s Copy action.');
   }
 }
+function showNextStep(hostname) {
+  const next = document.querySelector('#next-step');
+  if (!next) return;
+  next.href = `/connect?hostname=${encodeURIComponent(hostname)}`;
+  next.hidden = false;
+}
 function displayCredential(credential) {
   showCredential(credential);
   const control = document.querySelector('#copy-command');
@@ -108,8 +114,8 @@ function showDns(record) {
     if (current !== generation) return;
     if (result.verified) {
       document.querySelector('#claim').hidden = true;
-      message('Your DNS records are ready. Next, connect your server.');
-      if (result.credential) displayCredential(result.credential);
+      message('Your DNS records are ready. Next, connect your server on the Server page.');
+      showNextStep(record.hostname);
       await list();
       return;
     }

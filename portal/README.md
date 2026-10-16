@@ -25,6 +25,7 @@ The starter reads process environment only; it never opens an environment file.
 | `STATE_DIRECTORY` | Required private state directory; one running writer |
 | `PORTAL_KEY` | Required internal edge key, at least 32 characters |
 | `PORTAL_PORT` | Loopback port, default `8790` |
+| `PORTAL_EDGE_URL` | Public HTTPS edge origin agents connect to (for example `https://edge.example.test`). Put into every connect command; when unset the portal shows no command and asks the customer to contact support |
 | `EDGE_INTERNAL_URL` | Internal service base URL, default `http://127.0.0.1:8789` |
 | `DOMAIN_SEARCH_URL` | Search base URL, default `http://127.0.0.1:8791` |
 | `OUTBOX_DIR` | Private outgoing message directory; defaults to state directory `/outbox` |

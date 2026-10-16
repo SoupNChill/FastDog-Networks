@@ -15,7 +15,7 @@ export function start(env = process.env) {
     edge: createEdgeClient({ baseUrl: env.EDGE_INTERNAL_URL || 'http://127.0.0.1:8789', portalKey: env.PORTAL_KEY }),
     domainSearch: createDomainClient({ baseUrl: env.DOMAIN_SEARCH_URL || 'http://127.0.0.1:8791' }),
     mailer: createFileMailer({ outboxDir }),
-    config: { origin: env.PORTAL_ORIGIN, outboxDir, trustProxy: env.TRUST_PROXY === '1',
+    config: { origin: env.PORTAL_ORIGIN, edgeUrl: env.PORTAL_EDGE_URL, outboxDir, trustProxy: env.TRUST_PROXY === '1',
       defaultPlan: env.DEFAULT_PLAN || 'assigned', defaultHostnameLimit: Number(env.DEFAULT_HOSTNAME_LIMIT || 3),
       logger: (entry) => console.log(JSON.stringify(entry)) },
   });

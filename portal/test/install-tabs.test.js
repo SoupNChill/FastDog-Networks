@@ -27,7 +27,7 @@ test('Docker and macOS share a pinned command; Windows uses PowerShell quoting',
   assert.match(docker, /EDGE_WS_URL=wss:\/\/edge.example.test\/_fastdog\/tunnel/);
   assert.ok(connectionCommand(env, 'windows').includes("'AGENT_TOKEN=private''fixture'"));
   assert.match(connectionCommand(env, 'windows'), /^Set-Content /);
-  assert.match(connectionCommand({ AGENT_TOKEN: 'fixture', AGENT_HOSTNAME: 'app.example.test' }, 'linux'), /--edge '<EDGE_HTTP_URL>'.*--origin '<LOCAL_UPSTREAM>'/);
+  assert.equal(connectionCommand({ AGENT_TOKEN: 'fixture', AGENT_HOSTNAME: 'app.example.test' }, 'linux'), null);
 });
 test('install tabs start with Linux and support keyboard navigation and credential clearing', () => {
   const previous = { document: globalThis.document, window: globalThis.window };
@@ -77,4 +77,28 @@ test('Docker shell command writes private exact values without passing the token
   for (const [key, value] of Object.entries(env)) assert.ok(saved.includes(`${key}=${value}\n`));
   assert.equal(statSync(join(dir, 'fastdog-agent.env')).mode & 0o777, 0o600);
   assert.doesNotMatch(readFileSync(join(dir, 'docker-args'), 'utf8'), /private/);
+});
+
+test('rendered commands never contain angle-bracket placeholders on any tab', () => {
+  for (const origin of ['http://127.0.0.1:5000', 'http://localhost:3000', 'http://192.168.1.20:8080', 'http://host.docker.internal:8000']) {
+    for (const platform of ['linux', 'docker', 'macos', 'windows']) {
+      const command = buildCommand({ ...env, AGENT_LOCAL_UPSTREAM: undefined }, platform, 'https://portal.example.test', origin);
+      assert.ok(command, `${platform} ${origin}`);
+      assert.doesNotMatch(command, /</);
+      assert.doesNotMatch(command.replace(/ > fastdog-agent\.env /, ' '), />/);
+      assert.ok(command.includes('https://edge.example.test'));
+      assert.ok(command.includes(origin));
+    }
+  }
+  for (const missing of [{ EDGE_HTTP_URL: undefined }, { AGENT_TOKEN: undefined }, { AGENT_LOCAL_UPSTREAM: 'not a url' }]) {
+    for (const platform of ['linux', 'docker', 'macos', 'windows']) assert.equal(buildCommand({ ...env, ...missing }, platform, 'https://portal.example.test'), null);
+  }
+});
+test('origin field accepts local app addresses and explains bad ones', async () => {
+  const { validateOrigin } = await import('../public/js/agent-view.js');
+  for (const [input, value] of [['http://127.0.0.1:5000', 'http://127.0.0.1:5000'], ['127.0.0.1:3000', 'http://127.0.0.1:3000'], [' http://localhost:8080/ ', 'http://localhost:8080'],
+    ['https://10.0.0.5:8443', 'https://10.0.0.5:8443'], ['http://app:8000', 'http://app:8000'], ['http://[::1]:5000', 'http://[::1]:5000']]) assert.equal(validateOrigin(input).value, value, input);
+  for (const input of ['', 'ftp://127.0.0.1:21', 'http://127.0.0.1', 'http://127.0.0.1:5000/path', "http://127.0.0.1:5000'; rm -rf /", 'http://example.com:80', 'http://u:p@127.0.0.1:1', 'http://127.0.0.1:70000', '<LOCAL_UPSTREAM>']) {
+    assert.ok(validateOrigin(input).error, input);
+  }
 });
