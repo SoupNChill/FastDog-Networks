@@ -138,7 +138,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const tenant = accounts.tenants.find((t) => t.id === record.tenant_id);
         const issuer = accounts.users.find((u) => u.id === record.user_id && u.tenant_id === record.tenant_id);
         // A password reset (auth_version bump) or a suspended tenant ends every token that user issued.
-        if (!tenant || (tenant.status && tenant.status !== 'active') || !issuer || issuer.auth_version !== record.auth_version) throw fail('unauthorized');
+        if (!tenant || (tenant.status && tenant.status !== 'active') || !issuer || (issuer.auth_version ?? null) !== (record.auth_version ?? null)) throw fail('unauthorized');
         limits.take(`connect-token:${record.id}`, 30, 60000);
         // Re-check ownership on every call: a hostname removed or detached anywhere ends its tokens.
         let claim;
@@ -147,6 +147,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
           if (error.code === 'hostname_not_found') { connectTokens.revokeAll(record.tenant_id, record.hostname); throw fail('unauthorized'); }
           throw error;
         }
+        // Same tenant re-adding the hostname creates a new claim; tokens for the old claim end.
+        if (record.claim_created_at && claim.created_at !== record.claim_created_at) { connectTokens.revokeAll(record.tenant_id, record.hostname); throw fail('unauthorized'); }
         if (claim.status !== 'active') throw fail('not_active');
         if (path === '/api/connect/v1/hostname') {
           const agent = pick(await edge.getAgent(record.tenant_id, record.hostname), ['connected', 'last_seen', 'origin_reachable', 'origin_checked_at']);
@@ -161,15 +163,22 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         // Token-driven rotations get their own small budget on top of the shared 5/day rotate limit,
         // so a leaked prompt cannot use up the customer's own rotations.
         limits.take(`connect-token-rotate:${record.tenant_id}:${record.hostname}`, 3, 86400000, true);
-        limits.take(`rotate:${record.tenant_id}:${record.hostname}`, 5, 86400000, true);
+        try { limits.take(`rotate:${record.tenant_id}:${record.hostname}`, 5, 86400000, true); }
+        catch (error) { limits.refund(`connect-token-rotate:${record.tenant_id}:${record.hostname}`, true); throw error; }
         if (!connectTokens.markCommand(record.id)) throw fail('token_used');
         let command;
         try {
           const rotated = withConnection(await edge.rotateCredential(record.tenant_id, record.hostname));
           command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
           if (!command) throw fail('internal_error');
-        } catch (error) { connectTokens.unmarkCommand(record.id); throw error; }
-        markCommand(record.tenant_id, record.hostname);
+          markCommand(record.tenant_id, record.hostname);
+        } catch (error) {
+          // Nothing usable was returned: the token and both budgets stay available for a retry.
+          connectTokens.unmarkCommand(record.id);
+          limits.refund(`connect-token-rotate:${record.tenant_id}:${record.hostname}`, true);
+          limits.refund(`rotate:${record.tenant_id}:${record.hostname}`, true);
+          throw error;
+        }
         return send(200, { hostname: record.hostname, platform, origin: upstream, command,
           note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it. Delete fastdog-agent.env (Docker) after the container starts if you keep no copy.' });
       }
@@ -251,7 +260,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         if (!user.email_verified_at) throw fail('unauthorized');
         if (record.status !== 'active') throw fail('not_active');
         limits.take(`connect-token:${tenant.id}`, 5, 3600000, true);
-        const issued = connectTokens.issue(tenant.id, hostname, { user_id: user.id, auth_version: user.auth_version });
+        const issued = connectTokens.issue(tenant.id, hostname, { user_id: user.id, auth_version: user.auth_version, claim_created_at: record.created_at });
         return send(201, { ...issued, hostname, scope: 'connect',
           prompt: assistantPrompt({ hostname, token: issued.token, expiresAt: issued.expires_at, portalOrigin: config.origin, docsUrl }) });
       }

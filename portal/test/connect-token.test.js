@@ -128,3 +128,18 @@ test('server command uses the same pinned agent image as the browser', async () 
   assert.ok(browserSource.includes(`'${AGENT_IMAGE}'`));
   assert.match(AGENT_IMAGE, /@sha256:[a-f0-9]{64}$/);
 });
+
+test('failed rotations refund both budgets and re-added hostnames end old tokens', async (t) => {
+  const { f, a } = await ready(t);
+  await a.client.call('/api/hostnames/app.example.test/verify', 'POST');
+  const token = (await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).data.token;
+  const post = () => request(f.port, '/api/connect/v1/command', { method: 'POST', headers: { ...bearer(token), 'content-type': 'application/json' }, body: JSON.stringify({ origin: '127.0.0.1:3000' }) });
+  const rotate = f.edge.rotateCredential;
+  f.edge.rotateCredential = async () => { throw Object.assign(new Error('internal_error'), { code: 'internal_error' }); };
+  for (let i = 0; i < 6; i++) assert.equal((await post()).status, 500, 'failures never exhaust the budgets');
+  f.edge.rotateCredential = rotate;
+  assert.equal((await post()).status, 200);
+  const old = (await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).data.token;
+  f.records.get(`${tids[0]}:app.example.test`).created_at = new Date(1000).toISOString();
+  assert.equal((await request(f.port, '/api/connect/v1/hostname', { headers: bearer(old) })).status, 401);
+});

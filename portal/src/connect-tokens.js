@@ -19,7 +19,8 @@ export function createConnectTokens(store, now) {
       for (const old of mine.slice(0, Math.max(0, mine.length - MAX_LIVE_PER_HOST + 1))) old.revoked_at = new Date(now()).toISOString();
       const secret = `${PREFIX}${randomBytes(32).toString('base64url')}`;
       const record = { id: randomUUID(), digest: digest(secret), tenant_id: tenantId, hostname,
-        scope: 'connect', user_id: issuer.user_id ?? null, auth_version: issuer.auth_version ?? null, created_at: new Date(now()).toISOString(),
+        scope: 'connect', user_id: issuer.user_id ?? null, auth_version: issuer.auth_version ?? null,
+        claim_created_at: typeof issuer.claim_created_at === 'string' ? issuer.claim_created_at : null, created_at: new Date(now()).toISOString(),
         expires_at: new Date(now() + CONNECT_TOKEN_TTL_MS).toISOString(), revoked_at: null, command_issued_at: null };
       records.push(record);
       store.write('connect_tokens', records);
