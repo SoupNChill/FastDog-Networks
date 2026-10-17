@@ -5,6 +5,7 @@ import { hashPassword, verifyPassword, validPassword, dummyPassword } from './pa
 import { findInvite } from './invites.js';
 import { fail } from './errors.js';
 import { sessionCookie } from './sessions.js';
+import { termsRecord } from './terms.js';
 
 export function createAuth({ store, sessions, limits, now, mailer, config }) {
   const read = () => store.read('accounts', emptyAccounts());
@@ -31,7 +32,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
       const email = normalizeEmail(body.email);
       if (path === '/api/signup') {
         limits.take(`signup:${ip}`, 3, 3600000);
-        if (!email || !validPassword(body.password)) return send(200, generic);
+        if (!email || !validPassword(body.password) || body.accept_terms !== true) return send(200, generic);
         // Derive before checking the invite to keep invalid invites and existing accounts indistinguishable.
         const password_hash = await hashPassword(body.password);
         const data = read();
@@ -39,7 +40,8 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         if (!invite || data.users.some((u) => u.email === email)) return send(200, generic);
         const tenant = { id: tenantId(), name: '', plan: invite.plan ?? config.defaultPlan,
           hostname_limit: invite.hostname_limit ?? config.defaultHostnameLimit, status: 'active' };
-        const user = { id: randomUUID(), tenant_id: tenant.id, email, password_hash, email_verified_at: null, auth_version: 1 };
+        const user = { id: randomUUID(), tenant_id: tenant.id, email, password_hash, email_verified_at: null, auth_version: 1,
+          terms: termsRecord(store, ip, now()) };
         data.tenants.push(tenant);
         data.users.push(user);
         invite.redeemed_at = now();
