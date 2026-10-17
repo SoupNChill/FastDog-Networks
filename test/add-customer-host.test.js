@@ -53,6 +53,13 @@ test('dry run prints the attached-host pattern and changes nothing', t => {
   assert.deepEqual(readdirSync(f.dir), before);
   assert.equal(existsSync(join(f.dir, 'app.example.test.log')), false);
 });
+test('new blocks import fdctl before reverse_proxy only when the snippet is defined', t => {
+  const f = fixture(t);
+  writeFileSync(f.file, '(fdlog) {}\n(fdctl) {\n @fdctl path /_fastdog/*\n handle @fdctl { respond 404 }\n}\n');
+  assert.equal(f.run(['--dry-run', 'app.example.test']).stdout, 'app.example.test {\n    import fdlog app.example.test\n    import fdctl\n    reverse_proxy 127.0.0.1:8787\n}\n');
+  writeFileSync(f.file, '(fdlog) {}\n# (fdctl) {\n');
+  assert.doesNotMatch(f.run(['--dry-run', 'app.example.test']).stdout, /import fdctl/);
+});
 test('successful writes back up, validate, reload and print rollback', t => {
   const f = fixture(t); const result = f.run(['app.example.test']);
   assert.equal(result.status, 0, result.stderr);

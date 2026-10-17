@@ -40,6 +40,8 @@ Docker is the default path, but docker group access is root-equivalent. Use Dock
 
     curl -sS --create-file-mode 0600 -X POST -H @/home/USER/.config/fastdog/app.example.com.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:3000","platform":"docker"}' -o /home/USER/fastdog-connect.json https://portal.DOMAIN/api/v1/hostnames/app.example.com/connect
 
+Assistants with a command allowlist: these connect steps write and run a script whose content comes from the API response, so the allowlist cannot pre-approve them. Before this step, ask the user once to approve exactly these commands (the python3 line that writes fastdog-run.sh, `sh fastdog-run.sh`, the python3 env-file cleanup and the rm), then run each as its own command. Poll verify and status with one plain curl per call; do not wrap polling in shell loops.
+
 Then write the command to a private file without displaying it, run that file with `sh`, and delete the files whether it succeeded or failed (delete the file named by the response `env_file` field, never a glob, never a copied example):
 
     (umask 077; python3 -c 'import json;print(json.load(open("/home/USER/fastdog-connect.json"))["command"])' > /home/USER/fastdog-run.sh)
