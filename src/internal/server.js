@@ -72,6 +72,7 @@ export function createInternalServer(opts = {}) {
     const started = performance.now();
     const abort = new AbortController();
     let route = 'not_found';
+    let reason;
     const timer = setTimeout(() => {
       abort.abort();
       send(res, 400, { error: 'invalid_json' });
@@ -80,7 +81,8 @@ export function createInternalServer(opts = {}) {
     res.once('close', () => { clearTimeout(timer); if (!res.writableFinished) abort.abort(); });
     res.once('finish', () => {
       clearTimeout(timer);
-      const event = route === '/tls/ask' ? { status: res.statusCode } :
+      // TLS ask logs a status and an aggregate reason code, never the requested hostname.
+      const event = route === '/tls/ask' ? { status: res.statusCode, ...(reason ? { reason } : {}) } :
         { method: req.method, route, status: res.statusCode, duration: (performance.now() - started) / 1000 };
       try {
         if (typeof opts.logger === 'function') opts.logger(event);
@@ -98,6 +100,7 @@ export function createInternalServer(opts = {}) {
         if (!isLoopback(req.socket.remoteAddress) || Object.keys(req.headers).some((name) => name === 'forwarded' || name.startsWith('x-forwarded-'))) return send(res, 404);
         const client = req.socket.remoteAddress.replace(/^::ffff:/, '');
         const result = tlsAsk(url.searchParams.get('domain'), client);
+        reason = result.reason;
         return send(res, result.status, result.retry_after ? { error: 'rate_limited', retry_after: result.retry_after } : undefined);
       }
       if (!equalToken(req.headers['x-fastdog-portal-key'], opts.portalKey)) throw fail(401, 'unauthorized');

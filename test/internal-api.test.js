@@ -340,10 +340,11 @@ test('verify allowance is shared across hosts of one tenant and independent for 
   assert.equal((await f.request(`${prefix()}/app.example.com/verify`, 'POST')).status, 200);
 });
 
-test('TLS ask logs contain status only and missing domains fail closed', async (t) => {
+test('TLS ask logs contain status and an aggregate reason only; missing domains fail closed', async (t) => {
   const f = await setup(t);
   for (const suffix of ['', '?domain=127.0.0.1', '?domain=*.example.com', '?domain=app.example.com']) {
     assert.equal((await f.request(`/tls/ask${suffix}`)).status, 404);
   }
-  assert.ok(f.logs.every((entry) => Object.keys(entry).length === 1 && entry.status === 404));
+  assert.ok(f.logs.every((entry) => Object.keys(entry).every((key) => ['status', 'reason'].includes(key)) && entry.status === 404));
+  assert.ok(!JSON.stringify(f.logs).includes('example.com'));
 });

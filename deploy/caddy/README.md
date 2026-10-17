@@ -16,10 +16,43 @@ Inspect the adapted filter and, in an isolated local test, send a synthetic requ
 After separately approved application, rollback means restore the saved Caddyfile and reload Caddy using the operator's normal procedure. Removing the `import fdlog` lines and snippet import disables this logging configuration. No configuration has been installed or reloaded by this lane.
 
 
-## Optional on-demand TLS (not applied)
+## On-demand TLS (go-live form; not applied by the repository)
 
-`on-demand-tls.snippet` shows Caddy 2.11's global `on_demand_tls { ask ... }` placement. Merge it into the candidate Caddyfile's single global options block; do not import a second global block inside a site. Replace port 8789 with the edge's `INTERNAL_PORT` and enable both `INTERNAL_ENABLED=1` and `TLS_ASK_ENABLED=1`. The ask URL must reach the edge directly over loopback without forwarded headers. Caddy supplies the `domain` query parameter.
+`on-demand-tls.snippet` is the go-live configuration for Caddy 2.11: a global `on_demand_tls { ask http://127.0.0.1:8789/tls/ask }` block and a catch-all `https:// { tls { on_demand } import fdctl reverse_proxy 127.0.0.1:8787 }` site. `fdctl` is the existing snippet in the live Caddyfile that hides `/_fastdog/*` except tunnel/register; it must be defined before use. Explicit site blocks keep precedence over the catch-all. Replace 8789 with the edge's `INTERNAL_PORT` (the script reads `INTERNAL_PORT` and `UPSTREAM_PORT` from its environment) and set `INTERNAL_ENABLED=1` and `TLS_ASK_ENABLED=1` on the edge. The ask URL must reach the edge directly over loopback without forwarded headers; Caddy supplies the `domain` query parameter.
 
-The commented `https://` site illustrates `tls { on_demand }` and the edge upstream. Review catch-all routing and control endpoint exposure before enabling it. The endpoint approves verified active tenant claims and explicit active legacy attachments; ambiguous tunnel-list entries alone are denied. See [internal API operations](../../docs/INTERNAL_API_OPS.md) for limits and rollback.
+### Applying
 
-No network documentation lookup or Caddy binary validation was performed for this snippet. The offline test checks its global-block structure only. Run the adaptation and validation commands above using the installed Caddy 2.11 binary before application, then inspect the adapted ask URL. Roll back by restoring the previous Caddyfile and reloading; disable the edge flag separately if desired. This snippet has not been installed or imported by this change.
+As an authorized operator on the edge, after backing up per the deploy runbook:
+
+```
+deploy/caddy/enable-on-demand-tls.sh --dry-run /etc/caddy/Caddyfile   # prints the diff, writes nothing
+deploy/caddy/enable-on-demand-tls.sh /etc/caddy/Caddyfile
+```
+
+The script refuses a Caddyfile that already has an `on_demand_tls` block or a catch-all `https://` site, writes `Caddyfile.bak-ondemand-<timestamp>` next to it, builds a candidate (global block inserted at the very top, or merged into an existing multi-line global block; catch-all appended; existing site blocks are never edited), runs `caddy validate --adapter caddyfile --config <candidate>` (as the `caddy` user when root, so validation cannot leave root-owned log files), installs it by atomic rename, runs `systemctl reload caddy` and checks the unit is active. Any failure restores the backup and reloads. Set `BIN` to a directory containing `caddy` and `systemctl` only for fixtures.
+
+### Rollback
+
+```
+deploy/caddy/enable-on-demand-tls.sh --rollback /etc/caddy/Caddyfile.bak-ondemand-<timestamp> /etc/caddy/Caddyfile
+```
+
+This validates the backup, saves the current file as `Caddyfile.bak-ondemand-prerollback-<timestamp>`, installs the backup and reloads (restoring the pre-rollback file if the reload fails). Optionally unset `TLS_ASK_ENABLED` and restart the edge to stop the ask endpoint; Caddy then cannot obtain new on-demand certificates but already issued ones stay cached.
+
+### Edge settings
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `TLS_ASK_ENABLED` | off | Must be `1` to enable the ask route. |
+| `TLS_ASK_STATIC_HOSTS` | empty | Comma list of existing static hosts to approve (the only way reserved names are approved). |
+| `TLS_ASK_TENANT_MAX_PER_HOUR` | 20 | New approvals per tenant per hour, counted per distinct hostname. |
+| `TLS_ASK_GLOBAL_MAX_PER_HOUR` | 100 | New approvals per hour across all hosts. |
+| `TLS_ASK_CHECKS_PER_MINUTE` | 600 | Anonymous (non-approvable) checks per minute; approved hosts are never blocked by it. |
+
+Over a cap the ask route returns 429 with `retry_after`. See [internal API operations](../../docs/INTERNAL_API_OPS.md) for the full rules, deny caching and log reason codes.
+
+### Known limit
+
+Hosts served only by the catch-all do not get per-host access logs (no `import fdlog <host>` line), so status traffic and shadow counts show not available for them until an explicit site block is added, for example with `scripts/add-customer-host.sh`.
+
+The offline tests use fixture binaries only; no Caddy binary validation was performed in this repository. Run `caddy adapt` and `caddy validate` with the installed Caddy 2.11 (the script does the latter) and inspect the adapted ask URL before relying on it.

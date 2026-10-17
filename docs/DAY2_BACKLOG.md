@@ -53,6 +53,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE: offline handler tests for flag, authorization, normalization, spoofing, limits, resets and current-storage reads; existing ask fixtures explicitly opt in.
 - DONE: unapplied Caddy global on-demand TLS snippet and operator documentation; deployment validation remains an operator step.
 - DONE: review MEDIUM (superseded by M1) — all denied/unknown SNI now consumes ask budgets; regression tests cover exhaustion.
+- DONE (go-live prep): approval budgets (per-tenant 20/h by distinct hostname, global 100/h, 429 with retry_after), 60 s bounded deny cache cleared on store changes, separate anonymous check cap (600/min) that never blocks approved hosts, optional `TLS_ASK_STATIC_HOSTS`, fail-closed store errors and reason-code-only logs. Go-live Caddy snippet and `deploy/caddy/enable-on-demand-tls.sh` (dry run, backup, validate, atomic install, restore, `--rollback`) with fixture tests. Applying the Caddyfile and enabling `TLS_ASK_ENABLED` remain operator steps; `RECHECK_ENABLED` and Verdict enforce untouched.
 - DONE: review MEDIUM — deny multiple active records and legacy/tenant coexistence; regression tests cover duplicate owners, invalid competing owners and pending claims.
 
 ## Open after Day 2 reviews (must fix before enabling the flag)
