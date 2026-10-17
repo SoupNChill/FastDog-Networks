@@ -103,3 +103,5 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 
 ## Lane V (good-bot false positives)
 - DONE: published IPv4/IPv6 bot ranges precede DNS in edge and shadow scoring; tiny Google bootstrap seed, special crawler claims, atomic validated refresh and resource-capped weekly unit files. Offline regression samples cover desktop/mobile bots and DNS fallbacks. OPEN: the shadow tailer needs a one-line await for opt-in DNS results (outside lane V file scope; approval pending). Deployment and timer activation remain operator work; shadow and DNS-off defaults remain unchanged.
+
+- DONE (TLS ask third adversarial review): tenant-isolated domain budgets, expanded suffix grouping, active-only legacy conflicts, persisted daily host cap, 60/hour global default with static exemptions, canonical-name admission, proxy-header checks before methods, corrupt-state quarantine/recovery and rollout ask/adapt checks with rollback fixtures. Flags remain off.

@@ -95,9 +95,9 @@ export function createInternalServer(opts = {}) {
       if (pathname === '/health' || pathname === '/tls/ask') {
         route = pathname;
         if (pathname === '/tls/ask' && !tlsAskEnabled) return send(res, 404);
+        if (pathname === '/tls/ask' && (!isLoopback(req.socket.remoteAddress) || Object.keys(req.headers).some((name) => ['forwarded', 'x-real-ip', 'via', 'cf-connecting-ip'].includes(name) || name.startsWith('x-forwarded-')))) return send(res, 404);
         if (req.method !== 'GET') throw fail(405, 'method_not_allowed');
         if (pathname === '/health') return send(res, 200, { ok: true });
-        if (!isLoopback(req.socket.remoteAddress) || Object.keys(req.headers).some((name) => name === 'forwarded' || name.startsWith('x-forwarded-'))) return send(res, 404);
         const client = req.socket.remoteAddress.replace(/^::ffff:/, '');
         const result = await tlsAsk(url.searchParams.get('domain'), client);
         reason = result.reason;

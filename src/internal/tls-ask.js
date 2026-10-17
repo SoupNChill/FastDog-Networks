@@ -18,7 +18,7 @@ const positive = (value, fallback) => {
   return value !== undefined && value !== '' && Number.isSafeInteger(number) && number > 0 ? number : fallback;
 };
 // Common second-level public suffixes under a two-letter TLD (x.example.co.uk -> example.co.uk).
-const SECOND_LEVEL = new Set(['co', 'com', 'net', 'org', 'gov', 'edu', 'ac']);
+const SECOND_LEVEL = new Set(['co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'me', 'ltd', 'ne', 'or', 'go', 'id', 'gob']);
 export function registeredDomain(host) {
   const labels = host.split('.');
   const keep = labels.length > 2 && labels.at(-1).length === 2 && SECOND_LEVEL.has(labels.at(-2)) ? 3 : 2;
@@ -39,10 +39,11 @@ export function createTlsAsk(opts = {}) {
   const targets = [primary, alt].filter(Boolean);
   const reserved = opts.reservedSuffixes ?? reservedSuffixes(...targets);
   const tenantMax = positive(opts.tenantMaxPerHour ?? env.TLS_ASK_TENANT_MAX_PER_HOUR, 10);
-  const globalMax = positive(opts.globalMaxPerHour ?? env.TLS_ASK_GLOBAL_MAX_PER_HOUR, 100);
+  const globalMax = positive(opts.globalMaxPerHour ?? env.TLS_ASK_GLOBAL_MAX_PER_HOUR, 60);
   const domainMax = positive(opts.domainMaxPerHour ?? env.TLS_ASK_DOMAIN_MAX_PER_HOUR, 5);
-  // Let's Encrypt allows 50 certificates per registered domain per week; stay below it.
+  // Conservative weekly guard per tenant/domain, or globally for static/legacy hosts.
   const domainWeekMax = positive(opts.domainMaxPerWeek ?? env.TLS_ASK_DOMAIN_WEEK_MAX, 40);
+  const hostDayMax = positive(opts.hostDayMax ?? env.TLS_ASK_HOST_DAY_MAX, 3);
   const liveVerify = opts.liveVerify ?? (env.TLS_ASK_LIVE_VERIFY !== '0');
   const resolver = opts.resolver ?? dns;
   const liveTimeout = positive(opts.liveVerifyTimeoutMs, 3000);
@@ -93,7 +94,14 @@ export function createTlsAsk(opts = {}) {
       }
     } catch (error) {
       if (error.code === 'ENOENT') return;
-      console.error('tls ask: approval state unreadable; approvals paused for 10 minutes');
+      try {
+        fs.renameSync(stateFile, `${stateFile}.corrupt-${time}`);
+      } catch {
+        console.error('tls ask: could not quarantine approval state; refusing approvals until restart');
+        stateFullUntil = Infinity;
+        return;
+      }
+      console.error('tls ask: approval state quarantined as .corrupt-<timestamp>; approvals paused for 10 minutes, then starting empty history automatically; operator should inspect the quarantined file');
       stateFullUntil = time + 10 * MINUTE;
     }
   }
@@ -135,7 +143,7 @@ export function createTlsAsk(opts = {}) {
     const index = new Map();
     const proofIndex = new Map();
     for (const [host, records] of grouped) {
-      if (records.some((c) => claimSet.has(c)) && records.some((c) => !claimSet.has(c) && !c.tenant_id)) continue;
+      if (records.some((c) => claimSet.has(c) && c.status === 'active') && records.some((c) => !claimSet.has(c) && !c.tenant_id)) continue;
       const active = records.filter((c) => c.status === 'active');
       if (active.length !== 1) continue;
       const owner = active[0];
@@ -168,19 +176,22 @@ export function createTlsAsk(opts = {}) {
     // Re-approvals within the window are free, even when a cap has since been reached.
     if (prior && prior.tenant === tenant) return decide(200, 'approved_repeat');
     if (prior) approvals.delete(host);
-    if (time < stateFullUntil) return decide(429, 'approval_state_unavailable', { retry_after: seconds(stateFullUntil - time) });
+    if (time < stateFullUntil) return decide(429, 'approval_state_unavailable', { retry_after: Number.isFinite(stateFullUntil) ? seconds(stateFullUntil - time) : 600 });
     history = history.filter((entry) => time - entry.at < WEEK);
-    if (approvals.size >= globalMax) {
-      return decide(429, 'approval_cap_global', { retry_after: seconds(approvals.values().next().value.at + HOUR - time) });
+    const day = history.filter((entry) => entry.host === host && time - entry.at < 24 * HOUR);
+    if (day.length >= hostDayMax) return decide(429, 'approval_cap_host_day', { retry_after: seconds(day[0].at + 24 * HOUR - time) });
+    const global = [...approvals.entries()].filter(([name]) => !statics.has(name)).map(([, entry]) => entry);
+    if (!statics.has(host) && global.length >= globalMax) {
+      return decide(429, 'approval_cap_global', { retry_after: seconds(global[0].at + HOUR - time) });
     }
     if (tenant) {
       const mine = [...approvals.values()].filter((entry) => entry.tenant === tenant);
       if (mine.length >= tenantMax) return decide(429, 'approval_cap_tenant', { retry_after: seconds(mine[0].at + HOUR - time) });
     }
     const domain = registeredDomain(host);
-    const same = [...approvals.values()].filter((entry) => entry.domain === domain);
+    const same = [...approvals.values()].filter((entry) => entry.domain === domain && entry.tenant === tenant);
     if (same.length >= domainMax) return decide(429, 'approval_cap_domain', { retry_after: seconds(same[0].at + HOUR - time) });
-    const week = history.filter((entry) => entry.domain === domain);
+    const week = history.filter((entry) => entry.domain === domain && entry.tenant === tenant);
     if (week.length >= domainWeekMax) return decide(429, 'approval_cap_domain_week', { retry_after: seconds(week[0].at + WEEK - time) });
     approvals.set(host, { tenant, domain, at: time });
     history.push({ host, tenant, domain, at: time });
@@ -251,7 +262,7 @@ export function createTlsAsk(opts = {}) {
         return decide(404, 'store_error');
       }
       let host;
-      try { host = normalizeHostname(input); } catch { /* Invalid names share the check budget. */ }
+      try { host = normalizeHostname(input); if (host !== input) host = undefined; } catch { /* Invalid names share the check budget. */ }
       let tenant = null;
       let approvable = false;
       if (host && !isGuardrailHost(host)) {

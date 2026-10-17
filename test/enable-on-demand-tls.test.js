@@ -23,6 +23,10 @@ function fixture(t, content = initial) {
   // The fake caddy snapshots the candidate it was asked to validate.
   writeFileSync(join(bin, 'caddy'), `#!/bin/sh
 printf 'caddy %s\\n' "$*" >> '${calls}'
+if [ "$1" = adapt ]; then
+  printf '%s' "\${ADAPT_JSON:-}"
+  exit "\${ADAPT_STATUS:-0}"
+fi
 if [ "$1" = validate ]; then
   while [ $# -gt 0 ]; do [ "$1" = --config ] && cp "$2" '${dir}/validated'; shift; done
 fi
@@ -38,13 +42,17 @@ esac
 `, { mode: 0o755 });
   writeFileSync(join(bin, 'curl'), `#!/bin/sh
 printf 'curl %s\\n' "$*" >> '${calls}'
+printf '%s' "\${ASK_STATUS:-404}"
 exit "\${CURL_STATUS:-0}"
 `, { mode: 0o755 });
   // Only the fixture copy's UID check changes; the original's root refusal is tested separately.
   const fixtureScript = join(dir, 'enable.sh');
   writeFileSync(fixtureScript, readFileSync(script, 'utf8').replace('[[ $EUID == 0 ]]', '[[ 0 == 0 ]]'));
   const run = (args = [], extra = {}) => spawnSync('bash', [fixtureScript, ...args],
-    { encoding: 'utf8', env: { ...process.env, BIN: bin, HEALTH_DELAY: '0', ...extra } });
+    { encoding: 'utf8', env: { ...process.env, BIN: bin, HEALTH_DELAY: '0',
+      ADAPT_JSON: JSON.stringify({ apps: { http: { servers: { srv0: { listen: [':443'], routes: [
+        { handle: [{ handler: 'subroute', routes: [{ match: [{ path: ['/_fastdog/*'] }], handle: [{ handler: 'static_response', status_code: 404 }] }] }] }
+      ] } } } } }), ...extra } });
   const callLog = () => (existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n') : []);
   const backups = () => readdirSync(etc).filter((name) => name.startsWith('Caddyfile.bak-ondemand-') && !name.includes('prerollback'));
   return { dir, etc, file, run, callLog, backups, read: () => readFileSync(file, 'utf8') };
@@ -78,8 +86,8 @@ test('enable prepends the global block, appends the catch-all and leaves existin
   assert.equal(readFileSync(join(f.dir, 'validated'), 'utf8'), f.read());
   const calls = f.callLog();
   assert.match(calls[0], /^caddy validate --adapter caddyfile --config .*Caddyfile\.candidate-ondemand-/);
-  assert.deepEqual(calls.slice(1), ['systemctl reload caddy', 'systemctl is-active --quiet caddy',
-    'curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:8789/health']);
+  assert.deepEqual(calls.slice(1, 4), ['systemctl reload caddy', 'systemctl is-active --quiet caddy',
+    'curl -sS --max-time 3 -o /dev/null -w %{http_code} http://127.0.0.1:8789/tls/ask?domain=probe.invalid']);
   assert.deepEqual(readdirSync(f.etc).filter((name) => name.includes('candidate') || name.includes('tmp')), []);
 });
 
@@ -315,4 +323,21 @@ test('the lock is a sidecar file, not the Caddyfile', (t) => {
 
 test('the default Caddyfile path is /etc/caddy/Caddyfile', () => {
   assert.match(readFileSync(script, 'utf8'), /caddyfile=\$\{1:-\/etc\/caddy\/Caddyfile\}/);
+});
+
+
+test('enable rolls back on non-denial responses and missing catch-all protection', (t) => {
+  const namedOnly = { apps: { http: { servers: { srv0: { listen: [':443'], routes: [
+    { match: [{ host: ['named.example.test'] }], handle: [{ handler: 'subroute', routes: [
+      { match: [{ path: ['/_fastdog/*'] }] }
+    ] }] }
+  ] } } } } };
+  for (const env of [{ ASK_STATUS: '200' }, { ASK_STATUS: '302' }, { ASK_STATUS: '503' },
+    { ADAPT_STATUS: '1' }, { ADAPT_JSON: '{}' }, { ADAPT_JSON: 'invalid' }, { ADAPT_JSON: JSON.stringify(namedOnly) }]) {
+    const f = fixture(t);
+    const result = f.run([f.file], env);
+    assert.notEqual(result.status, 0);
+    assert.equal(f.read(), initial);
+    assert.match(result.stderr, /Restored/);
+  }
 });

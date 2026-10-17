@@ -67,10 +67,10 @@ test('TLS ask defaults off; only TLS_ASK_ENABLED=1 enables the environment flag'
   }
 });
 
-test('TLS ask normalizes verified active claims and observes revocation immediately', async (t) => {
+test('TLS ask accepts canonical verified active claims and observes revocation immediately', async (t) => {
   const h = setup(t);
   h.save([h.claim('app.example.test'), h.claim('xn--bcher-kva.example.test')]);
-  for (const domain of [' APP.EXAMPLE.TEST. ', 'bücher.example.test']) {
+  for (const domain of ['app.example.test', 'xn--bcher-kva.example.test']) {
     const response = await h.ask(domain, { prefix: '/internal/v1' });
     assert.equal(response.statusCode, 200);
     assert.equal(response.body, '');
@@ -110,7 +110,7 @@ test('TLS ask rejects non-loopback and any forwarded header, including empty hea
   const h = setup(t);
   h.save([h.claim('app.example.test')]);
   for (const address of ['192.0.2.1', '::ffff:192.0.2.1', '::2']) assert.equal((await h.ask(undefined, { address })).statusCode, 404);
-  for (const name of ['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto']) {
+  for (const name of ['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip', 'via', 'cf-connecting-ip']) {
     for (const value of ['', '127.0.0.1']) assert.equal((await h.ask(undefined, { headers: { [name]: value } })).statusCode, 404);
   }
   for (const address of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) assert.equal((await h.ask(undefined, { address })).statusCode, 200);
@@ -120,7 +120,7 @@ test('TLS ask approval set: static allow-list is normalized and the only way to 
   const h = direct(t, { staticHosts: [' STATIC.Example.Test. ', 'reserved.example.test', 'bad host', ''] });
   h.save([h.claim('sub.reserved.example.test')]);
   assert.equal(h.ask('static.example.test').status, 200);
-  assert.equal(h.ask('STATIC.EXAMPLE.TEST').status, 200);
+  assert.equal(h.ask('STATIC.EXAMPLE.TEST').status, 404);
   assert.equal(h.ask('reserved.example.test').status, 200);
   // Only the listed name, not its subdomains or an unlisted reserved name.
   assert.equal(h.ask('sub.reserved.example.test').status, 404);
@@ -209,7 +209,7 @@ test('TLS ask per-registered-domain cap counts distinct hostnames; repeats are f
   for (let i = 0; i < 5; i++) assert.equal(h.ask(names[0]).reason, 'approved_repeat');
   const capped = h.ask(names[5]);
   assert.deepEqual([capped.status, capped.reason, capped.retry_after], [429, 'approval_cap_domain', 3600]);
-  assert.equal(h.ask('y.example.test').reason, 'approval_cap_domain', 'the cap spans tenants');
+  assert.equal(h.ask('y.example.test').status, 200, 'domain buckets are tenant isolated');
   assert.equal(h.ask('x.other.test').status, 200, 'other domains have their own budget');
   h.advance(3600000);
   assert.equal(h.ask(names[5]).status, 200, 'budget returns after the window');
@@ -333,12 +333,12 @@ test('TLS ask live verify is on by default and TLS_ASK_LIVE_VERIFY=0 disables it
   assert.equal(make('0')('app.example.test').reason, 'approved_new');
 });
 
-test('TLS ask static hosts spend the global approval cap but never a tenant cap', (t) => {
+test('TLS ask static hosts do not spend global or tenant caps', (t) => {
   const h = direct(t, { staticHosts: ['s1.example.test', 's2.example.test'], tenantMaxPerHour: 1, globalMaxPerHour: 2 });
   h.save([h.claim('a.example.test')]);
   assert.equal(h.ask('s1.example.test').status, 200);
   assert.equal(h.ask('a.example.test').status, 200);
-  assert.equal(h.ask('s2.example.test').status, 429);
+  assert.equal(h.ask('s2.example.test').status, 200);
   assert.equal(h.ask('s1.example.test').status, 200);
 });
 
@@ -564,7 +564,7 @@ test('TLS ask requires one active owner and denies legacy/tenant coexistence', a
     for (const legacyStatus of ['active', 'pending']) {
       h.save([h.claim(host, { status })]);
       h.save([{ hostname: host, status: legacyStatus }], 'attached_hosts.json');
-      assert.equal((await h.ask()).statusCode, 404);
+      assert.equal((await h.ask()).statusCode, status !== 'active' && legacyStatus === 'active' ? 200 : 404);
     }
   }
   h.save([]);
@@ -648,6 +648,8 @@ test('TLS ask treats a corrupt state file as full windows for 10 minutes without
     let ask;
     try { ask = restart(seed.directory, undefined, { now: () => time }); } finally { console.error = original; }
     assert.equal(errors.length, 1, raw);
+    assert.match(errors[0], /starting empty history automatically/);
+    assert.equal(readFileSync(`${seed.directory}/tls_ask_approvals.json.corrupt-${time}`, 'utf8'), raw);
     assert.doesNotMatch(errors[0], /corrupt\.example/);
     const blocked = ask('a.corrupt.example.test');
     assert.deepEqual([blocked.status, blocked.reason], [429, 'approval_state_unavailable']);
@@ -658,4 +660,96 @@ test('TLS ask treats a corrupt state file as full windows for 10 minutes without
     assert.equal(ask('a.corrupt.example.test').status, 200, 'resumes after 10 minutes');
     assert.ok(Array.isArray(JSON.parse(readFileSync(`${seed.directory}/tls_ask_approvals.json`, 'utf8'))), 'unreadable file is replaced');
   }
+});
+
+
+test('TLS ask rejects noncanonical names and hides method handling from untrusted requests', async (t) => {
+  const h = setup(t);
+  h.save([h.claim('app.example.test'), h.claim('xn--bcher-kva.example.test')]);
+  for (const name of ['APP.EXAMPLE.TEST', 'app.example.test.', ' app.example.test', 'bücher.example.test']) {
+    assert.equal(await h.status(name), 404);
+  }
+  assert.equal(await h.status(undefined, { method: 'POST', address: '192.0.2.1' }), 404);
+  for (const name of ['forwarded', 'x-forwarded-for', 'x-real-ip', 'via', 'cf-connecting-ip']) {
+    assert.equal(await h.status(undefined, { method: 'POST', headers: { [name]: '' } }), 404);
+  }
+  assert.equal(await h.status(undefined, { method: 'POST' }), 405);
+});
+
+test('TLS ask weekly buckets isolate tenants and legacy/static hosts', (t) => {
+  const h = direct(t, { domainMaxPerWeek: 1 });
+  h.save([h.claim('a.example.test'), h.claim('b.example.test'), h.claim('c.example.test', TENANT_B)]);
+  h.save([{ hostname: 'legacy.example.test', status: 'active' }], 'attached_hosts.json');
+  assert.equal(h.ask('a.example.test').status, 200);
+  h.advance(HOUR_MS);
+  assert.equal(h.ask('b.example.test').reason, 'approval_cap_domain_week');
+  assert.equal(h.ask('c.example.test').status, 200);
+  assert.equal(h.ask('legacy.example.test').status, 200);
+});
+
+test('TLS ask common suffix additions retain the registered label', () => {
+  for (const suffix of ['me.uk', 'ltd.uk', 'ne.jp', 'or.jp', 'go.jp', 'id.au', 'gob.mx']) {
+    assert.equal(registeredDomain(`x.example.${suffix}`), `example.${suffix}`);
+  }
+});
+
+test('TLS ask daily host cap survives restart, allows repeats and resets at 24h', (t) => {
+  const h = direct(t);
+  const host = 'app.example.test';
+  h.save([h.claim(host)]);
+  for (let i = 0; i < 3; i++) {
+    assert.equal(h.ask(host).reason, 'approved_new');
+    assert.equal(h.ask(host).reason, 'approved_repeat');
+    h.advance(HOUR_MS);
+  }
+  const start = Date.UTC(2026, 0, 1);
+  assert.equal(h.ask(host).reason, 'approval_cap_host_day');
+  assert.equal(restart(h.directory, start + 3 * HOUR_MS)(host).retry_after, 21 * 3600);
+  assert.equal(restart(h.directory, start + 24 * HOUR_MS)(host).status, 200);
+  const previous = process.env.TLS_ASK_HOST_DAY_MAX;
+  t.after(() => { if (previous === undefined) delete process.env.TLS_ASK_HOST_DAY_MAX; else process.env.TLS_ASK_HOST_DAY_MAX = previous; });
+  process.env.TLS_ASK_HOST_DAY_MAX = '1';
+  const capped = direct(t);
+  capped.save([capped.claim(host)]);
+  assert.equal(capped.ask(host).status, 200);
+  capped.advance(HOUR_MS);
+  assert.equal(capped.ask(host).reason, 'approval_cap_host_day');
+});
+
+test('TLS ask static hosts bypass global and tenant caps but retain week guard', (t) => {
+  const h = direct(t, { staticHosts: ['s.example.test', 't.example.test'], globalMaxPerHour: 1,
+    tenantMaxPerHour: 1, domainMaxPerHour: 10, domainMaxPerWeek: 1 });
+  h.save([h.claim('a.example.test'), h.claim('b.other.test')]);
+  assert.equal(h.ask('s.example.test').status, 200);
+  assert.equal(h.ask('a.example.test').status, 200);
+  assert.equal(h.ask('s.example.test').status, 200);
+  assert.equal(h.ask('t.example.test').reason, 'approval_cap_domain_week');
+  assert.equal(h.ask('b.other.test').reason, 'approval_cap_global');
+});
+
+test('TLS ask global default is 60 new approvals per hour', (t) => {
+  const h = direct(t, { tenantMaxPerHour: 100, domainMaxPerHour: 100, domainMaxPerWeek: 100 });
+  const hosts = Array.from({ length: 61 }, (_, i) => `h${i}.example.test`);
+  h.save(hosts.map(host => h.claim(host)));
+  assert.deepEqual(hosts.map(host => h.ask(host).status), [...Array(60).fill(200), 429]);
+});
+
+test('TLS ask refuses approvals if corrupt state cannot be quarantined', (t) => {
+  const h = direct(t);
+  h.save([h.claim('app.example.test')]);
+  fs.writeFileSync(`${h.directory}/tls_ask_approvals.json`, '{invalid');
+  const rename = fs.renameSync;
+  const log = console.error;
+  const messages = [];
+  let ask;
+  try {
+    fs.renameSync = () => { throw new Error('synthetic quarantine failure'); };
+    console.error = message => messages.push(message);
+    ask = restart(h.directory, Date.UTC(2026, 0, 1));
+  } finally {
+    fs.renameSync = rename;
+    console.error = log;
+  }
+  assert.match(messages[0], /could not quarantine/);
+  assert.deepEqual(ask('app.example.test'), { status: 429, reason: 'approval_state_unavailable', retry_after: 600 });
 });

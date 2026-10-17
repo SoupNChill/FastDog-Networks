@@ -89,13 +89,31 @@ reload_and_check() {
 }
 # The edge internal listener must answer after a reload; the ask route depends on it.
 ask_healthy() {
-  local try
+  local try status
   for try in 1 2 3; do
-    "$curl" -fsS --max-time 3 -o /dev/null "http://127.0.0.1:${ask_port}/health" 2>/dev/null && return 0
+    if status=$("$curl" -sS --max-time 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${ask_port}/tls/ask?domain=probe.invalid" 2>/dev/null) && [[ $status =~ ^4[0-9][0-9]$ ]]; then return 0; fi
     (( try == 3 )) || sleep "${HEALTH_DELAY:-1}"
   done
-  echo "Ask endpoint http://127.0.0.1:${ask_port}/health is not healthy." >&2
+  echo "Ask endpoint http://127.0.0.1:${ask_port}/tls/ask is not healthy (expected a 4xx denial)." >&2
   return 1
+}
+
+# Inspect adapted routes: a matcher in a named site does not protect the catch-all.
+catch_all_protected() {
+  "$caddy" adapt --adapter caddyfile --config "$caddyfile" > "$work/adapted.json" || return 1
+  node --input-type=module - "$work/adapted.json" <<'JS'
+import fs from 'node:fs';
+const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+function protectedRoutes(routes) {
+  return (routes ?? []).some(route => {
+    if (route.match?.some(match => match.host)) return false;
+    if (route.match?.some(match => match.path?.includes('/_fastdog/*'))) return true;
+    return (route.handle ?? []).some(handler => protectedRoutes(handler.routes));
+  });
+}
+const servers = Object.values(config.apps?.http?.servers ?? {});
+process.exit(servers.some(server => server.listen?.some(address => address.endsWith(':443')) && protectedRoutes(server.routes)) ? 0 : 1);
+JS
 }
 
 if [[ -n $rollback ]]; then
@@ -219,7 +237,7 @@ restore() {
   return $code
 }
 trap 'code=0; restore || code=$?; exit $(( code == 0 ? 1 : code ))' HUP INT TERM
-if ! { install_over "$candidate" && installed=true && reload_and_check && ask_healthy; }; then
+if ! { install_over "$candidate" && installed=true && reload_and_check && ask_healthy && catch_all_protected; }; then
   installed=true # A partial install is restored too; the backup is a complete copy.
   code=0
   restore || code=$?

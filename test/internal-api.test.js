@@ -163,7 +163,7 @@ test('activation requires exact TXT and routing proofs and issues only once', as
   const stored = fs.readFileSync(path.join(f.directory, 'agent-credentials.json'), 'utf8');
   assert.ok(!stored.includes(credential.token));
   assert.ok(JSON.parse(stored)[0].last_used_at);
-  assert.equal((await f.request('/tls/ask?domain=APP.EXAMPLE.COM.')).status, 200);
+  assert.equal((await f.request('/tls/ask?domain=APP.EXAMPLE.COM.')).status, 404);
   assert.equal((await f.request('/tls/ask?domain=app.example.com', 'GET', undefined, null, { 'x-forwarded-for': '192.0.2.1' })).status, 404);
 });
 
