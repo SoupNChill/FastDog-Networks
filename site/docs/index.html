@@ -74,6 +74,14 @@
 <li><code>POST /api/connect/v1/command</code> with <code>{"origin": "http://127.0.0.1:3000", "platform": "linux"}</code> (or <code>"docker"</code>): returns the connect command once. Origins must be local or private addresses with a port.</li>
 </ul>
 <p>Tokens are never accepted in a URL. Your password and sudo prompts stay with you.</p>
+<p>An assistant that holds an API key (see below) can do the whole job from scratch:</p>
+<ol>
+<li>It adds the website address and shows you the two DNS records. It normally can’t add them itself, so add them at your DNS provider (on Cloudflare, “DNS only”, grey cloud).</li>
+<li>It checks every 30 seconds. “Not found yet” results before the records exist are normal. A pending address is reserved for 24 hours.</li>
+<li>It asks which port your app uses and fetches the connect command. The Linux command uses <code>sudo</code>: you run it, the assistant doesn’t and shouldn’t read the key inside it. It saves the response with <code>curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json ...</code> (needs curl 7.75 or newer, so the file is private without umask or chmod; with older curl run <code>umask 077</code> first) and gives you a one-line way to run it and then delete the file. Each address allows 3 new commands a day; a new command replaces the old connection.</li>
+<li>It polls the status until it says live, then opens your address. If the status stays on “no HTTPS certificate”, HTTPS isn’t ready yet: wait about 10 minutes, and contact support if it persists beyond 30.</li>
+</ol>
+<p>The connect-token prompt only exists after the address is verified and only covers the connect step; an API key covers everything. Assistants with a command allowlist refuse commands that expand a secret like <code>$KEY</code>, so you save the <code>Authorization</code> header once to a private file yourself (or approve the assistant running it once): <code> mkdir -p ~/.config/fastdog &amp;&amp; (umask 077; printf 'Authorization: Bearer %s\n' '&lt;paste key&gt;' &gt; ~/.config/fastdog/&lt;hostname&gt;.header)</code>. Name the file per hostname so credentials never overwrite each other. The leading space keeps the command out of shell history in most shells (<code>HISTCONTROL=ignorespace</code>); otherwise delete it from your history. The assistant then uses <code>curl -H @/absolute/path/&lt;hostname&gt;.header</code> and never <code>curl -v</code> or <code>--trace</code>, which print the Authorization header. When setup is done, delete the file and revoke the key if you no longer need it; a connect token’s file can be deleted right after connecting. If you already told it your app’s port, it won’t ask again. The full machine-readable guide is <a href="/llms.txt">/llms.txt</a>.</p>
 </section>
 
 <section class="section" id="api-keys"><h2>API keys</h2>
@@ -98,7 +106,7 @@
 <dt>“We haven’t seen your records yet”</dt><dd>Wait a few minutes and check again. Make sure the TXT name starts with <code>_fastdog-challenge.</code> and your provider didn’t add your domain twice.</dd>
 <dt>“Your record is proxied by Cloudflare”</dt><dd>Switch the CNAME to DNS only (grey cloud).</dd>
 <dt>Agent connected, but your app isn’t answering</dt><dd>Start your app, or fix the address you entered. In Docker, <code>127.0.0.1</code> is the container itself; use <code>host.docker.internal</code> on Docker Desktop.</dd>
-<dt>Not live: no certificate yet</dt><dd>The certificate is issued on the first visit once DNS points at FastDog. Open your address once, then refresh Status.</dd>
+<dt>Not live: no certificate yet</dt><dd>HTTPS isn’t ready yet. Make sure DNS is verified and the agent is connected, wait about 10 minutes, then refresh Status or press <em>Test it</em>. If it still says no certificate after 30 minutes, contact support with your address.</dd>
 </dl>
 </section>
 </main>

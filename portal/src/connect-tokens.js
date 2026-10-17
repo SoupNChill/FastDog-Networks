@@ -67,10 +67,11 @@ export function assistantPrompt({ hostname, token, expiresAt, portalOrigin, docs
     `Connect token (works only for ${hostname}, only for connecting, expires ${expiresAt}):`,
     token,
     '',
-    'Send it as the header "Authorization: Bearer <token>". Do not put it in a URL, a log, a commit or a chat with anyone else.',
+    'Send it as the header "Authorization: Bearer <token>". Do not put it in a URL, a log, a commit or a chat with anyone else. Never use curl -v or --trace with it (they print the Authorization header). Shell rules often refuse commands that expand a secret, so do not write the header file yourself. At the start, ask me to run this one-time command (or to approve it once), and do not retry variations. It starts with a space so most shells keep it out of history (HISTCONTROL=ignorespace); otherwise I can delete it from my history: \' mkdir -p ~/.config/fastdog && (umask 077; printf \'Authorization: Bearer %s\\n\' \'' + token + `' > ~/.config/fastdog/${hostname}.token.header)`,
+    `Then use curl -H @/absolute/path/${hostname}.token.header, with the absolute path of my home directory (your HOME may differ from mine). Never echo or cat it. The token expires in an hour, so right after connecting, tell me I can delete ~/.config/fastdog/${hostname}.token.header.`,
     `1. GET ${portalOrigin}/api/connect/v1/hostname shows whether the server is connected.`,
-    `2. POST ${portalOrigin}/api/connect/v1/command with JSON {"origin": "http://127.0.0.1:<port my app listens on>", "platform": "linux"} (or "docker") returns the connect command once. Getting it replaces any earlier connection for this website.`,
-    '3. Ask me which port my app uses, then run the command on the server where the app runs (it uses sudo; I type my own password).',
-    '4. Poll step 1 every 10 seconds until agent.connected is true, then open the website to confirm it loads over HTTPS.',
+    `2. Use the port I already gave you, and only ask which port my app uses if I did not. POST ${portalOrigin}/api/connect/v1/command with JSON {"origin": "http://127.0.0.1:<port>", "platform": "linux"} (or "docker") returns the connect command once; save the response with curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json (no umask or chmod; needs curl 7.75 or newer, with older curl run umask 077 first), then give me the one-line command to run it and delete the file. Getting it replaces any earlier connection for this website (3 a day at most).`,
+    '3. Do not run the command or read the token inside it: it uses sudo and I type my own password. Tell me the one-line way to run it, then delete the file.',
+    '4. Poll step 1 every 15 seconds until agent.connected is true (stop and tell me after about 10 minutes). Then open the website over HTTPS. If HTTPS is not ready (certificate_missing), tell me; do not retry the command.',
   ].filter((line) => line !== null).join('\n');
 }
