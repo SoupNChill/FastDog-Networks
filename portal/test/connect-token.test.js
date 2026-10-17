@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { assistantPrompt } from '../src/connect-tokens.js';
 import { fixture, tids, request } from './helpers.js';
 import { buildCommand, validOrigin, originError } from '../src/connect-command.js';
 
@@ -35,7 +36,7 @@ test('connect tokens need an active owned hostname, CSRF and a verified session'
   assert.ok(issued.data.prompt.includes(`I can delete ${headerFile}`), 'delete the header file after connecting');
   assert.ok(issued.data.prompt.includes('Never use curl -v or --trace'));
   const prompt = issued.data.prompt;
-  for (const needle of ['curl 7.75 or newer', 'only ask which port', '"format":"env"', 'exactly one approval',
+  for (const needle of ['curl 7.75 or newer', 'only ask which port', '"format":"env"', 'the ONLY new command needing approval is the single docker run',
     'docker.run', 'ENV_FILE', 'never read, print, cat or copy', 'root-equivalent', 'ALREADY',
     'Do not delete them yourself', 'same env file', 'every 15 seconds', '3 a day', 'live true']) assert.ok(prompt.includes(needle), needle);
   assert.doesNotMatch(prompt, /fastdog-run\.sh|python3/);
@@ -189,4 +190,18 @@ test('Docker command response names its exact token-free env file', async (t) =>
   assert.equal(response.status, 200);
   assert.match(response.data.env_file, /^fastdog-agent-app-example-test-[0-9a-f]{10}\.env$/);
   assert.equal(response.data.env_file, response.data.command.match(/--env-file (\S+)/)[1]);
+});
+
+test('assistant prompt explains approvals and immediate cleanup without a live server', () => {
+  const prompt = assistantPrompt({ hostname: 'app.example.test', token: 'placeholder',
+    expiresAt: '2099-01-01', portalOrigin: 'https://portal.example.test' });
+  for (const needle of ['curl calls to https://portal.example.test', 'exact docker run line',
+    'one-time header-file setup at the start', 'env-file fetch and status polling', 'once/up front',
+    'the ONLY new command needing approval is the single docker run', 'only on a reconnect name conflict',
+    '"format":"env"', 'http://127.0.0.1:PORT', 'PORT is the app port I gave',
+    'app.example.test.agent-2.env rather than overwrite it', '--create-file-mode only applies to a new file',
+    'As soon as agent.connected is true, immediately', 'rm -f /home/USER/.config/fastdog/app.example.test.agent.env',
+    'absolute path you used', 'Docker stored the env at create time', 'Do not delete them yourself',
+    'single-use bootstrap code', 'needs a new agent image']) assert.ok(prompt.includes(needle), needle);
+  assert.doesNotMatch(prompt, /fastdog-run\.sh|127\.0\.0\.1:3000/);
 });

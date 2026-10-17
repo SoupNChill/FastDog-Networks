@@ -141,3 +141,5 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - OPEN (LOW): after an e2e hostname is deleted, Caddy keeps its on-demand certificate in storage until expiry. The name is unrouted (502) and has no DNS. Consider removing on-demand certs for detached hostnames.
 
 - DONE: one-approval Docker connect path shipped: curl writes the private env file and one secret-free docker run consumes it. Tradeoff: the 0600 agent-key file remains until the user deletes it.
+
+- DONE: Docker connect review clarifies initial header setup/curl approval, user-provided PORT, fresh env filenames, API Docker metadata and immediate user-run key-file cleanup with restart guidance.

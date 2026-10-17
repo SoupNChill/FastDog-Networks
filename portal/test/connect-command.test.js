@@ -115,11 +115,12 @@ ln -s '${target}' '${envPath}'
   assert.equal(readFileSync(target, 'utf8'), 'unchanged');
 });
 
-test('assistant cleanup uses response metadata instead of copied filenames', () => {
+test('assistant uses API Docker metadata and its chosen absolute env path', () => {
   for (const path of ['../../site/llms.txt', '../src/connect-tokens.js']) {
     const text = readFileSync(new URL(path, import.meta.url), 'utf8');
-    assert.match(text, /env_file/);
-    assert.match(text, /never a glob, never a copied example/);
+    assert.match(text, /exact docker\.run and docker\.container_name from the API/);
+    assert.match(text, /ENV_FILE.*absolute path you chose/);
+    assert.match(text, /never a copied example name/);
     assert.doesNotMatch(text, /fastdog-agent-app-example-test-0123456789\.env/);
     assert.doesNotMatch(text, /fastdog-agent-<[^\n]*?\.env/);
   }

@@ -33,7 +33,7 @@ test('llms.txt gives assistants a start-here flow with the key facts', () => {
     assert.doesNotMatch(l, /https:\/\/DOMAIN\/api/, 'never the bare DOMAIN');
   }
   assert.ok(text.includes('"format":"env"'));
-  assert.ok(text.includes('exactly one approval of a single docker run command'));
+  assert.ok(text.includes('the ONLY new command needing approval is the single docker run'));
   assert.ok(text.indexOf('Before any DNS work') < text.indexOf('1. POST'));
   assert.doesNotMatch(text, /fastdog-run\.sh|python3/);
   assert.doesNotMatch(text, /"\$KEY"/, 'no command that expands a secret variable');
@@ -43,10 +43,30 @@ test('llms.txt gives assistants a start-here flow with the key facts', () => {
 test('human docs have an AI assistant section with the same guidance', () => {
   const html = read('site/docs/index.html');
   const section = html.slice(html.indexOf('id="ai-assistant"'), html.indexOf('id="api-keys"'));
-  for (const needle of ['curl -H @/absolute/path/HOSTNAME.header', 'accept only one plain command per call', 'automatically on the first HTTPS request', 'per hostname', 'HISTCONTROL=ignorespace', 'revoke the key', 'right after connecting', 'curl 7.75+', '<code>--trace</code>', 'you save the', 'approve the assistant running it once', 'umask 077', '--create-file-mode 0600 -w', 'docker info', '--network host', 'exactly one approval', '24 hours', '3 new commands a day', 'DNS only', '/llms.txt']) {
+  for (const needle of ['curl -H @/absolute/path/HOSTNAME.header', 'accept only one plain command per call', 'automatically on the first HTTPS request', 'per hostname', 'HISTCONTROL=ignorespace', 'revoke the key', 'right after connecting', 'curl 7.75+', '<code>--trace</code>', 'you save the', 'approve the assistant running it once', 'umask 077', '--create-file-mode 0600 -w', 'docker info', '--network host', 'the ONLY new command needing approval', '24 hours', '3 new commands a day', 'DNS only', '/llms.txt']) {
     assert.ok(section.includes(needle), `docs section mentions ${needle}`);
   }
   assert.doesNotMatch(html, /issued on the first visit/);
   assert.ok(html.includes('if you fetched the guide from <code>https://DOMAIN/llms.txt</code>, the API origin is <code>https://portal.DOMAIN</code> (never the bare <code>DOMAIN</code>)'));
   assert.doesNotMatch(html, /\{portal\}|https:\/\/(?![A-Za-z])/);
 });
+
+for (const path of ['site/llms.txt', 'docs/TENANT_API.md', 'site/docs/index.html']) {
+  test(`${path} describes curl approval, fresh env paths and immediate user cleanup`, () => {
+    const text = read(path).replaceAll('&quot;', '"');
+    for (const needle of ['"format":"env"', 'http://127.0.0.1:PORT',
+      'PORT is the app port the user gave', 'list in one message', 'curl calls to https://portal.DOMAIN',
+      'env-file fetch and status polling', 'once/up front',
+      'the ONLY new command needing approval is the single docker run',
+      'only on a reconnect name conflict', 'HOSTNAME.agent-2.env rather than overwrite it',
+      'As soon as agent.connected is true, immediately',
+      'rm -f /home/USER/.config/fastdog/app.example.com.agent.env', 'absolute path you used',
+      'Docker stored the env at create time', 'single-use bootstrap code', 'needs a new agent image']) {
+      assert.ok(text.includes(needle), `${path} mentions ${needle}`);
+    }
+    assert.doesNotMatch(text, /fastdog-run\.sh/);
+    for (const line of text.split('\n').filter(line => line.includes('curl'))) {
+      assert.doesNotMatch(line, /127\.0\.0\.1:3000/);
+    }
+  });
+}
