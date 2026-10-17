@@ -18,7 +18,7 @@ test('llms.txt gives assistants a start-here flow with the key facts', () => {
   assert.doesNotMatch(text, /auth\.header/, 'header file is named per hostname');
   for (const needle of ["mkdir -p ~/.config/fastdog && (umask 077; printf 'Authorization: Bearer %s\\n' '<paste key>' > ~/.config/fastdog/<hostname>.header)",
     '<hostname>.token.header', 'HISTCONTROL=ignorespace', 'delete the file, and to revoke the key', 'right after connecting',
-    'curl 7.75+', 'run `umask 077` first', 'docker info', 'docker group membership', '--network host', 'host.docker.internal', 'docker ps --filter name=fastdog-agent', 'fastdog-agent-<hostname-slug>', '"platform":"docker"', 'Never use curl -v or --trace',
+    'curl 7.75+', 'run `umask 077` first', 'docker info', 'root-equivalent', 'ALREADY has docker access', 'rootless Docker', 'docker inspect', '--cap-drop ALL','--network host', 'host.docker.internal', 'docker ps --filter name=fastdog-agent', 'fastdog-agent-<hostname-slug>', '"platform":"docker"', 'Never use curl -v or --trace',
     '--create-file-mode 0600 -o /absolute/path/fastdog-connect.json', 'do not retry variations', 'HOME may differ', 'Use the port or origin the user already gave you']) {
     assert.ok(text.includes(needle), `llms.txt mentions ${needle}`);
   }

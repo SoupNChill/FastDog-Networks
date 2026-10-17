@@ -32,11 +32,16 @@ Use an absolute path in -H @file (no ~ or variables, so the command matches an a
 
 ## Connect command
 
-Docker is the default path. First check that `docker info` works without sudo. If it fails with permission denied, the user needs docker group membership, or should use the systemd installer (platform "linux"), which needs sudo, so the user runs it. The Docker command needs no sudo, so the assistant may run it, but it contains the agent's private token: never print the command, and never echo or cat it or fastdog-agent.env. Save the response with `curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json` (curl 7.75+ creates the file private, so no umask or chmod is needed; with older curl run `umask 077` first), using platform "docker":
+Docker is the default path, but docker group access is root-equivalent. Use Docker only if the user ALREADY has docker access without sudo (`docker info` works); never add anyone to the docker group yourself. Otherwise use rootless Docker, or the systemd installer (platform "linux"), which needs sudo, so the user runs it. The Docker command contains the agent's private token: never print the command or the env file, never run `docker inspect` on the agent container, never use `ps` or read `/proc/*/cmdline`, and never echo the token. Save the response with `curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json` (curl 7.75+ creates the file private, so no umask or chmod is needed; with older curl run `umask 077` first), using platform "docker":
 
     curl -sS --create-file-mode 0600 -X POST -H @/home/USER/.config/fastdog/app.example.com.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:3000","platform":"docker"}' -o /home/USER/fastdog-connect.json https://<portal>/api/v1/hostnames/app.example.com/connect
 
-Then run the command from the file without echoing it, delete the files and verify: `sh -c "$(python3 -c 'import json;print(json.load(open("/home/USER/fastdog-connect.json"))["command"])')"; rm /home/USER/fastdog-connect.json fastdog-agent.env; docker ps --filter name=fastdog-agent`. The command writes fastdog-agent.env (umask 077) and uses `--network host` (so 127.0.0.1 reaches the app; on Docker Desktop for macOS/Windows use host.docker.internal in the origin instead), `--restart unless-stopped` and the name fastdog-agent-<hostname-slug>; running it again replaces the old agent.
+Then write the command to a private file without displaying it, run that file with `sh`, and delete the files whether it succeeded or failed (the command's own env file is named fastdog-agent-<hostname-slug>-<6 hex>.env):
+
+    (umask 077; python3 -c 'import json;print(json.load(open("/home/USER/fastdog-connect.json"))["command"])' > /home/USER/fastdog-run.sh)
+    sh /home/USER/fastdog-run.sh; rm -f /home/USER/fastdog-run.sh /home/USER/fastdog-connect.json fastdog-agent-*.env; docker ps --filter name=fastdog-agent
+
+The command writes the env file with shell builtins only (umask 077; no process carries the token in its arguments), pulls the pinned image, replaces any old agent, then runs it with `--network host` (so 127.0.0.1 reaches the app; on Docker Desktop for macOS/Windows use host.docker.internal in the origin instead), `--cap-drop ALL --security-opt no-new-privileges`, `--restart unless-stopped` and the name fastdog-agent-<hostname-slug>-<6 hex>. Origins in 169.254.0.0/16 or fe80::/10 (link-local, cloud metadata) are refused.
 
 Alternative: platform "linux" returns a root systemd installer command that uses sudo. The assistant must not run it and must not read the token inside it; tell the user the same one-line way to run it from the file (they type their own sudo password), then delete the file.
 

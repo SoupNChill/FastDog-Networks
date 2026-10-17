@@ -12,7 +12,7 @@ import { normalizeHostname } from './hostname.js';
 import { safePath, serveStatic, pages } from './static.js';
 import { createFileMailer } from './mailer-file.js';
 import { createConnectTokens, assistantPrompt } from './connect-tokens.js';
-import { buildCommand, validOrigin } from './connect-command.js';
+import { buildCommand, validOrigin, originError } from './connect-command.js';
 import { verifyPassword } from './passwords.js';
 import { createApiKeys, planAllowsKeys, API_KEY_SCOPES, DEFAULT_DAYS, MAX_DAYS } from './api-keys.js';
 
@@ -177,7 +177,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         }
         const upstream = validOrigin(body.origin);
         const platform = body.platform === undefined ? 'linux' : body.platform;
-        if (!upstream || !['linux', 'docker'].includes(platform)) throw fail('invalid_origin');
+        if (!upstream || !['linux', 'docker'].includes(platform)) throw Object.assign(fail('invalid_origin'), { detail: originError(body.origin) });
         if (!edgeUrl) throw fail('internal_error');
         if ((await edge.getHostname(tid, hostname)).status !== 'active') throw fail('not_active');
         // Key-driven rotations get their own budget on top of the shared 5/day rotate limit, so a
@@ -225,7 +225,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const body = await readBody(request);
         const upstream = validOrigin(body.origin);
         const platform = body.platform === undefined ? 'linux' : body.platform;
-        if (!upstream || !['linux', 'docker'].includes(platform)) throw fail('invalid_origin');
+        if (!upstream || !['linux', 'docker'].includes(platform)) throw Object.assign(fail('invalid_origin'), { detail: originError(body.origin) });
         if (!edgeUrl) throw fail('internal_error');
         if (record.command_issued_at || !connectTokens.markCommand(record.id)) throw fail('token_used');
         // Token-driven rotations get their own small budget on top of the shared 5/day rotate limit,
@@ -369,7 +369,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
     } catch (error) {
       const code = Object.hasOwn(statuses, error.code) ? error.code : 'internal_error';
       const retry = Number.isFinite(error.retry_after) && error.retry_after > 0 ? Math.ceil(error.retry_after) : 60;
-      if (!response.headersSent) send(statuses[code], { error: code, ...(code === 'rate_limited' ? { retry_after: retry } : {}) }, code === 'rate_limited' ? { 'Retry-After': String(retry) } : {});
+      if (!response.headersSent) send(statuses[code], { error: code, ...(code === 'invalid_origin' && error.detail ? { message: error.detail } : {}), ...(code === 'rate_limited' ? { retry_after: retry } : {}) }, code === 'rate_limited' ? { 'Retry-After': String(retry) } : {});
       else response.end();
     }
   });

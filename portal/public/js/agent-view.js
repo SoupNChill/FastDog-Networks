@@ -3,7 +3,47 @@ const shellQuote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
 const powershellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
 const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.2@sha256:6dcc855e5dcc5c058326d961133186b30cfa158a0173facd50d5e4e00cefd726';
 const LOCAL = (port) => `http:${'//'}127.0.0.1:${port}`;
-const PRIVATE_V4 = /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|169\.254\.)/;
+const PRIVATE_V4 = /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/;
+// Link-local (cloud metadata 169.254.0.0/16, fe80::/10, and the IPv4-mapped form) is never a valid origin: host networking would expose it to the agent.
+const LINK_LOCAL = /^(?:169\.254\.|fe[89ab][0-9a-f]:|::ffff:(?:169\.254\.|a9fe:))/i;
+// Small synchronous SHA-256 (hex) so the browser derives the same container name as the server twin.
+function sha256Hex(text) {
+  const bytes = [...new TextEncoder().encode(text)];
+  const bits = bytes.length * 8;
+  bytes.push(0x80);
+  while (bytes.length % 64 !== 56) bytes.push(0);
+  for (let i = 7; i >= 0; i--) bytes.push(i > 3 ? 0 : (bits >>> (i * 8)) & 255);
+  const K = []; const H = [];
+  for (let n = 2, found = 0; found < 64; n++) {
+    if (![...Array(n).keys()].slice(2).every((d) => n % d)) continue;
+    if (found < 8) H[found] = (Math.sqrt(n) % 1) * 2 ** 32 | 0;
+    K[found++] = (Math.cbrt(n) % 1) * 2 ** 32 | 0;
+  }
+  const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+  for (let off = 0; off < bytes.length; off += 64) {
+    const w = [];
+    for (let i = 0; i < 16; i++) w[i] = (bytes[off + 4 * i] << 24) | (bytes[off + 4 * i + 1] << 16) | (bytes[off + 4 * i + 2] << 8) | bytes[off + 4 * i + 3];
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+      const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+    }
+    let [a, b, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0;
+      const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      [h, g, f, e, d, c, b, a] = [g, f, e, (d + t1) | 0, c, b, a, (t1 + t2) | 0];
+    }
+    [a, b, c, d, e, f, g, h].forEach((v, i) => { H[i] = (H[i] + v) | 0; });
+  }
+  return H.map((v) => (v >>> 0).toString(16).padStart(8, '0')).join('');
+}
+// Same suffix as the server twin: sanitised hostname plus 6 hex of sha256(hostname), so lookalike hostnames never share a name.
+export function agentSuffix(hostname) {
+  const full = String(hostname).toLowerCase();
+  const slug = full.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
+  return `${slug}-${sha256Hex(full).slice(0, 6)}`;
+}
 // Advisory only (the agent runs on the customer's own server). Returns { value } for a usable local app address or { error } with plain-language advice.
 export function validateOrigin(input) {
   const text = String(input ?? '').trim();
@@ -14,6 +54,7 @@ export function validateOrigin(input) {
   if (!['http:', 'https:'].includes(url.protocol)) return { error: `The address must start with http:${'//'} or https:${'//'}.` };
   if (url.username || url.password || url.search || url.hash || (url.pathname && url.pathname !== '/')) return { error: `Use only the address and port, such as ${LOCAL(5000)}, with no path.` };
   const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (LINK_LOCAL.test(host)) return { error: 'Link-local addresses (169.254.0.0/16, fe80::/10) are not allowed as an origin. Use 127.0.0.1 or your app’s private address.' };
   const local = host === 'localhost' || host === '::1' || host === 'host.docker.internal' || PRIVATE_V4.test(host)
     || /^(?:fc|fd)[0-9a-f]{2}:/i.test(host) || /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(host);
   if (!local) return { error: `Use a local or private address on that server, such as ${LOCAL(5000)}.` };
@@ -36,15 +77,23 @@ export function connectionCommand(agentEnv, platform, portalOrigin = window.loca
   if (platform === 'linux') return `curl -fsSL ${shellQuote(new URL('/install/agent.sh', portalOrigin).href)} -o /tmp/fastdog-agent-install.sh && sudo FASTDOG_AGENT_TOKEN=${shellQuote(env.AGENT_TOKEN)} bash /tmp/fastdog-agent-install.sh --edge ${shellQuote(env.EDGE_HTTP_URL)} --hostname ${shellQuote(env.AGENT_HOSTNAME)} --origin ${shellQuote(env.AGENT_LOCAL_UPSTREAM)}`;
   const run = `docker run -d --restart unless-stopped --env-file fastdog-agent.env ${AGENT_IMAGE}`;
   // Plain Linux Docker: host networking reaches an app on 127.0.0.1; the stable name lets a re-run replace the agent.
-  const name = `fastdog-agent-${String(env.AGENT_HOSTNAME).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`;
-  const hostRun = `{ docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --restart unless-stopped --env-file fastdog-agent.env ${AGENT_IMAGE}`;
+  const name = `fastdog-agent-${agentSuffix(env.AGENT_HOSTNAME)}`;
+  const envFile = platform === 'docker' ? `${name}.env` : 'fastdog-agent.env';
+  const hostRun = `docker pull ${AGENT_IMAGE} && { docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ${envFile} ${AGENT_IMAGE}`;
   if (platform === 'windows') {
     return `Set-Content -LiteralPath fastdog-agent.env -Encoding ASCII -Value @(${entries.map(([key, value]) => powershellQuote(`${key}=${value}`)).join(', ')}) -ErrorAction Stop; ${run}`;
   }
-  return `umask 077; printf '%s\\n' ${entries.map(([key, value]) => shellQuote(`${key}=${value}`)).join(' ')} > fastdog-agent.env && chmod 600 fastdog-agent.env && ${platform === 'docker' ? hostRun : run}`;
+  return `umask 077; printf '%s\\n' ${entries.map(([key, value]) => shellQuote(`${key}=${value}`)).join(' ')} > ${envFile} && chmod 600 ${envFile} && ${platform === 'docker' ? hostRun : run}`;
 }
 const CHOICES = [['docker', 'Docker (recommended)'], ['linux', 'Linux installer (sudo)'], ['macos', 'macOS'], ['windows', 'Windows (Untested)']];
-const originInput = () => document.querySelector('#origin');
+// Docker (host networking) is Linux-only; Mac and Windows visitors start on their Docker Desktop tab.
+export function defaultChoice(nav = globalThis.navigator) {
+  const text = `${nav?.platform ?? ''} ${nav?.userAgent ?? ''}`;
+  if (/^win/i.test(nav?.platform ?? '') || /Windows/i.test(text)) return CHOICES.findIndex(([key]) => key === 'windows');
+  if (/mac|iphone|ipad/i.test(nav?.platform ?? '') || /Macintosh|Mac OS X/i.test(text)) return CHOICES.findIndex(([key]) => key === 'macos');
+  return 0;
+}
+const originInput =() => document.querySelector('#origin');
 export function showCredential(credential) {
   const output = document.querySelector('#command');
   const copyButton = document.querySelector('#copy-command');
@@ -62,7 +111,7 @@ export function showCredential(credential) {
     if (help) help.textContent = platform === 'linux'
       ? 'Alternative for Linux: this installer needs sudo (administrator permission) and sets up a system service. Docker needs no sudo.'
       : platform === 'docker'
-        ? 'Recommended: run this in a Linux terminal where your user can run docker without sudo (check with docker info). It uses host networking, so 127.0.0.1 reaches your app, and running it again replaces the old agent. Keep fastdog-agent.env private. It contains your connection token. On Docker Desktop (macOS or Windows) use those tabs instead, and use host.docker.internal for your app’s address.'
+        ? 'Recommended: run this in a Linux terminal where your user can run docker without sudo (check with docker info). It uses host networking, so 127.0.0.1 reaches your app, and running it again replaces the old agent. Docker access is root-equivalent, so use this only if you already have it. Delete the .env file it writes after the command finishes. It contains your connection token. On Docker Desktop (macOS or Windows) use those tabs instead, and use host.docker.internal for your app’s address.'
         : `${platform === 'windows' ? 'Untested. Install Docker Desktop and use PowerShell.' : 'Install Docker Desktop and use Terminal.'} Keep fastdog-agent.env private. It contains your connection token. In Docker Desktop, use host.docker.internal to reach a website on the same computer; 127.0.0.1 refers to the container itself.`;
   };
   if (tabs) {
@@ -91,7 +140,7 @@ export function showCredential(credential) {
       });
       tabs.append(tab);
     });
-    activate(0);
+    activate(defaultChoice());
   } else render('docker'); // The hostname page also displays newly issued commands.
   document.querySelector('#credential').hidden = false;
   const input = originInput();

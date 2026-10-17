@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import vm from 'node:vm';
-import { connectionCommand as buildCommand, showCredential } from '../public/js/agent-view.js';
+import { connectionCommand as buildCommand, showCredential, agentSuffix, defaultChoice, validateOrigin } from '../public/js/agent-view.js';
+import { agentSuffix as agentSuffixServer } from '../src/connect-command.js';
 const connectionCommand = (env, platform) => buildCommand(env, platform, 'https://portal.example.test');
 const env = { AGENT_TOKEN: "private'fixture", AGENT_HOSTNAME: 'app.example.test', EDGE_HTTP_URL: 'https://edge.example.test', AGENT_LOCAL_UPSTREAM: 'http://127.0.0.1:8080' };
 test('Linux installer receives quoted token, edge, hostname and origin', () => {
@@ -17,8 +18,14 @@ test('Linux installer receives quoted token, edge, hostname and origin', () => {
 test('Docker command uses host networking, a stable name and replaces the old agent; macOS keeps the Desktop form', () => {
   const docker = connectionCommand(env, 'docker');
   assert.match(docker, /^umask 077; printf/);
-  assert.match(docker, /\{ docker rm -f fastdog-agent-app-example-test >\/dev\/null 2>&1; true; \} && docker run -d --name fastdog-agent-app-example-test --network host --restart unless-stopped --env-file fastdog-agent.env /);
-  assert.ok(docker.indexOf('docker rm -f') < docker.indexOf('docker run'));
+  const suffix = agentSuffix('app.example.test');
+  assert.match(suffix, /^app-example-test-[0-9a-f]{6}$/);
+  assert.equal(suffix, agentSuffixServer('app.example.test'), 'browser and server derive the same name');
+  for (const host of ['a-b.example.test', 'a.b-example.test', 'x'.repeat(60) + '.example.test', 'ÄÖ.example.test']) assert.equal(agentSuffix(host), agentSuffixServer(host), host);
+  assert.notEqual(agentSuffix('a-b.example.test'), agentSuffix('a.b-example.test'));
+  assert.ok(docker.includes(`{ docker rm -f fastdog-agent-${suffix} >/dev/null 2>&1; true; } && docker run -d --name fastdog-agent-${suffix} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file fastdog-agent-${suffix}.env `));
+  assert.ok(docker.indexOf('docker pull') < docker.indexOf('docker rm -f') && docker.indexOf('docker rm -f') < docker.indexOf('docker run'));
+  assert.ok(docker.includes(`> fastdog-agent-${suffix}.env && chmod 600 fastdog-agent-${suffix}.env`));
   assert.doesNotMatch(connectionCommand(env, 'macos'), /--network host|docker rm/);
   assert.doesNotMatch(docker, /\$/, 'no shell expansion of secrets');
   assert.ok(docker.includes("'AGENT_TOKEN=private'\\''fixture'"));
@@ -27,7 +34,7 @@ test('Docker and macOS share a pinned command; Windows uses PowerShell quoting',
   const docker = connectionCommand(env, 'docker');
   for (const platform of ['docker', 'macos', 'windows']) {
     const command = connectionCommand(env, platform);
-    assert.match(command, /docker run .*--env-file fastdog-agent.env/);
+    assert.match(command, /docker run .*--env-file fastdog-agent[\w.-]*\.env/);
     assert.doesNotMatch(command.slice(command.indexOf('docker run')), /private| -e /);
   }
   assert.match(docker, /ghcr.io\/soupnchill\/fastdog-agent:0.1.2@sha256:[0-9a-f]{64}$/);
@@ -82,9 +89,10 @@ test('Docker shell command writes private exact values without passing the token
     cwd: dir, encoding: 'utf8', env: { PATH: `${dir}:/usr/bin:/bin` },
   });
   assert.equal(result.status, 0, result.stderr);
-  const saved = readFileSync(join(dir, 'fastdog-agent.env'), 'utf8');
+  const file = join(dir, `fastdog-agent-${agentSuffix(env.AGENT_HOSTNAME)}.env`);
+  const saved = readFileSync(file, 'utf8');
   for (const [key, value] of Object.entries(env)) assert.ok(saved.includes(`${key}=${value}\n`));
-  assert.equal(statSync(join(dir, 'fastdog-agent.env')).mode & 0o777, 0o600);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
   assert.doesNotMatch(readFileSync(join(dir, 'docker-args'), 'utf8'), /private/);
 });
 
@@ -94,13 +102,26 @@ test('rendered commands never contain angle-bracket placeholders on any tab', ()
       const command = buildCommand({ ...env, AGENT_LOCAL_UPSTREAM: undefined }, platform, 'https://portal.example.test', origin);
       assert.ok(command, `${platform} ${origin}`);
       assert.doesNotMatch(command, /</);
-      assert.doesNotMatch(command.replace(/ > fastdog-agent\.env /, ' ').replace(' >/dev/null 2>&1;', ';'), />/);
+      assert.doesNotMatch(command.replace(/ > fastdog-agent[\w.-]*\.env /, ' ').replace(' >/dev/null 2>&1;', ';'), />/);
       assert.ok(command.includes('https://edge.example.test'));
       assert.ok(command.includes(origin));
     }
   }
   for (const missing of [{ EDGE_HTTP_URL: undefined }, { AGENT_TOKEN: undefined }, { AGENT_LOCAL_UPSTREAM: 'not a url' }]) {
     for (const platform of ['linux', 'docker', 'macos', 'windows']) assert.equal(buildCommand({ ...env, ...missing }, platform, 'https://portal.example.test'), null);
+  }
+});
+test('default tab is Docker on Linux and the Desktop tab on Mac and Windows', () => {
+  assert.equal(defaultChoice({ platform: 'Linux x86_64', userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' }), 0);
+  assert.equal(defaultChoice({ platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }), 2);
+  assert.equal(defaultChoice({ platform: 'Win32', userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }), 3);
+  assert.equal(defaultChoice({ userAgent: 'Mozilla/5.0 (Windows NT 10.0)' }), 3);
+  assert.equal(defaultChoice(undefined), 0);
+});
+test('link-local origins are refused with a clear error', () => {
+  for (const input of ['http://169.254.169.254:80', '169.254.1.1:80', 'http://[fe80::1]:80', 'http://[feb0::1]:80', 'http://[::ffff:169.254.169.254]:80']) {
+    assert.match(validateOrigin(input).error, /Link-local/, input);
+    assert.equal(buildCommand({ ...env, AGENT_LOCAL_UPSTREAM: undefined }, 'docker', 'https://portal.example.test', input), null);
   }
 });
 test('origin field accepts local app addresses and explains bad ones', async () => {

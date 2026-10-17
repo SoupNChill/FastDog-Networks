@@ -71,7 +71,7 @@
 <p>The assistant sends it as <code>Authorization: Bearer &lt;token&gt;</code> to two endpoints on the portal:</p>
 <ul>
 <li><code>GET /api/connect/v1/hostname</code>: the address, token expiry, and <code>agent.connected</code> / <code>agent.origin_reachable</code>.</li>
-<li><code>POST /api/connect/v1/command</code> with <code>{"origin": "http://127.0.0.1:3000", "platform": "docker"}</code> (or <code>"linux"</code> for the systemd installer): returns the connect command once. Origins must be local or private addresses with a port.</li>
+<li><code>POST /api/connect/v1/command</code> with <code>{"origin": "http://127.0.0.1:3000", "platform": "docker"}</code> (or <code>"linux"</code> for the systemd installer): returns the connect command once. Origins must be local or private addresses with a port (link-local 169.254.0.0/16 and fe80::/10 are refused). Docker group access is root-equivalent: use Docker only if you already have it without sudo.</li>
 </ul>
 <p>Tokens are never accepted in a URL. Your password and sudo prompts stay with you.</p>
 <p>An assistant that holds an API key (see below) can do the whole job from scratch:</p>
