@@ -2,7 +2,7 @@
 // caller has already confirmed is an active claim of the requesting tenant. Network probes only
 // ever connect to the local Caddy listener (never to an address derived from the hostname), so a
 // tenant cannot point the edge at an arbitrary target.
-import { open, stat } from 'node:fs/promises';
+import { open, stat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import tls from 'node:tls';
 import https from 'node:https';
@@ -66,9 +66,37 @@ export async function trafficStats(host, { logDir, now = Date.now } = {}) {
     p50_ms: p50 === null ? null : Math.round(p50 * 10) / 10, errors_5xx: errors };
 }
 
+// Per-host hourly counts written by the customer shadow scorer (verdict/src/shadow/customer.js).
+// Only this host's buckets are read; null when the file is missing or has nothing for the host.
+async function customerCounts(host, countsFile, end) {
+  let data;
+  try {
+    const { size } = await stat(countsFile);
+    if (size > TAIL_BYTES) return null;
+    data = JSON.parse(await readFile(countsFile, 'utf8'));
+  } catch { return null; }
+  const buckets = data?.v === 1 && data.hosts && Object.hasOwn(data.hosts, host) ? data.hosts[host] : null;
+  if (!buckets || typeof buckets !== 'object') return null;
+  const first = Math.floor((end - DAY) / HOUR) + 1;
+  const last = Math.floor(end / HOUR);
+  let scored = 0; let blocked = 0; let challenged = 0;
+  for (const [hour, b] of Object.entries(buckets)) {
+    const h = Number(hour);
+    if (!Number.isInteger(h) || h < first || h > last || !b) continue;
+    const n = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
+    scored += n(b.scored); blocked += n(b.block); challenged += n(b.challenge);
+  }
+  return { available: true, shadow: true, scored, would_block: blocked, would_challenge: challenged };
+}
+
 // Verdict shadow decisions for this host over 24h. Shadow only: nothing was actually blocked.
-export async function shadowStats(host, { shadowFile, now = Date.now } = {}) {
+// Customer hosts come from the per-host counts file; first-party hosts from the scorer's row log.
+export async function shadowStats(host, { shadowFile, countsFile, now = Date.now } = {}) {
   safeHost(host);
+  if (countsFile) {
+    const counts = await customerCounts(host, countsFile, now());
+    if (counts) return counts;
+  }
   if (!shadowFile) return { available: false, shadow: true };
   const lines = await tailLines(shadowFile);
   if (!lines) return { available: false, shadow: true };

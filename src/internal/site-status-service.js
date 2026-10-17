@@ -16,6 +16,7 @@ export function createSiteStatus(opts = {}) {
   }
   const logDir = opts.accessLogDir ?? env.FASTDOG_ACCESS_LOG_DIR ?? '/var/log/caddy';
   const shadowFile = opts.shadowFile ?? env.VERDICT_SHADOW_FILE ?? '/opt/verdict/data/shadow.jsonl';
+  const countsFile = opts.countsFile ?? env.VERDICT_SHADOW_COUNTS_FILE ?? '/var/lib/verdict-shadow/customer-counts.json';
   const cache = new Map();
   const limits = new Map();
   function limit(key, count, windowMs) {
@@ -34,7 +35,7 @@ export function createSiteStatus(opts = {}) {
     if (!probed) {
       const [traffic, shadow, cert] = await Promise.all([
         probes.trafficStats(host, { logDir, now }).catch(() => ({ available: false })),
-        probes.shadowStats(host, { shadowFile, now }).catch(() => ({ available: false, shadow: true })),
+        probes.shadowStats(host, { shadowFile, countsFile, now }).catch(() => ({ available: false, shadow: true })),
         probes.certInfo(host, { tlsHost, tlsPort, timeout: 2500 }).catch(() => null),
       ]);
       probed = { traffic, shadow, cert, checked_at: new Date(now()).toISOString() };

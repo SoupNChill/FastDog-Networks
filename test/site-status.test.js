@@ -110,3 +110,22 @@ test('internal status and test routes are tenant-scoped, active-only, cached and
   assert.equal(limited.status, 429);
   assert.ok(probed.every(([, host, addr]) => host === 'app.example.test' && (addr === undefined || addr === '127.0.0.1')));
 });
+
+test('customer shadow counts: only this host, only the last 24 hours, file contents never leak', async (t) => {
+  const dir = tempDir(t);
+  const counts = join(dir, 'customer-counts.json');
+  const hour = Math.floor(NOW / 3600000);
+  writeFileSync(counts, JSON.stringify({ v: 1, hosts: {
+    'app.example.test': { [hour]: { scored: 5, block: 1, challenge: 2 }, [hour - 23]: { scored: 1, block: 0, challenge: 1 }, [hour - 30]: { scored: 9, block: 9, challenge: 0 } },
+    'other.example.test': { [hour]: { scored: 50, block: 50, challenge: 0 } },
+  } }));
+  assert.deepEqual(await shadowStats('app.example.test', { countsFile: counts, shadowFile: join(dir, 'none'), now: () => NOW }),
+    { available: true, shadow: true, scored: 6, would_block: 1, would_challenge: 3 });
+  // A host with no counts falls back to the first-party row log (here missing).
+  assert.deepEqual(await shadowStats('new.example.test', { countsFile: counts, shadowFile: join(dir, 'none'), now: () => NOW }), { available: false, shadow: true });
+  // Inherited names and malformed buckets are ignored.
+  writeFileSync(counts, JSON.stringify({ v: 1, hosts: { 'app.example.test': { [hour]: { scored: -4, block: 'x', challenge: 1 } } } }));
+  assert.deepEqual(await shadowStats('app.example.test', { countsFile: counts, now: () => NOW }),
+    { available: true, shadow: true, scored: 0, would_block: 0, would_challenge: 1 });
+  assert.deepEqual(await shadowStats('constructor.example.test', { countsFile: counts, now: () => NOW }), { available: false, shadow: true });
+});
