@@ -12,7 +12,7 @@ import { normalizeHostname } from './hostname.js';
 import { safePath, serveStatic, pages } from './static.js';
 import { createFileMailer } from './mailer-file.js';
 import { createConnectTokens, assistantPrompt } from './connect-tokens.js';
-import { dockerEnvFile, buildCommand, validOrigin, originError } from './connect-command.js';
+import { dockerDetails, serializeDockerEnv, dockerEnvFile, buildCommand, validOrigin, originError } from './connect-command.js';
 import { verifyPassword } from './passwords.js';
 import { createApiKeys, planAllowsKeys, API_KEY_SCOPES, DEFAULT_DAYS, MAX_DAYS } from './api-keys.js';
 
@@ -163,9 +163,9 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
           const created = hostnameRecord(await edge.createHostname(tid, hostname, tenant.hostname_limit));
           const commands = store.read('connect_commands', {});
           if (delete commands[commandKey(tid, hostname)]) store.write('connect_commands', commands);
-          return send(201, created);
+          return send(201, { ...created, docker: dockerDetails(hostname) });
         }
-        if (!m[2]) return send(200, hostnameRecord(await edge.getHostname(tid, hostname)));
+        if (!m[2]) return send(200, { ...hostnameRecord(await edge.getHostname(tid, hostname)), docker: dockerDetails(hostname) });
         if (m[2] === 'status') {
           limits.take(`status:${tid}`, 60, 60000);
           return send(200, siteStatus(await edge.getStatus(tid, hostname)));
@@ -177,6 +177,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         }
         const upstream = validOrigin(body.origin);
         const platform = body.platform === undefined ? 'linux' : body.platform;
+        const format = body.format === undefined ? 'json' : body.format;
+        if (!['json', 'env'].includes(format) || (format === 'env' && platform !== 'docker')) throw fail('invalid_format');
         if (!upstream || !['linux', 'docker'].includes(platform)) throw Object.assign(fail('invalid_origin'), { detail: originError(body.origin) });
         if (!edgeUrl) throw fail('internal_error');
         if ((await edge.getHostname(tid, hostname)).status !== 'active') throw fail('not_active');
@@ -189,6 +191,12 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         markCommand(tid, hostname);
         const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
         if (!command) throw fail('internal_error');
+        if (format === 'env') {
+          const env = serializeDockerEnv(rotated.credential?.agent_env, upstream);
+          if (!env) throw fail('internal_error');
+          response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+          return response.end(env);
+        }
         return send(200, { hostname, platform, origin: upstream, command,
           ...(platform === 'docker' ? { env_file: dockerEnvFile(rotated.credential.agent_env.AGENT_HOSTNAME) } : {}),
           note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it.' });
@@ -221,11 +229,13 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         if (claim.status !== 'active') throw fail('not_active');
         if (path === '/api/connect/v1/hostname') {
           const agent = pick(await edge.getAgent(record.tenant_id, record.hostname), ['connected', 'last_seen', 'origin_reachable', 'origin_checked_at']);
-          return send(200, { hostname: record.hostname, scope: 'connect', expires_at: record.expires_at, command_issued: Boolean(record.command_issued_at), agent });
+          return send(200, { hostname: record.hostname, scope: 'connect', expires_at: record.expires_at, command_issued: Boolean(record.command_issued_at), agent, docker: dockerDetails(record.hostname) });
         }
         const body = await readBody(request);
         const upstream = validOrigin(body.origin);
         const platform = body.platform === undefined ? 'linux' : body.platform;
+        const format = body.format === undefined ? 'json' : body.format;
+        if (!['json', 'env'].includes(format) || (format === 'env' && platform !== 'docker')) throw fail('invalid_format');
         if (!upstream || !['linux', 'docker'].includes(platform)) throw Object.assign(fail('invalid_origin'), { detail: originError(body.origin) });
         if (!edgeUrl) throw fail('internal_error');
         if (record.command_issued_at || !connectTokens.markCommand(record.id)) throw fail('token_used');
@@ -245,6 +255,12 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         markCommand(record.tenant_id, record.hostname);
         const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
         if (!command) throw fail('internal_error');
+        if (format === 'env') {
+          const env = serializeDockerEnv(rotated.credential?.agent_env, upstream);
+          if (!env) throw fail('internal_error');
+          response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+          return response.end(env);
+        }
         return send(200, { hostname: record.hostname, platform, origin: upstream, command,
           ...(platform === 'docker' ? { env_file: dockerEnvFile(rotated.credential.agent_env.AGENT_HOSTNAME) } : {}),
           note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it. For Docker, delete the file named by env_file after success or failure; never a glob or a copied example.' });

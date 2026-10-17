@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { assistantPrompt } from '../src/connect-tokens.js';
 import { fixture, tids, request } from './helpers.js';
 import { buildCommand, validOrigin, originError } from '../src/connect-command.js';
 
@@ -34,18 +35,11 @@ test('connect tokens need an active owned hostname, CSRF and a verified session'
   assert.ok(issued.data.prompt.includes('HISTCONTROL=ignorespace') && issued.data.prompt.includes('delete it from my history'));
   assert.ok(issued.data.prompt.includes(`I can delete ${headerFile}`), 'delete the header file after connecting');
   assert.ok(issued.data.prompt.includes('Never use curl -v or --trace'));
-  assert.ok(issued.data.prompt.includes('curl 7.75 or newer') && issued.data.prompt.includes('umask 077 first'));
-  assert.ok(issued.data.prompt.includes('ask me to run this one-time command') && issued.data.prompt.includes('do not write the header file yourself'));
-  assert.ok(issued.data.prompt.includes('HOME may differ') && issued.data.prompt.includes('only ask which port'));
-  assert.ok(issued.data.prompt.includes('curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json') && issued.data.prompt.includes('delete the file'));
-  assert.ok(!/curl -o |chmod [0-7]{3}/.test(issued.data.prompt), 'no umask/chmod reliance for the connect response');
   const prompt = issued.data.prompt;
-  assert.ok(prompt.includes('"platform": "docker"') && prompt.includes('docker info works without sudo') && prompt.includes('docker ps --filter name=fastdog-agent'));
-  for (const needle of ['Never print the command', 'docker inspect', '/proc/*/cmdline', 'never echo the token', 'sh /absolute/path/fastdog-run.sh', 'whether it succeeded or failed', 'root-equivalent', 'ALREADY', 'rootless Docker']) assert.ok(prompt.includes(needle), needle);
-  assert.ok(!prompt.includes('sh -c'));
-  assert.ok(prompt.indexOf('docker info') < prompt.indexOf('systemd installer'), 'Docker before systemd');
-  assert.ok(prompt.indexOf('"docker"') < prompt.indexOf('(use "linux" only'));
-  assert.ok(issued.data.prompt.includes('every 15 seconds') && issued.data.prompt.includes('3 a day'));
+  for (const needle of ['curl 7.75 or newer', 'only ask which port', '"format":"env"', 'the ONLY new command needing approval is the single docker run',
+    'docker.run', 'ENV_FILE', 'never read, print, cat or copy', 'root-equivalent', 'ALREADY',
+    'Do not delete them yourself', 'same env file', 'every 15 seconds', '3 a day', 'live true']) assert.ok(prompt.includes(needle), needle);
+  assert.doesNotMatch(prompt, /fastdog-run\.sh|python3/);
   const stored = JSON.stringify(f.store.read('connect_tokens', []));
   assert.equal(stored.includes(issued.data.token), false, 'only a digest is stored');
   const list = await a.client.call('/api/hostnames/app.example.test/connect-token');
@@ -196,4 +190,18 @@ test('Docker command response names its exact token-free env file', async (t) =>
   assert.equal(response.status, 200);
   assert.match(response.data.env_file, /^fastdog-agent-app-example-test-[0-9a-f]{10}\.env$/);
   assert.equal(response.data.env_file, response.data.command.match(/--env-file (\S+)/)[1]);
+});
+
+test('assistant prompt explains approvals and immediate cleanup without a live server', () => {
+  const prompt = assistantPrompt({ hostname: 'app.example.test', token: 'placeholder',
+    expiresAt: '2099-01-01', portalOrigin: 'https://portal.example.test' });
+  for (const needle of ['curl calls to https://portal.example.test', 'exact docker run line',
+    'one-time header-file setup at the start', 'env-file fetch and status polling', 'once/up front',
+    'the ONLY new command needing approval is the single docker run', 'only on a reconnect name conflict',
+    '"format":"env"', 'http://127.0.0.1:PORT', 'PORT is the app port I gave',
+    'app.example.test.agent-2.env rather than overwrite it', '--create-file-mode only applies to a new file',
+    'As soon as agent.connected is true, immediately', 'rm -f /home/USER/.config/fastdog/app.example.test.agent.env',
+    'absolute path you used', 'Docker stored the env at create time', 'Do not delete them yourself',
+    'single-use bootstrap code', 'needs a new agent image']) assert.ok(prompt.includes(needle), needle);
+  assert.doesNotMatch(prompt, /fastdog-run\.sh|127\.0\.0\.1:3000/);
 });

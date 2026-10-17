@@ -8,6 +8,8 @@ The API origin is the portal: if you fetched this guide from https://DOMAIN/llms
 
 Use the API key (fdak_) for the whole flow from zero. The connect token (fdct_) from the portal's "Copy prompt for your AI assistant" only exists after the hostname is verified and only covers the connect step (section "Connect token API").
 
+Before any DNS work, follow the EARLY single-approval instructions in "Connect command" below.
+
 0. One-time key setup (the user runs this, or approves it once). Assistants with a command allowlist refuse commands that expand a secret variable, so ask the user for this step at the start; do not retry variations. Reference the file by absolute path, because your HOME may differ from the user's (see "Using a credential"):
 
        mkdir -p ~/.config/fastdog && (umask 077; printf 'Authorization: Bearer %s\n' 'PASTE_KEY' > ~/.config/fastdog/HOSTNAME.header)
@@ -17,8 +19,8 @@ Use the API key (fdak_) for the whole flow from zero. The connect token (fdct_) 
 1. POST https://portal.DOMAIN/api/v1/hostnames {"hostname": "app.example.com"} -> note dns.cname and dns.txt.
 2. Show the user the two DNS records as a table (type, name, value, and "DNS only" / grey cloud on Cloudflare). You normally cannot add DNS records yourself; the user adds them at their DNS provider and tells you when done.
 3. Poll POST https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/verify every 30 seconds (limit: 6 a minute) until verified is true / status is active. Failures before the records exist are normal: checks.routing.ok and checks.ownership.ok are false, with errors such as txt_not_found, txt_mismatch or dns_timeout. DNS can take minutes to hours; stop and ask the user after about 30 minutes.
-4. Use the port or origin the user already gave you (origin like http://127.0.0.1:3000); only ask if they have not.
-5. POST https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/connect with platform "docker" -> command. Run it as in "Connect command" (Docker first; the systemd installer is the alternative).
+4. Use the port or origin the user already gave you (origin like http://127.0.0.1:PORT); only ask if they have not.
+5. POST https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/connect with platform "docker", format "env" -> private env file. Run it as in "Connect command" (Docker first; the systemd installer is the alternative).
 6. Poll GET https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/status every 15 seconds (results are cached for 30 s) until live is true (see "Status fields").
 7. Open https://HOSTNAME/ and confirm the app loads.
 
@@ -36,26 +38,33 @@ Assistants with a command allowlist accept only one plain command per call: no s
 
 ## Connect command
 
-Docker is the default path, but docker group access is root-equivalent. Use Docker only if the user ALREADY has docker access without sudo (`docker info` works); never add anyone to the docker group yourself. Otherwise use rootless Docker, or the systemd installer (platform "linux"), which needs sudo, so the user runs it. The Docker command contains the agent's private token: never print the command or the env file, never run `docker inspect` on the agent container, never use `ps` or read `/proc/*/cmdline`, and never echo the token. Save the response with `curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json` (curl 7.75+ creates the file private, so no umask or chmod is needed; with older curl run `umask 077` first), using platform "docker":
+EARLY, before DNS work, list in one message (a) curl calls to https://portal.DOMAIN and (b) the exact docker run line from the API, with the chosen absolute ENV_FILE path. The user does the one-time header-file setup at the start. Every API call, including the env-file fetch and status polling, is plain curl of the same shape, so a user who allows curl approves those calls once/up front. After DNS, the ONLY new command needing approval is the single docker run (plus one docker rm -f only on a reconnect name conflict). Nothing chained. Template:
 
-    curl -sS --create-file-mode 0600 -X POST -H @/home/USER/.config/fastdog/app.example.com.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:3000","platform":"docker"}' -o /home/USER/fastdog-connect.json https://portal.DOMAIN/api/v1/hostnames/app.example.com/connect
+    docker run -d --name CONTAINER_NAME --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ENV_FILE IMAGE
 
-Assistants with a command allowlist: these connect steps write and run a script whose content comes from the API response, so the allowlist cannot pre-approve them. Before this step, ask the user once to approve exactly these commands (the python3 line that writes fastdog-run.sh, `sh fastdog-run.sh`, the python3 env-file cleanup and the rm), then run each as its own command. Poll verify and status with one plain curl per call; do not wrap polling in shell loops.
+Once the hostname exists, use the exact container name, pinned image and run template from its docker object {container_name, image, run}. API-key create and GET hostname responses and fdct GET /api/connect/v1/hostname expose it without a secret. Replace ENV_FILE with the absolute env-file path below. Docker group access is root-equivalent: the user must ALREADY have docker access without sudo; never add anyone to that group. Ask the user about access, without running docker info. If they lack access, use the systemd installer path (platform "linux"), run by the user.
 
-Then write the command to a private file without displaying it, run that file with `sh`, and delete the files whether it succeeded or failed (delete the file named by the response `env_file` field, never a glob, never a copied example):
+After DNS is verified, fetch the env file with ONE curl (requires curl 7.75+). Use a new, unused absolute path in the user's private ~/.config/fastdog directory; --create-file-mode does not fix permissions on an existing file. Prefer HOSTNAME.agent.env in ~/.config/fastdog; if it already exists, pick a different new name such as HOSTNAME.agent-2.env rather than overwrite it. PORT is the app port the user gave. The user prepares the header file as described above.
 
-    (umask 077; python3 -c 'import json;print(json.load(open("/home/USER/fastdog-connect.json"))["command"])' > /home/USER/fastdog-run.sh)
-    sh /home/USER/fastdog-run.sh
-    python3 -c 'import json, pathlib; pathlib.Path(json.load(open("/home/USER/fastdog-connect.json"))["env_file"]).unlink(missing_ok=True)'
-    rm -f /home/USER/fastdog-run.sh /home/USER/fastdog-connect.json; docker ps --filter name=fastdog-agent
+    curl -sS --create-file-mode 0600 -w '%{http_code}\n' -X POST -H @/home/USER/.config/fastdog/app.example.com.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:PORT","platform":"docker","format":"env"}' -o /home/USER/.config/fastdog/app.example.com.agent.env https://portal.DOMAIN/api/v1/hostnames/app.example.com/connect
 
-Single-label origin hostnames other than `localhost` are rejected; `host.docker.internal` is also allowed. Immediately before writing the env file, the Docker command removes its previous path with `rm -f` to avoid following a stale symlink or retaining old permissions. The write uses a subshell with `set -C` (noclobber), so a path planted after removal makes the write fail. Command failure removes the env file and returns false without exiting the calling shell. After success or failure, delete the file named by the response `env_file` field (never a glob, never a copied example).
+For an fdct_ connect token, use:
 
-The command writes the env file with shell builtins only (umask 077; no process carries the token in its arguments) after pulling the pinned image (a failed pull leaves no token file), replaces any old agent, then runs it with `--network host` (so 127.0.0.1 reaches the app; on Docker Desktop for macOS/Windows use host.docker.internal in the origin instead), `--cap-drop ALL --security-opt no-new-privileges`, `--restart unless-stopped` and the name fastdog-agent-HOSTNAME-SLUG-RANDOMHEX. Origins in 169.254.0.0/16, fe80::/10, fd00:ec2::/32, NAT64 64:ff9b::/96, 100.64.0.0/10 or 0.0.0.0 (including IPv4-mapped forms) are refused.
+    curl -sS --create-file-mode 0600 -w '%{http_code}\n' -X POST -H @/abs/path/app.example.com.token.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:PORT","platform":"docker","format":"env"}' -o /home/USER/.config/fastdog/app.example.com.agent.env https://portal.DOMAIN/api/connect/v1/command
 
-Alternative: platform "linux" returns a root systemd installer command that uses sudo. The assistant must not run it and must not read the token inside it; tell the user the same one-line way to run it from the file (they type their own sudo password), then delete the file.
+Check the printed HTTP code. If it is not 200, the file holds a JSON error without secrets and may be read; do not run Docker. On transport failure stop too. If 200, never read, print, cat or copy that file. Use the exact docker.run and docker.container_name from the API, never a copied example name. Run exactly docker.run with ENV_FILE replaced by the absolute path you chose, as one command with nothing chained. No docker info / docker pull / docker ps / rm around it: docker run pulls the pinned image itself. If a name conflict occurs on reconnect, ask the user to approve docker rm -f followed by the exact docker.container_name once, then rerun the same docker run with the same env file; do not request a new command. If permission denied on the Docker socket, stop and offer the linux installer path.
 
-Limits: 3 commands per hostname per day with a key (5 per day overall, shared with the portal); a connect-token command is single use. Each new command replaces the old key and drops the current connection until it runs, so do not request one again just to retry; first check status.
+Poll status with plain curl, never docker inspect, ps or /proc. For API keys the stop condition is live true. The fdct hostname endpoint exposes agent.connected and agent.origin_reachable, not live or certificate data; then open HTTPS to confirm (see below). Poll every 15 seconds, without shell loops.
+
+As soon as agent.connected is true, immediately give the user the exact one-line command to run themselves: rm -f /home/USER/.config/fastdog/app.example.com.agent.env (substitute the absolute path you used). It holds the agent private key; the running container does not need it, and restart does not need it either because Docker stored the env at create time. Also give this cleanup command after failure. Also tell them to delete the API key header file if no longer needed, or the connect-token header after connecting. The assistant does not delete these files itself: that would need a second approval.
+
+Why this design / tradeoff: the agent token never appears in any command line, shell history or process args: curl writes it straight to a 0600 file and Docker reads --env-file client-side. The cost is a 0600 env file holding the agent key stays on disk until the user deletes it. Like any Docker env var it is visible to anyone with docker access via docker inspect. Each new connect command rotates the key, so a leftover file is useless after a later reconnect, and the key can be revoked. Using -e AGENT_TOKEN=... was rejected because it puts the key in the command line and history. A future option is a single-use bootstrap code in the env file that the agent exchanges for its key (needs a new agent image), making the leftover file harmless.
+
+Both connect endpoints accept format "json" (default, unchanged) or "env" (Docker only; otherwise 400 invalid_format). Env success is 200 text/plain; charset=utf-8 with Cache-Control: no-store and exactly six unquoted KEY=value lines: AGENT_TOKEN, AGENT_HOSTNAME, AGENT_NAME, EDGE_HTTP_URL, EDGE_WS_URL, AGENT_LOCAL_UPSTREAM. Newline and NUL values are rejected. Errors stay JSON. The JSON command field remains the copy-paste human command for humans and old clients; Docker JSON also includes env_file. For linux, the user requests the JSON installer command and runs it themselves with sudo; the assistant must not print its private key.
+
+Host networking (--network host) reaches the app on 127.0.0.1; on Docker Desktop use host.docker.internal. Single-label origin hostnames other than localhost are rejected. Origins in 169.254.0.0/16, fe80::/10, fd00:ec2::/32, NAT64 64:ff9b::/96, 100.64.0.0/10 or 0.0.0.0 (including IPv4-mapped forms) are refused.
+
+Limits are shared across json and env: 3 commands per hostname per day with a key, or with connect tokens (5 per day overall, shared with the portal). A connect-token command is single use (second call 409 token_used). Each issuance rotates the key and drops the current connection; never request another just to retry.
 
 ## Status fields
 
@@ -75,7 +84,7 @@ Certificates: once the hostname is verified (keep the CNAME and TXT records in p
 
 - Edge: FastDog's public server. It answers for your address, serves HTTPS and forwards each request to your server.
 - Agent: a small program on your server. It opens one outbound connection to the edge and keeps it open, so no inbound ports or firewall changes are needed and your server's IP stays private.
-- Origin: where your app listens on that server, for example http://127.0.0.1:3000.
+- Origin: where your app listens on that server, for example http://127.0.0.1:PORT.
 - Portal: the signed-in customer site where setup happens (https://portal.DOMAIN).
 
 ## Setup without an assistant
@@ -92,8 +101,8 @@ Certificates: once the hostname is verified (keep the CNAME and TXT records in p
 
 The user creates a prompt on the portal's Server page (only possible once the hostname is verified). It contains a connect token that works for one hostname, can only read that hostname's connection status and get its connect command once, expires after one hour, and is revocable. Send it only as `Authorization: Bearer TOKEN`.
 
-- GET https://portal.DOMAIN/api/connect/v1/hostname -> {hostname, scope, expires_at, command_issued, agent: {connected, last_seen, origin_reachable, origin_checked_at}}
-- POST https://portal.DOMAIN/api/connect/v1/command with JSON {"origin": "http://127.0.0.1:PORT", "platform": "docker" | "linux"} -> {hostname, platform, origin, command, env_file} (env_file is Docker-only and contains the exact filename, no token). Single use per token (409 token_used after). Origins must be local or private addresses with a port (400 invalid_origin otherwise).
+- GET https://portal.DOMAIN/api/connect/v1/hostname -> {hostname, scope, expires_at, command_issued, docker, agent: {connected, last_seen, origin_reachable, origin_checked_at}}
+- POST https://portal.DOMAIN/api/connect/v1/command with JSON {"origin": "http://127.0.0.1:PORT", "platform": "docker" | "linux"} and optional "format":"env" -> env text; default JSON -> {hostname, platform, origin, command, env_file} (env_file is Docker-only and contains the exact filename, no token). Single use per token (409 token_used after). Origins must be local or private addresses with a port (400 invalid_origin otherwise).
 - Errors: 401 unauthorized (missing, expired or revoked token), 409 not_active (hostname not verified), 429 rate_limited (honour Retry-After).
 
 Poll the hostname endpoint every 15 seconds until agent.connected is true and agent.origin_reachable is not false; it has no certificate data, so open https://HOSTNAME/ to confirm.
@@ -110,11 +119,11 @@ Removing a hostname is not possible with a key; it is done in the portal.
 
 There is no endpoint that lists a key's scopes. 403 forbidden means the key lacks the scope for that call or the hostname is not on the key's hostname list; ask the user to create a key with the missing scope. Needed scope per call:
 
-- POST https://portal.DOMAIN/api/v1/hostnames {"hostname": "app.example.com"} -> 201 {hostname, status, dns: {cname, txt}, expires_at} (`hostnames:create`)
-- GET https://portal.DOMAIN/api/v1/hostnames/HOSTNAME -> {hostname, status, dns?, agent?} (`status:read` or `hostnames:create`)
+- POST https://portal.DOMAIN/api/v1/hostnames {"hostname": "app.example.com"} -> 201 {hostname, status, docker, dns: {cname, txt}, expires_at} (`hostnames:create`)
+- GET https://portal.DOMAIN/api/v1/hostnames/HOSTNAME -> {hostname, status, docker, dns?, agent?} (`status:read` or `hostnames:create`)
 - POST https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/verify -> {hostname, status, verified, checks} (`hostnames:create`)
 - GET https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/status -> see Status fields (`status:read`)
-- POST https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/connect with JSON {"origin": "http://127.0.0.1:PORT", "platform": "docker" | "linux"} -> {command, env_file} (env_file is Docker-only; `connect`)
+- POST https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/connect with JSON {"origin": "http://127.0.0.1:PORT", "platform": "docker" | "linux"} and optional "format":"env" -> env text; default JSON -> {command, env_file} (env_file is Docker-only; `connect`)
 
 Errors: 401 unauthorized (missing, expired or revoked key), 403 forbidden, 404 hostname_not_found, 400 invalid_origin, 409 hostname_limit_reached, 409 hostname_unavailable, 409 not_active, 429 rate_limited (60 requests a minute per key; honour Retry-After).
 

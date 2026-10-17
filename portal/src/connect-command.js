@@ -60,13 +60,33 @@ export function validOrigin(input) {
 
 export const dockerEnvFile = (hostname) => `fastdog-agent-${agentSuffix(hostname)}.env`;
 
-export function buildCommand(agentEnv, { platform = 'linux', portalOrigin, origin }) {
+function commandEnv(agentEnv, origin) {
   const upstream = validOrigin(origin);
   if (!agentEnv?.AGENT_TOKEN || !agentEnv.AGENT_HOSTNAME || !agentEnv.EDGE_HTTP_URL || !upstream) return null;
   const env = { AGENT_TOKEN: agentEnv.AGENT_TOKEN, AGENT_HOSTNAME: agentEnv.AGENT_HOSTNAME, AGENT_NAME: agentEnv.AGENT_NAME || agentEnv.AGENT_HOSTNAME,
     EDGE_HTTP_URL: agentEnv.EDGE_HTTP_URL,
     EDGE_WS_URL: agentEnv.EDGE_WS_URL || `${agentEnv.EDGE_HTTP_URL.replace(/^http/, 'ws').replace(/\/$/, '')}/_fastdog/tunnel`,
     AGENT_LOCAL_UPSTREAM: upstream };
+  return Object.values(env).every((value) => typeof value === 'string' && !/[\r\n\0]/.test(value)) ? env : null;
+}
+
+export function serializeDockerEnv(agentEnv, origin) {
+  const env = commandEnv(agentEnv, origin);
+  return env ? Object.entries(env).map(([key, value]) => `${key}=${value}\n`).join('') : null;
+}
+
+export function dockerRun(hostname, envFilePath = 'ENV_FILE') {
+  if (envFilePath !== 'ENV_FILE' && !/^\/[a-zA-Z0-9/_.-]+$/.test(envFilePath)) throw new Error('Invalid env file path');
+  return `docker run -d --name fastdog-agent-${agentSuffix(hostname)} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ${envFilePath} ${AGENT_IMAGE}`;
+}
+
+export function dockerDetails(hostname) {
+  return { container_name: `fastdog-agent-${agentSuffix(hostname)}`, image: AGENT_IMAGE, run: dockerRun(hostname) };
+}
+
+export function buildCommand(agentEnv, { platform = 'linux', portalOrigin, origin }) {
+  const env = commandEnv(agentEnv, origin);
+  if (!env) return null;
   if (platform === 'linux') {
     return `curl -fsSL ${shellQuote(new URL('/install/agent.sh', portalOrigin).href)} -o /tmp/fastdog-agent-install.sh && sudo FASTDOG_AGENT_TOKEN=${shellQuote(env.AGENT_TOKEN)} bash /tmp/fastdog-agent-install.sh --edge ${shellQuote(env.EDGE_HTTP_URL)} --hostname ${shellQuote(env.AGENT_HOSTNAME)} --origin ${shellQuote(env.AGENT_LOCAL_UPSTREAM)}`;
   }
