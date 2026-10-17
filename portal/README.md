@@ -90,6 +90,25 @@ argument can specify an ISO expiry; the default is seven days. Run the CLI while
 the service is stopped: all state access assumes a single writer process. No
 invite listing or minting endpoint is exposed to browsers.
 
+Suspend or resume a tenant (kill switch) by tenant ID or account email:
+
+```sh
+node portal/bin/tenant.js suspend t_aaaaaaaaaaaaaaaaaaaa --reason "abuse report"
+node portal/bin/tenant.js resume user@example.com --reason "resolved"
+```
+
+It needs `STATE_DIRECTORY`; `suspend` also needs `PORTAL_KEY` and optionally
+`EDGE_INTERNAL_URL`. Unlike the invite CLI it is safe while the portal runs: it
+writes only `suspensions.json` and `admin_audit.json`, and the server reads
+`suspensions.json` on every request. A suspended tenant's sessions, API keys and
+connect tokens are refused and revoked on next use, login fails generically and
+password reset sends nothing. `suspend` then calls the edge to suspend every
+hostname; if that fails the portal suspension stays, the summary says
+`edge:"failed"`, the exit code is 2, and re-running retries. Both commands are
+idempotent and print a JSON summary of counts, never secrets. `resume` restores
+sign-in only: revoked keys and tokens stay revoked, and hostnames stay suspended
+on the edge until the customer re-verifies each one and reconnects.
+
 State files use atomic replacement and mode 0600 in a mode-0700 directory:
 
 - `accounts.json`: `users`, `tenants`, `invites`, `links` arrays. Grouping the
