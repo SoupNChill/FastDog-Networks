@@ -531,10 +531,10 @@ test('TLS ask checks external changes once per second and only rereads changed s
   h.advance(1000);
   assert.equal((await h.ask()).statusCode, 404);
   assert.equal(read.mock.callCount(), 0);
-  assert.equal(stat.mock.callCount(), 2);
+  assert.equal(stat.mock.callCount(), 3);
   fs.writeFileSync(`${h.directory}/tenant_hostnames.json`, JSON.stringify([h.claim('app.example.test')]));
   assert.equal((await h.ask()).statusCode, 404);
-  assert.equal(stat.mock.callCount(), 2);
+  assert.equal(stat.mock.callCount(), 3);
   h.advance(1000);
   assert.equal((await h.ask()).statusCode, 200);
   assert.equal(read.mock.callCount(), 2, 'changed claims plus locked approval-state read');
@@ -776,7 +776,9 @@ test('global reserve admits new tenants and statics only, warns without names ev
   assert.equal(h.ask('c.example.test').status, 200);
 });
 
-test('weekly per-host cap persists and expires at seven days', (t) => {
+test('weekly per-host threshold warns once without refusing approvals', (t) => {
+  const warnings = [];
+  t.mock.method(console, 'warn', message => warnings.push(message));
   const h = direct(t);
   h.save([h.claim('a.example.test')]);
   for (let i = 0; i < 5; i++) {
@@ -784,8 +786,9 @@ test('weekly per-host cap persists and expires at seven days', (t) => {
     assert.equal(h.ask('a.example.test').reason, 'approved_repeat');
     h.advance(24 * HOUR_MS);
   }
-  assert.equal(h.ask('a.example.test').reason, 'approval_cap_host_week');
-  assert.equal(restart(h.directory, Date.UTC(2026, 0, 6))('a.example.test').reason, 'approval_cap_host_week');
+  assert.equal(h.ask('a.example.test').status, 200);
+  assert.deepEqual(warnings, ['tls ask: approval_cap_host_week (soft)']);
+  assert.equal(restart(h.directory, Date.UTC(2026, 0, 6))('a.example.test').status, 200);
   h.advance(2 * 24 * HOUR_MS);
   assert.equal(h.ask('a.example.test').status, 200);
   const previous = process.env.TLS_ASK_HOST_WEEK_MAX;
@@ -795,7 +798,7 @@ test('weekly per-host cap persists and expires at seven days', (t) => {
   capped.save([capped.claim('a.example.test')]);
   assert.equal(capped.ask('a.example.test').status, 200);
   capped.advance(24 * HOUR_MS);
-  assert.equal(capped.ask('a.example.test').reason, 'approval_cap_host_week');
+  assert.equal(capped.ask('a.example.test').status, 200);
 });
 
 test('claims with missing, empty or non-string TXT proofs are excluded even without live verification', (t) => {
@@ -882,4 +885,65 @@ test('failed approval writes fail closed, throttle hostname-free logs and recove
   assert.equal(h.ask('b.example.test').reason, 'approved_new');
   assert.equal(h.ask('b.example.test').reason, 'approved_repeat');
   assert.deepEqual(JSON.parse(readFileSync(`${h.directory}/tls_ask_approvals.json`)).map(e => e.host), ['a.example.test', 'b.example.test']);
+});
+
+test('reserve daily usage survives restart and expires at 24 hours', (t) => {
+  const options = { globalMaxPerHour: 10, globalReserve: 10 };
+  const h = direct(t, options);
+  h.save([h.claim('a.example.test'), h.claim('b.example.test')]);
+  assert.equal(h.ask('a.example.test').status, 200);
+  const start = Date.UTC(2026, 0, 1);
+  assert.equal(restart(h.directory, start + HOUR_MS, options)('b.example.test').reason, 'approval_cap_global');
+  assert.equal(restart(h.directory, start + 24 * HOUR_MS, options)('b.example.test').status, 200);
+});
+
+test('new and unknown tenants share five hourly reserve slots; established tenants still qualify', (t) => {
+  const options = { globalMaxPerHour: 20, globalReserve: 20 };
+  const h = direct(t, options);
+  const ids = 'abcdefgh'.split('').map(letter => 't_' + letter.repeat(20));
+  h.save(ids.map((id, i) => h.claim('h' + i + '.example.test', id)));
+  h.save(ids.slice(0, 4).map(id => ({ id, created_at: '2025-12-31T23:00:00Z' }))
+    .concat({ id: ids[6], created_at: '2025-12-31T00:00:00Z' },
+      { id: ids[7], created_at: 'invalid' }), 'tenants.json');
+  for (let i = 0; i < 5; i++) assert.equal(h.ask('h' + i + '.example.test').status, 200);
+  const ask = restart(h.directory, Date.UTC(2026, 0, 1), options);
+  assert.equal(ask('h5.example.test').status, 429);
+  assert.equal(ask('h6.example.test').status, 200);
+  assert.equal(ask('h7.example.test').status, 429);
+  h.advance(HOUR_MS);
+  assert.equal(h.ask('h5.example.test').status, 200);
+});
+
+test('approval locks recover dead PIDs and old mtimes, preserve live locks, and unlink after close failure', async (t) => {
+  const { updateApprovals } = await import('../src/internal/tls-approval-state.js');
+  const directory = tempDir(t);
+  const lock = directory + '/tls_ask_approvals.json.lock';
+  fs.writeFileSync(lock, String(process.pid));
+  assert.throws(() => updateApprovals(directory, list => list), { code: 'EEXIST' });
+  fs.utimesSync(lock, new Date(0), new Date(0));
+  updateApprovals(directory, list => list);
+  assert.equal(fs.existsSync(lock), false);
+  fs.writeFileSync(lock, '123456');
+  const kill = t.mock.method(process, 'kill', () => { throw Object.assign(new Error(), { code: 'ESRCH' }); });
+  updateApprovals(directory, list => list);
+  kill.mock.restore();
+  const close = fs.closeSync;
+  t.mock.method(fs, 'closeSync', fd => { close(fd); throw new Error('synthetic close failure'); });
+  assert.throws(() => updateApprovals(directory, list => {
+    assert.equal(fs.readFileSync(lock, 'utf8'), String(process.pid));
+    return list;
+  }));
+  assert.equal(fs.existsSync(lock), false);
+});
+
+test('test-tenant changes clear cached test-label denies', (t) => {
+  const h = direct(t);
+  const host = 'e2e-cache.example.test';
+  h.save([h.claim(host)]);
+  assert.equal(h.ask(host).reason, 'denied');
+  assert.equal(h.ask(host).reason, 'denied_cached');
+  h.save([TENANT_B], 'test_tenants.json');
+  assert.equal(h.ask(host).reason, 'denied');
+  h.save([TENANT_A], 'test_tenants.json');
+  assert.equal(h.ask(host).status, 200);
 });

@@ -13,9 +13,23 @@ export function updateApprovals(directory, update) {
   fs.mkdirSync(directory, { recursive: true });
   const file = path.join(directory, STATE_FILE);
   const lock = `${file}.lock`;
-  const fd = fs.openSync(lock, 'wx', 0o600);
+  let fd;
+  try { fd = fs.openSync(lock, 'wx', 0o600); }
+  catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    const stat = fs.statSync(lock);
+    const pid = Number(fs.readFileSync(lock, 'utf8'));
+    let dead = false;
+    if (Number.isSafeInteger(pid) && pid > 0) {
+      try { process.kill(pid, 0); } catch (err) { dead = err.code === 'ESRCH'; }
+    }
+    if (!dead && Date.now() - stat.mtimeMs <= 60000) throw error;
+    fs.unlinkSync(lock);
+    fd = fs.openSync(lock, 'wx', 0o600);
+  }
   const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
   try {
+    fs.writeFileSync(fd, String(process.pid));
     let list;
     try { list = JSON.parse(fs.readFileSync(file, 'utf8')); }
     catch (error) { if (error.code !== 'ENOENT') throw error; list = []; }
@@ -26,8 +40,7 @@ export function updateApprovals(directory, update) {
     return updated;
   } finally {
     try { fs.rmSync(temp, { force: true }); } catch { /* Best effort after a failed write. */ }
-    fs.closeSync(fd);
-    fs.unlinkSync(lock);
+    try { fs.closeSync(fd); } finally { fs.unlinkSync(lock); }
   }
 }
 

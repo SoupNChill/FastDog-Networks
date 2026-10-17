@@ -112,3 +112,5 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE (Docker connect review): paste-safe cleanup examples, numeric restricted-origin checks and single-label rejection in both builders, complete range errors, env-file replacement and failure cleanup with browser/server parity and offline regressions.
 
 - DONE (Docker connect follow-up): failure cleanup preserves the calling shell; Docker responses expose the exact token-free env_file for cleanup; noclobber rejects planted paths. Covered by shell, API and builder parity regressions.
+
+- DONE (TLS ask sixth adversarial review): candidate adapted-route preflight, soft weekly host warning, persisted daily tenant reserve and hourly new-account reserve limits, stale PID lock recovery, proxy-free probes and test-label revision invalidation; offline regressions added.

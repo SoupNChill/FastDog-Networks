@@ -48,6 +48,7 @@ export function createTlsAsk(opts = {}) {
   const hostDayMax = positive(opts.hostDayMax ?? env.TLS_ASK_HOST_DAY_MAX, 3);
   const hostWeekMax = positive(opts.hostWeekMax ?? env.TLS_ASK_HOST_WEEK_MAX, 5);
   let lastGlobalWarning = -Infinity;
+  let hostWeekWarned = false;
   const liveVerify = opts.liveVerify ?? (env.TLS_ASK_LIVE_VERIFY !== '0');
   const resolver = opts.resolver ?? dns;
   const liveTimeout = positive(opts.liveVerifyTimeoutMs, 3000);
@@ -62,7 +63,7 @@ export function createTlsAsk(opts = {}) {
   for (const entry of opts.staticHosts ?? (env.TLS_ASK_STATIC_HOSTS ?? '').split(',')) {
     try { if (entry.trim()) statics.add(normalizeHostname(entry)); } catch { /* Ignore malformed entries. */ }
   }
-  const files = ['tenant_hostnames.json', 'attached_hosts.json'];
+  const files = ['tenant_hostnames.json', 'attached_hosts.json', 'test_tenants.json'];
   const targetNames = targets.map((target) => target.toLowerCase().replace(/\.$/, ''));
   let owners = new Map(); // host -> tenant id, or null for a legacy attachment
   let proofs = new Map(); // host -> challenge TXT value of the verified claim (claims only)
@@ -104,7 +105,7 @@ export function createTlsAsk(opts = {}) {
       stateStamp = updated ?? stamp();
       const list = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
       if (!Array.isArray(list) || !list.every(validApproval)) throw new Error('malformed');
-      history = list.filter((e) => time - e.at < WEEK).map(({ host, tenant, domain, at }) => ({ host, tenant, domain, at }))
+      history = list.filter((e) => time - e.at < WEEK)
         .sort((a, b) => a.at - b.at);
       for (const entry of history) {
         if (time - entry.at >= HOUR) continue;
@@ -208,9 +209,25 @@ export function createTlsAsk(opts = {}) {
     const day = history.filter((entry) => entry.host === host && time - entry.at < 24 * HOUR);
     if (day.length >= hostDayMax) return decide(429, 'approval_cap_host_day', { retry_after: seconds(day[0].at + 24 * HOUR - time) });
     const hostWeek = history.filter((entry) => entry.host === host);
-    if (hostWeek.length >= hostWeekMax) return decide(429, 'approval_cap_host_week', { retry_after: seconds(hostWeek[0].at + WEEK - time) });
+    if (hostWeek.length >= hostWeekMax && !hostWeekWarned) {
+      console.warn('tls ask: approval_cap_host_week (soft)');
+      hostWeekWarned = true;
+    }
     const global = history.filter((entry) => time - entry.at < HOUR);
-    const reserveEligible = statics.has(host) || (tenant && !global.some(entry => entry.tenant === tenant));
+    const reserve = global.length >= globalMax - globalReserve;
+    let newTenant = true;
+    if (reserve && tenant) {
+      // Missing age metadata is conservative; no account data is logged.
+      try {
+        const record = readJson('tenants.json', [], directory).find(record => record.id === tenant);
+        const created = typeof record?.created_at === 'number' ? record.created_at : Date.parse(record?.created_at);
+        newTenant = !Number.isFinite(created) || time - created < 24 * HOUR;
+      } catch { /* Unknown tenants use the new-account budget. */ }
+    }
+    const reserveEligible = statics.has(host) || (tenant &&
+      !global.some(entry => entry.tenant === tenant) &&
+      !history.some(entry => entry.tenant === tenant && entry.reserve && time - entry.at < 24 * HOUR) &&
+      (!newTenant || global.filter(entry => entry.reserve && entry.newTenant).length < 5));
     if (global.length >= (reserveEligible ? globalMax : globalMax - globalReserve)) {
       if (time - lastGlobalWarning >= 5 * MINUTE) {
         console.warn('tls ask: approval_cap_global');
@@ -227,7 +244,7 @@ export function createTlsAsk(opts = {}) {
     if (same.length >= domainMax) return decide(429, 'approval_cap_domain', { retry_after: seconds(same[0].at + HOUR - time) });
     const week = history.filter((entry) => entry.domain === domain && entry.tenant === tenant);
     if (week.length >= domainWeekMax) return decide(429, 'approval_cap_domain_week', { retry_after: seconds(week[0].at + WEEK - time) });
-    if (!saveState({ host, tenant, domain, at: time })) return decide(429, 'approval_state_unavailable', { retry_after: 10 });
+    if (!saveState({ host, tenant, domain, at: time, ...(reserve ? { reserve: true, newTenant: Boolean(tenant && newTenant) } : {}) })) return decide(429, 'approval_state_unavailable', { retry_after: 10 });
     approvals.set(host, { tenant, domain, at: time });
     return decide(200, 'approved_new');
   }

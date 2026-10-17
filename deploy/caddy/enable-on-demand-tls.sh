@@ -96,7 +96,7 @@ ask_healthy() {
   local try status
   [[ -n $probe_host ]] || echo "Warning: a 4xx probe cannot confirm the ask route is enabled; use --probe-host with an approved static host." >&2
   for try in 1 2 3; do
-    if status=$("$curl" -sS --max-time 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${ask_port}/tls/ask?domain=${probe_host:-probe.invalid}" 2>/dev/null) && [[ ( -n $probe_host && $status == 200 ) || ( -z $probe_host && $status =~ ^4[0-9][0-9]$ ) ]]; then return 0; fi
+    if status=$("$curl" --noproxy '*' -sS --max-time 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${ask_port}/tls/ask?domain=${probe_host:-probe.invalid}" 2>/dev/null) && [[ ( -n $probe_host && $status == 200 ) || ( -z $probe_host && $status =~ ^4[0-9][0-9]$ ) ]]; then return 0; fi
     (( try == 3 )) || sleep "${HEALTH_DELAY:-1}"
   done
   echo "Ask endpoint http://127.0.0.1:${ask_port}/tls/ask is not healthy (expected 200 with --probe-host, otherwise a 4xx denial)." >&2
@@ -105,7 +105,7 @@ ask_healthy() {
 
 # Inspect adapted routes: a matcher in a named site does not protect the catch-all.
 catch_all_protected() {
-  "$caddy" adapt --adapter caddyfile --config "$caddyfile" > "$work/adapted.json" || return 1
+  "$caddy" adapt --adapter caddyfile --config "${1:-$caddyfile}" > "$work/adapted.json" || return 1
   node --input-type=module - "$work/adapted.json" <<'JS'
 import fs from 'node:fs';
 const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
@@ -251,6 +251,7 @@ candidate="${caddyfile}.candidate-ondemand-$stamp"
 cp -p -- "$caddyfile" "$candidate"
 cat -- "$build" > "$candidate"
 validate "$candidate"
+catch_all_protected "$candidate" || { echo "Candidate catch-all protection check failed; refusing install." >&2; exit 1; }
 
 # (e)-(f) Install, reload, verify; restore the backup if anything fails from here on.
 trap 'code=0; restore || code=$?; exit $(( code == 0 ? 1 : code ))' HUP INT TERM

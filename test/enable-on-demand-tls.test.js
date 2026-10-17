@@ -24,6 +24,7 @@ function fixture(t, content = initial) {
   writeFileSync(join(bin, 'caddy'), `#!/bin/sh
 printf 'caddy %s\\n' "$*" >> '${calls}'
 if [ "$1" = adapt ]; then
+  case "$*" in *candidate-ondemand-*) ;; *) [ "\${POST_ADAPT_FAIL:-0}" = 1 ] && exit 1 ;; esac
   printf '%s' "\${ADAPT_JSON:-}"
   exit "\${ADAPT_STATUS:-0}"
 fi
@@ -86,8 +87,9 @@ test('enable prepends the global block, appends the catch-all and leaves existin
   assert.equal(readFileSync(join(f.dir, 'validated'), 'utf8'), f.read());
   const calls = f.callLog();
   assert.match(calls[0], /^caddy validate --adapter caddyfile --config .*Caddyfile\.candidate-ondemand-/);
-  assert.deepEqual(calls.slice(1, 4), ['systemctl reload caddy', 'systemctl is-active --quiet caddy',
-    'curl -sS --max-time 3 -o /dev/null -w %{http_code} http://127.0.0.1:8789/tls/ask?domain=probe.invalid']);
+  assert.match(calls[1], /caddy adapt .*Caddyfile\.candidate-ondemand-/);
+  assert.deepEqual(calls.slice(2, 5), ['systemctl reload caddy', 'systemctl is-active --quiet caddy',
+    'curl --noproxy * -sS --max-time 3 -o /dev/null -w %{http_code} http://127.0.0.1:8789/tls/ask?domain=probe.invalid']);
   assert.deepEqual(readdirSync(f.etc).filter((name) => name.includes('candidate') || name.includes('tmp')), []);
 });
 
@@ -338,7 +340,8 @@ test('enable rolls back on non-denial responses and missing catch-all protection
     const result = f.run([f.file], env);
     assert.notEqual(result.status, 0);
     assert.equal(f.read(), initial);
-    assert.match(result.stderr, /Restored/);
+    if (env.ASK_STATUS) assert.match(result.stderr, /Restored/);
+    else assert.ok(!f.callLog().some(line => line.startsWith('systemctl')));
   }
 });
 
@@ -417,4 +420,13 @@ test('catch-all control route must actually refuse requests with a 4xx handler',
     assert.equal(result.status === 0, accepted, result.stderr);
     if (!accepted) assert.equal(f.read(), initial);
   }
+});
+
+test('post-reload adaptation remains a second pass with rollback', (t) => {
+  const f = fixture(t);
+  const result = f.run([f.file], { POST_ADAPT_FAIL: '1' });
+  assert.notEqual(result.status, 0);
+  assert.equal(f.read(), initial);
+  assert.match(result.stderr, /Restored/);
+  assert.equal(f.callLog().filter(line => line.startsWith('caddy adapt')).length, 2);
 });
