@@ -99,7 +99,7 @@ export function createInternalServer(opts = {}) {
         if (pathname === '/health') return send(res, 200, { ok: true });
         if (!isLoopback(req.socket.remoteAddress) || Object.keys(req.headers).some((name) => name === 'forwarded' || name.startsWith('x-forwarded-'))) return send(res, 404);
         const client = req.socket.remoteAddress.replace(/^::ffff:/, '');
-        const result = tlsAsk(url.searchParams.get('domain'), client);
+        const result = await tlsAsk(url.searchParams.get('domain'), client);
         reason = result.reason;
         return send(res, result.status, result.retry_after ? { error: 'rate_limited', retry_after: result.retry_after } : undefined);
       }

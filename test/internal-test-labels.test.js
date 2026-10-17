@@ -138,7 +138,7 @@ test('onboard CLI test-tenant command runs against DATA_DIR', (t) => {
 test('TLS ask approves a verified test-label claim, refuses unverified and everything else under the domain', async (t) => {
   const h = setup(t);
   h.mark([tester]);
-  const ask = createTlsAsk({ tlsAskEnabled: true, dataDir: h.dataDir, attachTarget: target, altAttachTarget: alt, now: () => Date.UTC(2026, 0, 1) });
+  const ask = createTlsAsk({ tlsAskEnabled: true, liveVerify: false, dataDir: h.dataDir, attachTarget: target, altAttachTarget: alt, now: () => Date.UTC(2026, 0, 1) });
   const pendingHost = `e2e-p.${domain}`;
   h.claims.create(tester, { hostname: pendingHost, hostname_limit: 5 });
   assert.equal(ask(pendingHost).status, 404);
@@ -158,7 +158,7 @@ test('TLS ask approves a verified test-label claim, refuses unverified and every
 test('TLS ask: a verified test-label claim is approved, counts against its tenant cap, and static hosts stay exact', async (t) => {
   const h = setup(t);
   h.mark([tester]);
-  const ask = createTlsAsk({ tlsAskEnabled: true, dataDir: h.dataDir, attachTarget: target, altAttachTarget: alt,
+  const ask = createTlsAsk({ tlsAskEnabled: true, liveVerify: false, dataDir: h.dataDir, attachTarget: target, altAttachTarget: alt,
     now: () => Date.UTC(2026, 0, 1), tenantMaxPerHour: 2, staticHosts: [`static.${domain}`] });
   const other = `e2e-y.${domain}`;
   const third = `e2e-z.${domain}`;

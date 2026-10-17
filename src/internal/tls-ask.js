@@ -5,6 +5,9 @@ import { readJson, dataDir, jsonRevision } from '../onboard/json.js';
 import { reservedSuffixes } from '../lib/config.js';
 import { attachTarget, altAttachTarget } from '../onboard/attach.js';
 import { isTestLabelHost } from './test-labels.js';
+import { checkClaimProof } from './claims.js';
+import { edgeIp } from '../onboard/store.js';
+import dns from 'node:dns/promises';
 
 const HOUR = 3600000;
 const MINUTE = 60000;
@@ -12,9 +15,18 @@ const positive = (value, fallback) => {
   const number = Number(value);
   return value !== undefined && value !== '' && Number.isSafeInteger(number) && number > 0 ? number : fallback;
 };
+// Common second-level public suffixes under a two-letter TLD (x.example.co.uk -> example.co.uk).
+const SECOND_LEVEL = new Set(['co', 'com', 'net', 'org', 'gov', 'edu', 'ac']);
+export function registeredDomain(host) {
+  const labels = host.split('.');
+  const keep = labels.length > 2 && labels.at(-1).length === 2 && SECOND_LEVEL.has(labels.at(-2)) ? 3 : 2;
+  return labels.slice(-keep).join('.');
+}
 
 // Approvals spend an issuance budget; denies are cached; anonymous checks have their own cap.
 // Local writes invalidate immediately; external store changes are checked at most once per second.
+// A first approval of a tenant claim re-confirms its DNS proof live, so the result is a decision, or a
+// Promise of one when that lookup is needed. Static hosts and legacy attachments have no proof to re-check.
 export function createTlsAsk(opts = {}) {
   const env = process.env;
   const enabled = opts.tlsAskEnabled ?? (env.TLS_ASK_ENABLED === '1');
@@ -24,8 +36,14 @@ export function createTlsAsk(opts = {}) {
   const alt = opts.altAttachTarget ?? altAttachTarget();
   const targets = [primary, alt].filter(Boolean);
   const reserved = opts.reservedSuffixes ?? reservedSuffixes(...targets);
-  const tenantMax = positive(opts.tenantMaxPerHour ?? env.TLS_ASK_TENANT_MAX_PER_HOUR, 20);
+  const tenantMax = positive(opts.tenantMaxPerHour ?? env.TLS_ASK_TENANT_MAX_PER_HOUR, 10);
   const globalMax = positive(opts.globalMaxPerHour ?? env.TLS_ASK_GLOBAL_MAX_PER_HOUR, 100);
+  const domainMax = positive(opts.domainMaxPerHour ?? env.TLS_ASK_DOMAIN_MAX_PER_HOUR, 5);
+  const liveVerify = opts.liveVerify ?? (env.TLS_ASK_LIVE_VERIFY !== '0');
+  const resolver = opts.resolver ?? dns;
+  const liveTimeout = positive(opts.liveVerifyTimeoutMs, 3000);
+  const livePositiveTtl = positive(opts.liveVerifyPositiveTtlMs, 10 * MINUTE);
+  const liveNegativeTtl = positive(opts.liveVerifyNegativeTtlMs, 60000);
   const checksMax = positive(opts.checksPerMinute ?? env.TLS_ASK_CHECKS_PER_MINUTE, 600);
   const denyTtl = positive(opts.denyTtlMs, MINUTE);
   const denyMax = positive(opts.denyCacheMax, 10000);
@@ -37,6 +55,9 @@ export function createTlsAsk(opts = {}) {
   const files = ['tenant_hostnames.json', 'attached_hosts.json'];
   const targetNames = targets.map((target) => target.toLowerCase().replace(/\.$/, ''));
   let owners = new Map(); // host -> tenant id, or null for a legacy attachment
+  let proofs = new Map(); // host -> challenge TXT value of the verified claim (claims only)
+  const live = new Map(); // host -> { proof, ok, until }; insertion order is chronological
+  const inflight = new Map(); // host:proof -> Promise of a live result
   let revisions;
   let stamps;
   let nextCheck = 0;
@@ -70,16 +91,21 @@ export function createTlsAsk(opts = {}) {
     }
     const claimSet = new Set(claims);
     const index = new Map();
+    const proofIndex = new Map();
     for (const [host, records] of grouped) {
       if (records.some((c) => claimSet.has(c)) && records.some((c) => !claimSet.has(c) && !c.tenant_id)) continue;
       const active = records.filter((c) => c.status === 'active');
       if (active.length !== 1) continue;
       const owner = active[0];
       if (claimSet.has(owner)) {
-        if (/^t_[a-z2-7]{20}$/.test(owner.tenant_id) && Number.isFinite(Date.parse(owner.verified_at))) index.set(host, owner.tenant_id);
+        if (/^t_[a-z2-7]{20}$/.test(owner.tenant_id) && Number.isFinite(Date.parse(owner.verified_at))) {
+          index.set(host, owner.tenant_id);
+          proofIndex.set(host, typeof owner.txt_value === 'string' ? owner.txt_value : '');
+        }
       } else if (!owner.tenant_id) index.set(host, null);
     }
     owners = index;
+    proofs = proofIndex;
     denies.clear(); // A claim that just became verified must not wait out a cached deny.
     revisions = current;
     stamps = updated;
@@ -107,8 +133,47 @@ export function createTlsAsk(opts = {}) {
       const mine = [...approvals.values()].filter((entry) => entry.tenant === tenant);
       if (mine.length >= tenantMax) return decide(429, 'approval_cap_tenant', { retry_after: seconds(mine[0].at + HOUR - time) });
     }
-    approvals.set(host, { tenant, at: time });
+    const domain = registeredDomain(host);
+    const same = [...approvals.values()].filter((entry) => entry.domain === domain);
+    if (same.length >= domainMax) return decide(429, 'approval_cap_domain', { retry_after: seconds(same[0].at + HOUR - time) });
+    approvals.set(host, { tenant, domain, at: time });
     return decide(200, 'approved_new');
+  }
+
+  // Resolves to true (proof present), false (proof gone) or null (lookup failed or timed out).
+  function liveCheck(host, proof, time) {
+    const cached = live.get(host);
+    if (cached && cached.proof === proof && cached.until > time) return cached.ok;
+    const key = `${host}\n${proof}`;
+    if (!inflight.has(key)) {
+      const lookup = checkClaimProof(host, proof, { resolver, attachTarget: primary, altAttachTarget: alt,
+        edgePublicIp: opts.edgePublicIp ?? edgeIp(), timeout: liveTimeout });
+      inflight.set(key, lookup.then(({ routing, ownership }) => {
+        if ([routing, ownership].some((check) => check.error === 'dns_timeout')) return null;
+        return routing.ok && ownership.ok;
+      }, () => null).then((ok) => {
+        inflight.delete(key);
+        if (ok !== null) {
+          live.delete(host);
+          if (live.size >= denyMax) live.delete(live.keys().next().value);
+          live.set(host, { proof, ok, until: now() + (ok ? livePositiveTtl : liveNegativeTtl) });
+        }
+        return ok;
+      }));
+    }
+    return inflight.get(key);
+  }
+
+  // First approvals of a claim re-confirm its DNS proof before any budget is spent.
+  async function approveLive(host, tenant, proof) {
+    const ok = await liveCheck(host, proof, now());
+    if (ok === null) return decide(503, 'live_verify_unavailable');
+    if (!ok) return decide(404, 'live_verify_failed');
+    const time = now();
+    try { refresh(time); } catch { return decide(404, 'store_error'); }
+    // The claim may have been revoked or replaced while DNS was being queried.
+    if (owners.get(host) !== tenant || proofs.get(host) !== proof) return decide(404, 'denied');
+    return approve(host, tenant, time);
   }
 
   function deny(host, reason, time) {
@@ -154,7 +219,15 @@ export function createTlsAsk(opts = {}) {
         }
       }
       // Approvable hosts only spend the issuance budget; anonymous checks never do.
-      if (approvable) return approve(host, tenant, time);
+      if (approvable) {
+        const prior = approvals.get(host);
+        const repeat = prior && prior.tenant === tenant && time - prior.at < HOUR;
+        // Only otherwise approvable claims reach DNS, and always before a budget slot is charged.
+        if (liveVerify && !repeat && !statics.has(host) && proofs.has(host)) {
+          return approveLive(host, tenant, proofs.get(host)).catch(() => decide(404, 'error'));
+        }
+        return approve(host, tenant, time);
+      }
       if (host && (denies.get(host) ?? 0) > time) return decide(404, 'denied_cached');
       if (time >= checkUntil) { checkUntil = time + MINUTE; checkCount = 0; }
       if (checkCount >= checksMax) return decide(429, 'check_cap', { retry_after: seconds(checkUntil - time) });

@@ -45,7 +45,7 @@
 <p>The portal shows both records with the exact field names for Cloudflare, Namecheap, GoDaddy, Route 53, Porkbun and others.</p>
 <ul>
 <li><strong>CNAME</strong> on your address, pointing at the attach target the portal shows. It sends visitors to FastDog.</li>
-<li><strong>TXT</strong> on <code>_fastdog-challenge.</code> plus your address, with the value the portal shows. It proves you own the domain, so nobody else can connect it.</li>
+<li><strong>TXT</strong> on <code>_fastdog-challenge.</code> plus your address, with the value the portal shows. It proves you own the domain, so nobody else can connect it. Leave it in place after verifying: we check it again before issuing your certificate.</li>
 </ul>
 <p><strong>Why two records?</strong> One routes traffic and one proves ownership. Keep both in place; FastDog may re-check them.</p>
 <p><strong>Cloudflare: use grey cloud.</strong> Set Proxy status to “DNS only” (grey cloud). Grey cloud means Cloudflare only answers DNS and visitors go straight to FastDog. Orange cloud (Proxied) puts Cloudflare in the middle, which hides your record from our check and stops your HTTPS certificate.</p>

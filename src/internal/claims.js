@@ -15,6 +15,30 @@ const MIN_OUTAGE_SAMPLE = 10;
 // Host and port only (never userinfo or path); limited to address characters because the agent chooses it.
 const originAddress = (upstream) => { try { const host = upstream ? new URL(upstream).host : ''; return /^[a-z0-9.:[\]-]{1,100}$/i.test(host) ? host : null; } catch { return null; } };
 
+async function timed(fn, ms = 3500) {
+  let timer;
+  try {
+    return await Promise.race([Promise.resolve().then(fn), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(fail(200, 'dns_timeout')), ms);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
+// The DNS proof a claim needs at verify time: routing to the edge plus the challenge TXT record.
+// Shared with the TLS ask live check. A DNS error or timeout yields error 'dns_timeout' (inconclusive).
+export async function checkClaimProof(host, txtValue, { resolver, attachTarget, altAttachTarget, edgePublicIp, timeout }) {
+  const expected_name = `_fastdog-challenge.${host}`;
+  const [routing, ownership] = await Promise.all([
+    timed(() => checkDnsVerification(host, { resolver, attachTarget, altAttachTarget, edgePublicIp }), timeout)
+      .then(({ verified, ...check }) => ({ ok: verified, ...check }), () => ({ ok: false, error: 'dns_timeout' })),
+    timed(() => resolver.resolveTxt(expected_name), timeout).then((records) => {
+      const ok = records.some((parts) => parts.join('') === txtValue);
+      return ok ? { ok: true } : { ok: false, error: records.length ? 'txt_mismatch' : 'txt_not_found', expected_name };
+    }, (error) => ({ ok: false, error: ['ENOTFOUND', 'ENODATA'].includes(error.code) ? 'txt_not_found' : 'dns_timeout', expected_name })),
+  ]);
+  return { routing, ownership };
+}
+
 export function createClaims(opts, changed) {
   const directory = opts.dataDir ?? defaultDataDir();
   const now = opts.now ?? Date.now;
@@ -67,14 +91,6 @@ export function createClaims(opts, changed) {
     const credentials = read('agent-credentials.json');
     for (const c of credentials) if (c.tenant_id === tid && c.claim_hostname === host && !c.revoked_at) c.revoked_at = new Date(now()).toISOString();
     write('agent-credentials.json', credentials);
-  }
-  async function timed(fn) {
-    let timer;
-    try {
-      return await Promise.race([Promise.resolve().then(fn), new Promise((_, reject) => {
-        timer = setTimeout(() => reject(fail(200, 'dns_timeout')), 3500);
-      })]);
-    } finally { clearTimeout(timer); }
   }
   let rechecking = false;
   async function recheckActiveClaims({ now: time = now(), resolver: lookup = resolver, failuresBeforeDemote = 3,
@@ -177,15 +193,8 @@ export function createClaims(opts, changed) {
       if (unavailable(claims(), tid, host)) throw fail(409, 'hostname_unavailable');
       // Unmarking a test tenant refuses further verification of its test labels; active claims are untouched.
       if (isTestLabelHost(host, attachTarget, altAttachTarget) && !mayClaimTestLabel(tid, host, attachTarget, altAttachTarget, directory)) throw fail(400, 'reserved_hostname');
-      const expected_name = `_fastdog-challenge.${host}`;
-      const [routing, ownership] = await Promise.all([
-        timed(() => checkDnsVerification(host, { resolver, attachTarget, altAttachTarget, edgePublicIp: opts.edgePublicIp ?? edgeIp() }))
-          .then(({ verified, ...check }) => ({ ok: verified, ...check }), () => ({ ok: false, error: 'dns_timeout' })),
-        timed(() => resolver.resolveTxt(expected_name)).then((records) => {
-          const ok = records.some((parts) => parts.join('') === initial.txt_value);
-          return ok ? { ok: true } : { ok: false, error: records.length ? 'txt_mismatch' : 'txt_not_found', expected_name };
-        }, (error) => ({ ok: false, error: ['ENOTFOUND', 'ENODATA'].includes(error.code) ? 'txt_not_found' : 'dns_timeout', expected_name })),
-      ]);
+      const { routing, ownership } = await checkClaimProof(host, initial.txt_value,
+        { resolver, attachTarget, altAttachTarget, edgePublicIp: opts.edgePublicIp ?? edgeIp() });
       // Re-read after DNS: another request may have activated, deleted or replaced this claim.
       const records = claims();
       const record = find(records, tid, host);

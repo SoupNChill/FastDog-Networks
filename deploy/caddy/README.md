@@ -29,7 +29,7 @@ deploy/caddy/enable-on-demand-tls.sh --dry-run /etc/caddy/Caddyfile   # prints t
 deploy/caddy/enable-on-demand-tls.sh /etc/caddy/Caddyfile
 ```
 
-The script refuses a Caddyfile that already has an `on_demand_tls` block or a catch-all `https://` site, writes `Caddyfile.bak-ondemand-<timestamp>` next to it, builds a candidate (global block inserted at the very top, or merged into an existing multi-line global block; catch-all appended; existing site blocks are never edited), runs `caddy validate --adapter caddyfile --config <candidate>` (as the `caddy` user when root, so validation cannot leave root-owned log files), installs it by atomic rename, runs `systemctl reload caddy` and checks the unit is active. Any failure restores the backup and reloads. Set `BIN` to a directory containing `caddy` and `systemctl` only for fixtures.
+The script refuses a Caddyfile that already has an `on_demand_tls` block or a catch-all `https://` site, writes `Caddyfile.bak-ondemand-<timestamp>` next to it, builds a candidate (global block inserted at the very top, or merged into an existing multi-line global block; catch-all appended; existing site blocks are never edited), runs `caddy validate --adapter caddyfile --config <candidate>` (as the `caddy` user when root, so validation cannot leave root-owned log files), installs it by atomic rename, runs `systemctl reload caddy` and checks the unit is active. It refuses a Caddyfile without a `(fdctl)` snippet definition and locks `Caddyfile.lock` (not the Caddyfile itself). Any failure restores the backup: the restored file is validated, then reloaded; if the reload fails or the unit is not active the script runs `systemctl restart caddy` and re-checks. "Restored" is only printed when Caddy is active. If Caddy is still down it prints `CADDY IS DOWN` and exits 3 (exit 1 means the change failed but Caddy is running). Set `BIN` to a directory containing `caddy` and `systemctl` only for fixtures.
 
 ### Rollback
 
@@ -37,7 +37,7 @@ The script refuses a Caddyfile that already has an `on_demand_tls` block or a ca
 deploy/caddy/enable-on-demand-tls.sh --rollback /etc/caddy/Caddyfile.bak-ondemand-<timestamp> /etc/caddy/Caddyfile
 ```
 
-This validates the backup, saves the current file as `Caddyfile.bak-ondemand-prerollback-<timestamp>`, installs the backup and reloads (restoring the pre-rollback file if the reload fails). Optionally unset `TLS_ASK_ENABLED` and restart the edge to stop the ask endpoint; Caddy then cannot obtain new on-demand certificates but already issued ones stay cached.
+This validates the backup, saves the current file as `Caddyfile.bak-ondemand-prerollback-<timestamp>`, installs the backup and reloads (restoring the pre-rollback file, with the same validate, reload, restart fallback and exit 3 on `CADDY IS DOWN`, if the reload fails). Optionally unset `TLS_ASK_ENABLED` and restart the edge to stop the ask endpoint; Caddy then cannot obtain new on-demand certificates but already issued ones stay cached.
 
 ### Edge settings
 
@@ -45,11 +45,13 @@ This validates the backup, saves the current file as `Caddyfile.bak-ondemand-pre
 | --- | --- | --- |
 | `TLS_ASK_ENABLED` | off | Must be `1` to enable the ask route. |
 | `TLS_ASK_STATIC_HOSTS` | empty | Comma list of existing static hosts to approve (the only way reserved names are approved). |
-| `TLS_ASK_TENANT_MAX_PER_HOUR` | 20 | New approvals per tenant per hour, counted per distinct hostname. |
+| `TLS_ASK_TENANT_MAX_PER_HOUR` | 10 | New approvals per tenant per hour, counted per distinct hostname. |
+| `TLS_ASK_DOMAIN_MAX_PER_HOUR` | 5 | New approvals per registered domain per hour (distinct hostnames; `x.example.co.uk` counts toward `example.co.uk`). Keeps issuance under Let's Encrypt per-domain limits. |
 | `TLS_ASK_GLOBAL_MAX_PER_HOUR` | 100 | New approvals per hour across all hosts. |
+| `TLS_ASK_LIVE_VERIFY` | 1 | `0` disables the live DNS re-check before a first approval of a tenant claim (see below). |
 | `TLS_ASK_CHECKS_PER_MINUTE` | 600 | Anonymous (non-approvable) checks per minute; approved hosts are never blocked by it. |
 
-Over a cap the ask route returns 429 with `retry_after`. See [internal API operations](../../docs/INTERNAL_API_OPS.md) for the full rules, deny caching and log reason codes.
+Over a cap the ask route returns 429 with `retry_after` (reasons `approval_cap_global`, `approval_cap_tenant`, `approval_cap_domain`). Before the first approval of a tenant claim in a window the edge re-checks the claim's DNS proof (routing to the edge plus the `_fastdog-challenge` TXT record, so keep that TXT in place); present proof is cached 10 minutes, missing proof 60 seconds. Missing proof returns 404 `live_verify_failed`; a DNS error or timeout (3 s) returns 503 `live_verify_unavailable` (fail closed, not cached), which Caddy treats as a refusal and retries later. Static hosts and legacy attachments have no claim proof and are not live-verified. See [internal API operations](../../docs/INTERNAL_API_OPS.md) for the full rules, deny caching and log reason codes.
 
 ### Known limit
 

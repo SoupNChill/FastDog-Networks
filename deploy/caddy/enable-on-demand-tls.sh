@@ -36,7 +36,8 @@ validate() { "${as_caddy[@]}" "$caddy" validate --adapter caddyfile --config "$1
 
 if ! $dry_run; then
   [[ $EUID == 0 ]] || { echo 'Run as root on the edge.' >&2; exit 1; }
-  exec 9<"$caddyfile"
+  # Lock a sidecar file: the Caddyfile inode is replaced by every install.
+  exec 9>"${caddyfile}.lock"
   flock -x 9
 fi
 
@@ -55,6 +56,26 @@ install_over() {
   cp -p -- "$1" "$tmp"
   mv -f -- "$tmp" "$caddyfile"
 }
+# Reinstall a known-good file, validate it, reload; fall back to a restart. Returns 0 only when
+# Caddy is active, 1 when the file could not be restored but Caddy is running, 3 when Caddy is down.
+restore_file() {
+  local restored=false
+  if install_over "$1" && validate "$caddyfile"; then
+    restored=true
+    reload_and_check && return 0
+    echo 'Reload failed after restoring the Caddyfile; restarting caddy.' >&2
+    "$systemctl" restart caddy || true
+    "$systemctl" is-active --quiet caddy && return 0
+  else
+    echo 'Could not install and validate the restored Caddyfile.' >&2
+  fi
+  if "$systemctl" is-active --quiet caddy; then
+    $restored || echo 'Caddy is still running with its previously loaded configuration; fix the Caddyfile by hand.' >&2
+    return 1
+  fi
+  echo "CADDY IS DOWN: restoring $1 did not bring caddy back. Fix the Caddyfile and run: systemctl restart caddy" >&2
+  return 3
+}
 reload_and_check() {
   # Explicit chain: errexit is suspended when callers test this function in an if.
   "$systemctl" reload caddy && "$systemctl" is-active --quiet caddy
@@ -70,9 +91,10 @@ if [[ -n $rollback ]]; then
   install_over "$candidate"
   if ! reload_and_check; then
     echo "Reload failed after rollback; restoring pre-rollback file $safety." >&2
-    install_over "$safety"
-    "$systemctl" reload caddy || true
-    exit 1
+    code=0
+    restore_file "$safety" || code=$?
+    [[ $code != 0 ]] || echo "Restored $safety." >&2
+    exit $(( code == 0 ? 1 : code ))
   fi
   printf 'Rolled back from %s. Pre-rollback copy: %s\n' "$rollback" "$safety"
   exit 0
@@ -85,6 +107,11 @@ if grep -Eq '(^|[^a-z0-9_])on_demand_tls([^a-z0-9_]|$)' "$caddyfile"; then
 fi
 if grep -Eq '^[[:space:]]*https://[[:space:]]*(\{|,|$)' "$caddyfile"; then
   echo 'Caddyfile already has a catch-all https:// site.' >&2
+  exit 1
+fi
+
+if ! grep -Eq '^[[:space:]]*\(fdctl\)' "$caddyfile"; then
+  echo 'Caddyfile has no (fdctl) snippet definition; the catch-all site imports it.' >&2
   exit 1
 fi
 
@@ -153,17 +180,19 @@ validate "$candidate"
 installed=false
 restore() {
   trap - ERR HUP INT TERM
+  local code=0
   if $installed; then
-    install_over "$backup"
-    "$systemctl" reload caddy || true
-    echo "Restored $backup." >&2
+    restore_file "$backup" || code=$?
+    [[ $code != 0 ]] || echo "Restored $backup." >&2
   fi
+  return $code
 }
-trap 'restore; exit 1' HUP INT TERM
+trap 'code=0; restore || code=$?; exit $(( code == 0 ? 1 : code ))' HUP INT TERM
 if ! { install_over "$candidate" && installed=true && reload_and_check; }; then
   installed=true # A partial install is restored too; the backup is a complete copy.
-  restore
-  exit 1
+  code=0
+  restore || code=$?
+  exit $(( code == 0 ? 1 : code ))
 fi
 trap - HUP INT TERM
 printf 'Enabled on-demand TLS. Backup: %s\n' "$backup"

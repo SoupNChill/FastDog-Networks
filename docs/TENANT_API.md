@@ -37,7 +37,7 @@ Rules:
 1. A hostname may have **at most one `active` owner**. Any number of tenants may hold a `pending` claim for the same name; pending claims do not block anyone.
 2. Activation requires **both** proofs, checked by the edge's resolver at verify time:
    - **Routing proof:** `CNAME` (or chain <= 5) to `ATTACH_TARGET` / `ALT_ATTACH_TARGET`, or an `A` record equal to `EDGE_PUBLIC_IP` (same logic as `checkDnsVerification` today).
-   - **Ownership proof:** TXT at `_fastdog-challenge.<hostname>` containing exactly the claim's `txt_value` (`fd-verify=` + 32 hex chars, random per claim).
+   - **Ownership proof:** TXT at `_fastdog-challenge.<hostname>` containing exactly the claim's `txt_value` (`fd-verify=` + 32 hex chars, random per claim). Keep it in place after verification: with `TLS_ASK_LIVE_VERIFY=1` the edge re-checks it before approving a new certificate.
 3. On activation the edge atomically: re-checks no other tenant became active; marks the claim `active`; adds the host to `tunnel_hosts.json`; issues the credential; reloads routes. First tenant to complete this wins; others get `409 hostname_unavailable` when they next verify.
 4. `DELETE` removes the claim, the tunnel host mapping and all credentials for that claim, and closes the live tunnel.
 5. Legacy operator-attached hosts (records in `attached_hosts.json` without `tenant_id`) are unchanged and cannot be claimed or modified by any tenant (`hostname_unavailable`).

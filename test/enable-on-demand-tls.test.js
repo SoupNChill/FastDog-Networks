@@ -32,7 +32,8 @@ exit "\${VALIDATE_STATUS:-0}"
 printf 'systemctl %s\\n' "$*" >> '${calls}'
 case "$1" in
   reload) exit "\${RELOAD_STATUS:-0}" ;;
-  is-active) exit "\${ACTIVE_STATUS:-0}" ;;
+  restart) : > '${dir}/restarted'; exit "\${RESTART_STATUS:-0}" ;;
+  is-active) if [ -e '${dir}/restarted' ]; then exit "\${ACTIVE_AFTER_RESTART:-\${ACTIVE_STATUS:-0}}"; fi; exit "\${ACTIVE_STATUS:-0}" ;;
 esac
 `, { mode: 0o755 });
   // Only the fixture copy's UID check changes; the original's root refusal is tested separately.
@@ -117,7 +118,7 @@ test('enable refuses existing on_demand_tls and catch-all sites without writing 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, pattern);
     assert.equal(f.read(), content);
-    assert.deepEqual(readdirSync(f.etc), ['Caddyfile']);
+    assert.deepEqual(readdirSync(f.etc).filter((name) => name !== 'Caddyfile.lock'), ['Caddyfile']);
     assert.deepEqual(f.callLog(), []);
   }
   // A named https:// site is not a catch-all.
@@ -135,7 +136,7 @@ test('failed validation leaves the live file untouched and never reloads', (t) =
 });
 
 test('reload or health-check failure restores the backup and reloads again', (t) => {
-  for (const env of [{ RELOAD_STATUS: '1' }, { ACTIVE_STATUS: '3' }]) {
+  for (const env of [{ RELOAD_STATUS: '1' }, { ACTIVE_STATUS: '3', ACTIVE_AFTER_RESTART: '0' }]) {
     const f = fixture(t);
     const result = f.run([f.file], env);
     assert.notEqual(result.status, 0);
@@ -196,6 +197,64 @@ test('usage errors, symlinked Caddyfile and non-root writes are refused', (t) =>
     assert.match(real.stderr, /Run as root/);
     assert.equal(f.read(), initial);
   }
+});
+
+test('restore falls back to a restart when the reload keeps failing', (t) => {
+  const f = fixture(t);
+  const result = f.run([f.file], { RELOAD_STATUS: '1', ACTIVE_STATUS: '3', ACTIVE_AFTER_RESTART: '0' });
+  assert.equal(result.status, 1);
+  assert.equal(f.read(), initial);
+  assert.match(result.stderr, /restarting caddy/);
+  assert.match(result.stderr, /Restored/);
+  const calls = f.callLog();
+  assert.ok(calls.includes('systemctl restart caddy'));
+  // The restored file is validated before the second reload.
+  assert.match(calls[calls.indexOf('systemctl restart caddy') - 2], /^caddy validate/);
+});
+
+test('restore does not claim success and exits 3 when caddy stays down', (t) => {
+  const f = fixture(t);
+  const result = f.run([f.file], { RELOAD_STATUS: '1', ACTIVE_STATUS: '3' });
+  assert.equal(result.status, 3);
+  assert.match(result.stderr, /CADDY IS DOWN/);
+  assert.doesNotMatch(result.stderr, /Restored/);
+  assert.equal(f.read(), initial);
+});
+
+test('rollback restore failures: restart recovers, or exit 3 when caddy stays down', (t) => {
+  const f = fixture(t);
+  assert.equal(f.run([f.file]).status, 0);
+  const enabled = f.read();
+  const backup = join(f.etc, f.backups()[0]);
+  const recovered = f.run(['--rollback', backup, f.file], { RELOAD_STATUS: '1', ACTIVE_STATUS: '3', ACTIVE_AFTER_RESTART: '0' });
+  assert.equal(recovered.status, 1);
+  assert.equal(f.read(), enabled);
+  assert.match(recovered.stderr, /Restored/);
+  assert.ok(f.callLog().includes('systemctl restart caddy'));
+  rmSync(join(f.dir, 'restarted'), { force: true });
+  const down = f.run(['--rollback', backup, f.file], { RELOAD_STATUS: '1', ACTIVE_STATUS: '3', ACTIVE_AFTER_RESTART: '3' });
+  assert.equal(down.status, 3);
+  assert.match(down.stderr, /CADDY IS DOWN/);
+  assert.doesNotMatch(down.stderr, /Restored/);
+});
+
+test('enable refuses a Caddyfile without the (fdctl) snippet', (t) => {
+  const content = 'existing.example.test {\n    reverse_proxy 127.0.0.1:8787\n}\n';
+  for (const args of [['--dry-run'], []]) {
+    const f = fixture(t, content);
+    const result = f.run([...args, f.file]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /\(fdctl\)/);
+    assert.equal(f.read(), content);
+    assert.deepEqual(f.backups(), []);
+    assert.equal(f.callLog().length, 0);
+  }
+});
+
+test('the lock is a sidecar file, not the Caddyfile', (t) => {
+  const f = fixture(t);
+  assert.equal(f.run([f.file]).status, 0);
+  assert.ok(existsSync(`${f.file}.lock`));
 });
 
 test('the default Caddyfile path is /etc/caddy/Caddyfile', () => {
