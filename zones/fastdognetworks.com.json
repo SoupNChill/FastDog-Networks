@@ -6,7 +6,7 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026101201 3600 600 604800 300",
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026101202 3600 600 604800 300",
       "comment": "Serial: YYYYMMDDNN \u2014 bump NN on each edit"
     },
     {
@@ -141,7 +141,21 @@
       "ttl": 300,
       "content": "157.230.57.32",
       "comment": "Verdict antibot decide / demo (FastDog edge)"
+    },
+    {
+      "name": "e2e-05470038",
+      "type": "CNAME",
+      "ttl": 300,
+      "content": "attach.fastdognetworks.com.",
+      "comment": "TEMP operator E2E test label (remove after test)"
+    },
+    {
+      "name": "_fastdog-challenge.e2e-05470038",
+      "type": "TXT",
+      "ttl": 300,
+      "content": "fd-verify=403c4c1d28775b433d031491c50b8fd0",
+      "comment": "TEMP operator E2E test label (remove after test)"
     }
   ],
-  "updated_at": "2026-10-12T15:32:19Z"
+  "updated_at": "2026-10-17T07:52:00Z"
 }
