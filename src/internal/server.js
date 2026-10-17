@@ -55,7 +55,7 @@ export function createInternalServer(opts = {}) {
   const claims = createClaims(opts, () => server.emit('routesChanged'));
   const tlsAskEnabled = opts.tlsAskEnabled ?? (process.env.TLS_ASK_ENABLED === '1');
   const tlsAsk = createTlsAsk({ ...opts, tlsAskEnabled });
-  const siteStatus = createSiteStatus({ ...opts, agent: (tid, host) => claims.agent(tid, host) });
+  const siteStatus = createSiteStatus({ ...opts, agent: (tid, host) => claims.agent(tid, host), claimSince: (tid, host) => claims.claimSince(tid, host) });
 
   if (opts.recheckEnabled) {
     let timer;

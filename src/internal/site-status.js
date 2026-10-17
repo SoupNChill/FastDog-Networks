@@ -33,6 +33,18 @@ async function tailLines(file) {
   finally { await handle?.close().catch(() => {}); }
 }
 
+// Claim activation time as epoch ms. Accepts only a finite number or a strict ISO-8601 UTC string;
+// anything else (missing, "1", loose date strings) is null and callers then fail closed.
+// A hostname can be released and re-claimed by another tenant, and the logs and counts are keyed by
+// hostname only, so nothing from before the current claim may be shown.
+const ISO_UTC_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
+function sinceMs(since) {
+  if (typeof since === 'number') return Number.isFinite(since) ? since : null;
+  if (typeof since !== 'string' || !ISO_UTC_RE.test(since)) return null;
+  const ms = Date.parse(since);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 const median = (values) => {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);
@@ -42,9 +54,10 @@ const median = (values) => {
 
 // Requests over the last 24h from the per-host Caddy access log (one file per host, see
 // deploy/caddy/access-logs.snippet). Hourly buckets, oldest first; p50 latency in milliseconds.
-export async function trafficStats(host, { logDir, now = Date.now } = {}) {
+export async function trafficStats(host, { logDir, since, now = Date.now } = {}) {
   safeHost(host);
-  if (!logDir) return { available: false };
+  const from = sinceMs(since);
+  if (!logDir || from === null) return { available: false };
   const lines = await tailLines(join(logDir, `${host}.log`));
   if (!lines) return { available: false };
   const end = now();
@@ -56,7 +69,7 @@ export async function trafficStats(host, { logDir, now = Date.now } = {}) {
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
     const ts = typeof entry.ts === 'number' ? entry.ts * 1000 : Date.parse(entry.ts);
-    if (!Number.isFinite(ts) || ts > end || ts <= end - DAY) continue;
+    if (!Number.isFinite(ts) || ts > end || ts <= end - DAY || ts < from) continue;
     hourly[Math.min(23, 23 - Math.floor((end - ts) / HOUR))]++;
     if (typeof entry.duration === 'number' && entry.duration >= 0) durations.push(entry.duration * 1000);
     if (Number(entry.status) >= 500) errors++;
@@ -68,7 +81,7 @@ export async function trafficStats(host, { logDir, now = Date.now } = {}) {
 
 // Per-host hourly counts written by the customer shadow scorer (verdict/src/shadow/customer.js).
 // Only this host's buckets are read; null when the file is missing or has nothing for the host.
-async function customerCounts(host, countsFile, end) {
+async function customerCounts(host, countsFile, end, from) {
   let data;
   try {
     const { size } = await stat(countsFile);
@@ -77,7 +90,8 @@ async function customerCounts(host, countsFile, end) {
   } catch { return null; }
   const buckets = data?.v === 1 && data.hosts && Object.hasOwn(data.hosts, host) ? data.hosts[host] : null;
   if (!buckets || typeof buckets !== 'object') return null;
-  const first = Math.floor((end - DAY) / HOUR) + 1;
+  // A bucket counts only if it starts at or after the claim, so a partial hour never mixes owners.
+  const first = Math.max(Math.floor((end - DAY) / HOUR) + 1, Math.ceil(from / HOUR));
   const last = Math.floor(end / HOUR);
   let scored = 0; let blocked = 0; let challenged = 0;
   for (const [hour, b] of Object.entries(buckets)) {
@@ -91,10 +105,12 @@ async function customerCounts(host, countsFile, end) {
 
 // Verdict shadow decisions for this host over 24h. Shadow only: nothing was actually blocked.
 // Customer hosts come from the per-host counts file; first-party hosts from the scorer's row log.
-export async function shadowStats(host, { shadowFile, countsFile, now = Date.now } = {}) {
+export async function shadowStats(host, { shadowFile, countsFile, since, now = Date.now } = {}) {
   safeHost(host);
+  const from = sinceMs(since);
+  if (from === null) return { available: false, shadow: true };
   if (countsFile) {
-    const counts = await customerCounts(host, countsFile, now());
+    const counts = await customerCounts(host, countsFile, now(), from);
     if (counts) return counts;
   }
   if (!shadowFile) return { available: false, shadow: true };
@@ -108,7 +124,7 @@ export async function shadowStats(host, { shadowFile, countsFile, now = Date.now
     try { entry = JSON.parse(line); } catch { continue; }
     if (entry.host !== host) continue;
     const ts = Date.parse(entry.ts);
-    if (!Number.isFinite(ts) || ts > end || ts <= end - DAY) continue;
+    if (!Number.isFinite(ts) || ts > end || ts <= end - DAY || ts < from) continue;
     scored++;
     if (entry.action === 'block') blocked++;
     else if (entry.action === 'challenge') challenged++;

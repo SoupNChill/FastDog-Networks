@@ -29,13 +29,15 @@ export function createSiteStatus(opts = {}) {
   }
   async function status(tid, host) {
     const agent = opts.agent(tid, host);
-    const key = `${tid}:${host}`;
+    // Activation time of this tenant's current claim; probes fail closed without a usable one.
+    const since = opts.claimSince?.(tid, host) ?? null;
+    const key = `${tid}:${host}:${since}`;
     const hit = cache.get(key);
     let probed = hit && hit.until > now() ? hit.value : null;
     if (!probed) {
       const [traffic, shadow, cert] = await Promise.all([
-        probes.trafficStats(host, { logDir, now }).catch(() => ({ available: false })),
-        probes.shadowStats(host, { shadowFile, countsFile, now }).catch(() => ({ available: false, shadow: true })),
+        probes.trafficStats(host, { logDir, since, now }).catch(() => ({ available: false })),
+        probes.shadowStats(host, { shadowFile, countsFile, since, now }).catch(() => ({ available: false, shadow: true })),
         probes.certInfo(host, { tlsHost, tlsPort, timeout: 2500 }).catch(() => null),
       ]);
       probed = { traffic, shadow, cert, checked_at: new Date(now()).toISOString() };

@@ -212,6 +212,8 @@ export function createClaims(opts, changed) {
       return { credential };
     },
     agent(tid, host) { active(find(claims(), tid, host)); return agent(host); },
+    // When this tenant's current claim became active (verified_at only; null makes the probes fail closed).
+    claimSince(tid, host) { const c = find(claims(), tid, host); active(c); return c.verified_at || null; },
     delete(tid, host) {
       const records = claims();
       const record = find(records, tid, host);
