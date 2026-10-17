@@ -8,7 +8,9 @@ Use the API key (fdak_) for the whole flow from zero. The connect token (fdct_) 
 
 0. One-time key setup (the user runs this, or approves it once). Assistants with a command allowlist refuse commands that expand a secret variable, so ask the user for this step at the start; do not retry variations. Reference the file by absolute path, because your HOME may differ from the user's (see "Using a credential"):
 
-       mkdir -p ~/.config/fastdog && (umask 077; printf 'Authorization: Bearer %s\n' '<paste key>' > ~/.config/fastdog/auth.header)
+       mkdir -p ~/.config/fastdog && (umask 077; printf 'Authorization: Bearer %s\n' '<paste key>' > ~/.config/fastdog/<hostname>.header)
+
+   Name the file per hostname so credentials never overwrite each other (an fdct_ token: <hostname>.token.header). Start the command with a space to keep it out of shell history in most shells (HISTCONTROL=ignorespace), or delete it from history. When setup is done, tell the user to delete the file, and to revoke the key if no longer needed. A 1-hour fdct_ token's file can be deleted right after connecting.
 
 1. POST /api/v1/hostnames {"hostname": "app.example.com"} -> note dns.cname and dns.txt.
 2. Show the user the two DNS records as a table (type, name, value, and "DNS only" / grey cloud on Cloudflare). You normally cannot add DNS records yourself; the user adds them at their DNS provider and tells you when done.
@@ -24,15 +26,15 @@ A pending hostname is reserved for 24 hours (expires_at in the response). After 
 
 Many assistants (Claude Code in default permission mode, Codex, etc.) refuse commands that expand a secret variable such as "$FASTDOG_API_KEY", including the command that writes the header file. So the user saves the key once with the step 0 command (or approves it once); do not try to write it yourself or retry variations. Never echo or cat the key or the file. Then pass the file to curl:
 
-    curl -sS -H @/home/USER/.config/fastdog/auth.header https://<portal>/api/v1/hostnames/app.example.com/status
+    curl -sS -H @/home/USER/.config/fastdog/app.example.com.header https://<portal>/api/v1/hostnames/app.example.com/status
 
-Use an absolute path in -H @file (no ~ or variables, so the command matches an allowlist; your HOME may differ from the user's, so use the path the user's command created). The same applies to an fdct_ token. Send credentials only as headers; tokens in URLs or bodies are rejected.
+Use an absolute path in -H @file (no ~ or variables, so the command matches an allowlist; your HOME may differ from the user's, so use the path the user's command created). The same applies to an fdct_ token. Send credentials only as headers; tokens in URLs or bodies are rejected. Never use curl -v or --trace with them (they print the Authorization header).
 
 ## Connect command
 
-The Linux command uses sudo and contains the agent's private token. The assistant must not run it and must not read the token inside it. Instead save the response with `curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json` (curl 7.75+; creates the file private, so no umask or chmod is needed):
+The Linux command uses sudo and contains the agent's private token. The assistant must not run it and must not read the token inside it. Instead save the response with `curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json` (curl 7.75+ creates the file private, so no umask or chmod is needed; with older curl run `umask 077` first):
 
-    curl -sS --create-file-mode 0600 -X POST -H @/home/USER/.config/fastdog/auth.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:3000","platform":"linux"}' -o /home/USER/fastdog-connect.json https://<portal>/api/v1/hostnames/app.example.com/connect
+    curl -sS --create-file-mode 0600 -X POST -H @/home/USER/.config/fastdog/app.example.com.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:3000","platform":"linux"}' -o /home/USER/fastdog-connect.json https://<portal>/api/v1/hostnames/app.example.com/connect
 
 Then tell the user the one-line way to run it, for example: `sh -c "$(python3 -c 'import json;print(json.load(open("/home/USER/fastdog-connect.json"))["command"])')"; rm /home/USER/fastdog-connect.json` (or open the file and copy the "command" field), and delete the file afterwards. The user types their own sudo password. platform "docker" writes fastdog-agent.env; delete it after the container starts.
 
