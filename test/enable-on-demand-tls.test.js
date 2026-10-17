@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 const script = resolve('deploy/caddy/enable-on-demand-tls.sh');
 const initial = '(fdlog) {}\n(fdctl) {\n    @ctl path /_fastdog/*\n}\nexisting.example.test {\n    import fdlog existing.example.test\n    reverse_proxy 127.0.0.1:8787\n}\n';
 const globalBlock = '{\n    on_demand_tls {\n        ask http://127.0.0.1:8789/tls/ask\n    }\n}\n';
-const siteBlock = 'https:// {\n    tls {\n        on_demand\n    }\n    @sni_mismatch expression "{http.request.host} != {http.request.tls.server_name}"\n    respond @sni_mismatch 421\n    import fdctl\n    reverse_proxy 127.0.0.1:8787\n}\n';
+const siteBlock = 'https:// {\n    tls {\n        on_demand\n    }\n    @sni_mismatch not host {http.request.tls.server_name}\n    respond @sni_mismatch 421\n    import fdctl\n    reverse_proxy 127.0.0.1:8787\n}\n';
 
 function fixture(t, content = initial) {
   const dir = mkdtempSync(join(tmpdir(), 'on-demand-'));
@@ -51,7 +51,7 @@ exit "\${CURL_STATUS:-0}"
   const run = (args = [], extra = {}) => spawnSync('bash', [fixtureScript, ...args],
     { encoding: 'utf8', env: { ...process.env, BIN: bin, HEALTH_DELAY: '0',
       ADAPT_JSON: JSON.stringify({ apps: { http: { servers: { srv0: { listen: [':443'], routes: [
-        { handle: [{ handler: 'subroute', routes: [{ match: [{ expression: '{http.request.host} != {http.request.tls.server_name}' }], handle: [{ handler: 'static_response', status_code: 421 }] }, { match: [{ path: ['/_fastdog/*'] }], handle: [{ handler: 'static_response', status_code: 404 }] }] }] }
+        { handle: [{ handler: 'subroute', routes: [{ match: [{ not: [{ host: ['{http.request.tls.server_name}'] }] }], handle: [{ handler: 'static_response', status_code: 421 }] }, { match: [{ path: ['/_fastdog/*'] }], handle: [{ handler: 'static_response', status_code: 404 }] }] }] }
       ] } } } } }), ...extra } });
   const callLog = () => (existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n') : []);
   const backups = () => readdirSync(etc).filter((name) => name.startsWith('Caddyfile.bak-ondemand-') && !name.includes('prerollback'));
@@ -357,8 +357,10 @@ test('probe-host requires 200 and fallback warns that enablement is unconfirmed'
 
 test('adapted catch-all must include the mismatch 421 response', (t) => {
   for (const route of [
-    { match: [{ expression: '{http.request.host} != {http.request.tls.server_name}' }], handle: [{ handler: 'static_response', status_code: 200 }] },
-    { match: [{ host: ['named.example.test'], expression: '{http.request.host} != {http.request.tls.server_name}' }], handle: [{ handler: 'static_response', status_code: 421 }] },
+    { match: [{ expression: '{http.request.host} != {http.request.tls.server_name}' }], handle: [{ handler: 'static_response', status_code: 421 }] },
+    { match: [{ not: [{ host: ['wrong.example.test'] }] }], handle: [{ handler: 'static_response', status_code: 421 }] },
+    { match: [{ not: [{ host: ['{http.request.tls.server_name}'] }] }], handle: [{ handler: 'static_response', status_code: 200 }] },
+    { match: [{ host: ['named.example.test'], not: [{ host: ['{http.request.tls.server_name}'] }] }], handle: [{ handler: 'static_response', status_code: 421 }] },
     { handle: [{ handler: 'static_response', status_code: 421 }] }
   ]) {
     const f = fixture(t);
@@ -392,5 +394,27 @@ fi
     assert.notEqual(result.status, 0);
     assert.equal(f.read(), before);
     assert.match(result.stderr, /Restored/);
+  }
+});
+
+test('catch-all control route must actually refuse requests with a 4xx handler', (t) => {
+  for (const handler of [
+    { handler: 'reverse_proxy', status_code: 404 },
+    { handler: 'static_response', status_code: 200 },
+    { handler: 'static_response', status_code: 500 },
+    { handler: 'error', status_code: 403 },
+    { handler: 'static_response', status_code: '404' },
+  ]) {
+    const f = fixture(t);
+    const config = { apps: { http: { servers: { srv0: { listen: [':443'], routes: [
+      { handle: [{ handler: 'subroute', routes: [
+        { match: [{ not: [{ host: ['{http.request.tls.server_name}'] }] }], handle: [{ handler: 'static_response', status_code: 421 }] },
+        { match: [{ path: ['/_fastdog/*'] }], handle: [handler] },
+      ] }] },
+    ] } } } } };
+    const accepted = ['error', 'static_response'].includes(handler.handler) && /^4[0-9]{2}$/.test(String(handler.status_code));
+    const result = f.run([f.file], { ADAPT_JSON: JSON.stringify(config) });
+    assert.equal(result.status === 0, accepted, result.stderr);
+    if (!accepted) assert.equal(f.read(), initial);
   }
 });

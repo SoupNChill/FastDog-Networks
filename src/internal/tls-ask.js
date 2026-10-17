@@ -8,11 +8,11 @@ import { isTestLabelHost, isGuardrailHost, testTenants } from './test-labels.js'
 import { checkClaimProof } from './claims.js';
 import { edgeIp } from '../onboard/store.js';
 import dns from 'node:dns/promises';
+import { STATE_FILE, validApproval, updateApprovals } from './tls-approval-state.js';
 
 const HOUR = 3600000;
 const MINUTE = 60000;
 const WEEK = 7 * 24 * HOUR;
-const STATE_FILE = 'tls_ask_approvals.json';
 const positive = (value, fallback) => {
   const number = Number(value);
   return value !== undefined && value !== '' && Number.isSafeInteger(number) && number > 0 ? number : fallback;
@@ -81,14 +81,29 @@ export function createTlsAsk(opts = {}) {
   let checkCount = 0;
   const counts = {};
 
-  const validEntry = (e) => e && typeof e === 'object' && typeof e.host === 'string' && typeof e.domain === 'string'
-    && (e.tenant === null || typeof e.tenant === 'string') && Number.isFinite(e.at);
-  function loadState() {
+  let stateStamp;
+  let nextStateCheck = now() + 10000;
+  let saveFailed = false;
+  let lastStateWarning = -Infinity;
+  function stamp() {
+    try { const st = fs.statSync(stateFile); return `${st.mtimeMs}:${st.ino}`; }
+    catch (error) { if (error.code === 'ENOENT') return 'missing'; throw error; }
+  }
+  function refreshState(time) {
+    if (time < nextStateCheck) return;
+    nextStateCheck = time + 10000;
+    const updated = stamp();
+    if (updated !== stateStamp) loadState(updated);
+  }
+  function loadState(updated) {
     if (!enabled) return;
     const time = now();
+    approvals.clear();
+    history = [];
     try {
+      stateStamp = updated ?? stamp();
       const list = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-      if (!Array.isArray(list) || !list.every(validEntry)) throw new Error('malformed');
+      if (!Array.isArray(list) || !list.every(validApproval)) throw new Error('malformed');
       history = list.filter((e) => time - e.at < WEEK).map(({ host, tenant, domain, at }) => ({ host, tenant, domain, at }))
         .sort((a, b) => a.at - b.at);
       for (const entry of history) {
@@ -109,15 +124,22 @@ export function createTlsAsk(opts = {}) {
       stateFullUntil = time + 10 * MINUTE;
     }
   }
-  function saveState() {
-    const temp = `${stateFile}.${process.pid}.tmp`;
+  function saveState(entry) {
     try {
-      fs.mkdirSync(directory, { recursive: true });
-      fs.writeFileSync(temp, `${JSON.stringify(history)}\n`, { mode: 0o600 });
-      fs.renameSync(temp, stateFile);
+      history = updateApprovals(directory, list => [
+        ...list.filter(e => now() - e.at < WEEK), ...(entry ? [entry] : []),
+      ]);
+      // Do not advance the observed stamp here: an operator reset may have occurred
+      // since our last reload, and the next periodic check must clear stale repeats.
+      saveFailed = false;
+      return true;
     } catch {
-      console.error('tls ask: could not persist approval state');
-      try { fs.rmSync(temp, { force: true }); } catch { /* Best effort. */ }
+      saveFailed = true;
+      if (now() - lastStateWarning >= 5 * MINUTE) {
+        console.error('tls ask: could not persist approval state');
+        lastStateWarning = now();
+      }
+      return false;
     }
   }
   loadState();
@@ -181,6 +203,7 @@ export function createTlsAsk(opts = {}) {
     if (prior && prior.tenant === tenant) return decide(200, 'approved_repeat');
     if (prior) approvals.delete(host);
     if (time < stateFullUntil) return decide(429, 'approval_state_unavailable', { retry_after: Number.isFinite(stateFullUntil) ? seconds(stateFullUntil - time) : 600 });
+    if (saveFailed && !saveState()) return decide(429, 'approval_state_unavailable', { retry_after: 10 });
     history = history.filter((entry) => time - entry.at < WEEK);
     const day = history.filter((entry) => entry.host === host && time - entry.at < 24 * HOUR);
     if (day.length >= hostDayMax) return decide(429, 'approval_cap_host_day', { retry_after: seconds(day[0].at + 24 * HOUR - time) });
@@ -204,9 +227,8 @@ export function createTlsAsk(opts = {}) {
     if (same.length >= domainMax) return decide(429, 'approval_cap_domain', { retry_after: seconds(same[0].at + HOUR - time) });
     const week = history.filter((entry) => entry.domain === domain && entry.tenant === tenant);
     if (week.length >= domainWeekMax) return decide(429, 'approval_cap_domain_week', { retry_after: seconds(week[0].at + WEEK - time) });
+    if (!saveState({ host, tenant, domain, at: time })) return decide(429, 'approval_state_unavailable', { retry_after: 10 });
     approvals.set(host, { tenant, domain, at: time });
-    history.push({ host, tenant, domain, at: time });
-    saveState();
     return decide(200, 'approved_new');
   }
 
@@ -263,6 +285,7 @@ export function createTlsAsk(opts = {}) {
     try {
       if (time < failedUntil) return decide(404, 'store_error');
       try {
+        refreshState(time);
         refresh(time);
       } catch {
         // Fail closed, including for previously approved hosts, and retry the stores shortly.

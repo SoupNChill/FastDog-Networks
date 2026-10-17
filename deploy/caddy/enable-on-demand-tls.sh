@@ -116,9 +116,10 @@ function protectedRoutes(routes, predicate) {
     return (route.handle ?? []).some(handler => protectedRoutes(handler.routes, predicate));
   });
 }
-const control = route => route.match?.some(match => match.path?.includes('/_fastdog/*'));
+const control = route => route.match?.some(match => match.path?.includes('/_fastdog/*')) &&
+  route.handle?.some(handler => ['static_response', 'error'].includes(handler.handler) && /^4[0-9]{2}$/.test(String(handler.status_code)));
 const mismatch = route => route.match?.some(match =>
-  match.expression === '{http.request.host} != {http.request.tls.server_name}') &&
+  match.not?.some(negated => negated.host?.length === 1 && negated.host[0] === '{http.request.tls.server_name}')) &&
   route.handle?.some(handler => handler.handler === 'static_response' && String(handler.status_code) === '421');
 const servers = Object.values(config.apps?.http?.servers ?? {});
 process.exit(servers.some(server => server.listen?.some(address => address.endsWith(':443')) && server.routes?.some(route =>
@@ -201,7 +202,7 @@ https:// {
     tls {
         on_demand
     }
-    @sni_mismatch expression "{http.request.host} != {http.request.tls.server_name}"
+    @sni_mismatch not host {http.request.tls.server_name}
     respond @sni_mismatch 421
     import fdctl
     reverse_proxy 127.0.0.1:${upstream_port}

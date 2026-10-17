@@ -55,3 +55,28 @@ Immediate re-activation before expiry: restore routing and the original ownershi
 `TLS_ASK_HOST_WEEK_MAX` defaults to 5 approvals per host per rolling seven days, in addition to the daily cap; `approval_cap_host_week` returns 429 with `retry_after`. Both survive restarts, and repeats within the hour remain free. Claims with absent, empty, whitespace-only or non-string `txt_value` are excluded even when live verification is disabled. The test-tenant list is cached by file metadata (including mtime); missing or malformed files fail closed. Overriding `RESERVED_SUFFIXES` always retains both attach domains.
 
 The catch-all rejects differing HTTP Host and TLS SNI with 421 using a site-local expression matcher, checked in adapted Caddy JSON. For deployment, use `--probe-host static.example.test` with a configured approved static host to require 200; the fallback 4xx probe warns that it cannot establish route enablement. Enable and rollback restore on interrupted installs; temporary files use umask 077. RECHECK and Verdict enforce remain disabled.
+
+### Resetting TLS approval budgets
+
+After investigating failed issuance that consumed a verified host's budgets, run
+`node scripts/onboard.js tls-reset app.example.test` with `DATA_DIR` pointing to the
+edge's runtime data directory, as the runtime owner. This removes only that host's
+entries from `tls_ask_approvals.json` (including hourly, daily and weekly history),
+using the same locked read/modify/atomic-write path as the edge, mode 0600. Other
+hosts retain their history. The command prints the removed-entry count; lock
+contention or an unreadable state file fails without resetting the file. Retry
+contention after the writer finishes. A crashed writer can leave
+`tls_ask_approvals.json.lock`; remove that lock only after stopping all writers and
+confirming none is active, then restart the edge. Do not remove the history file.
+
+The running edge checks the approval file's mtime at most once per ten seconds on
+ask requests and reloads changed history, so no restart is needed for a normal
+reset. A write before that reload merges with current disk history and cannot
+restore removed entries. Resetting does not verify a claim or bypass DNS proof,
+ownership checks, other hosts' caps, or the CA's own issuance limits.
+
+A failed approval-state save refuses new approvals with HTTP 429
+`approval_state_unavailable` until a later save succeeds. The first failed write
+is also refused; failed candidates never become free repeats. Warnings contain
+no hostnames and occur at most once per five minutes. An existing valid hourly
+repeat approval remains free, including during a write outage.

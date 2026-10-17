@@ -4,8 +4,13 @@ import { generateInvite, listInvites, redeemInvite } from '../src/onboard/invite
 import { editTestTenants } from '../src/internal/test-labels.js';
 import { attachHost, verifyHost, listAttachedHosts, detachHost } from '../src/onboard/attach.js';
 
+import { resetTlsApprovals } from '../src/internal/tls-approval-state.js';
+
 const [command, ...args] = process.argv.slice(2);
 const usage = `Usage: npm run onboard -- <command>
+
+TLS issuance recovery:
+  tls-reset <hostname>               Reset persisted approval budgets for one host
 
 CNAME/Attach (default onboarding):
   attach-host <hostname>              Attach hostname via CNAME (returns instructions)
@@ -57,7 +62,9 @@ function warnSync(result) {
 
 async function main() {
   let result;
-  if (command === 'attach-host' && args[0]) {
+  if (command === 'tls-reset' && args.length === 1) {
+    console.log(JSON.stringify(resetTlsApprovals(args[0])));
+  } else if (command === 'attach-host' && args[0]) {
     result = attachHost({ hostname: args[0] });
     console.log(JSON.stringify(result, null, 2));
     console.error('\nNext: Add the CNAME record at your registrar, then run:');

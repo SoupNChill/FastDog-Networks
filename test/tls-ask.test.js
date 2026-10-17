@@ -519,7 +519,7 @@ test('TLS ask 429 responses carry Retry-After and JSON retry_after', async (t) =
 test('Caddy snippet is the go-live form: global ask block plus the catch-all site', () => {
   const snippet = readFileSync(new URL('../deploy/caddy/on-demand-tls.snippet', import.meta.url), 'utf8');
   assert.match(snippet, /^\{\s*on_demand_tls\s*\{\s*ask http:\/\/127\.0\.0\.1:8789\/tls\/ask\s*\}\s*\}/m);
-  assert.match(snippet, /^https:\/\/ \{\s*tls \{\s*on_demand\s*\}\s*@sni_mismatch expression "[^"]+"\s*respond @sni_mismatch 421\s*import fdctl\s*reverse_proxy 127\.0\.0\.1:8787\s*\}/m);
+  assert.match(snippet, /^https:\/\/ \{\s*tls \{\s*on_demand\s*\}\s*@sni_mismatch not host \{http\.request\.tls\.server_name\}\s*respond @sni_mismatch 421\s*import fdctl\s*reverse_proxy 127\.0\.0\.1:8787\s*\}/m);
 });
 
 test('TLS ask checks external changes once per second and only rereads changed stores', async (t) => {
@@ -537,7 +537,7 @@ test('TLS ask checks external changes once per second and only rereads changed s
   assert.equal(stat.mock.callCount(), 2);
   h.advance(1000);
   assert.equal((await h.ask()).statusCode, 200);
-  assert.equal(read.mock.callCount(), 1);
+  assert.equal(read.mock.callCount(), 2, 'changed claims plus locked approval-state read');
 });
 
 test('TLS ask flag off avoids all store reads and metering', async (t) => {
@@ -817,4 +817,69 @@ test('global reserve environment override protects the total and excludes legacy
   assert.equal(h.ask('legacy.example.test').reason, 'approval_cap_global');
   assert.equal(h.ask('s.example.test').status, 200);
   assert.equal(h.ask('t.example.test').reason, 'approval_cap_global');
+});
+
+test('operator TLS reset is atomic, host-scoped and reloaded within ten seconds', async (t) => {
+  const { spawnSync } = await import('node:child_process');
+  const h = direct(t, { hostDayMax: 1 });
+  const host = 'reset.example.test';
+  const other = 'other.example.test';
+  h.save([h.claim(host), h.claim(other)]);
+  assert.equal(h.ask(host).status, 200);
+  assert.equal(h.ask(other).status, 200);
+  h.advance(HOUR_MS);
+  assert.equal(h.ask(host).reason, 'approval_cap_host_day');
+  const file = `${h.directory}/tls_ask_approvals.json`;
+  const reset = () => spawnSync(process.execPath, ['scripts/onboard.js', 'tls-reset', host], {
+    encoding: 'utf8', env: { ...process.env, DATA_DIR: h.directory },
+  });
+  fs.writeFileSync(`${file}.lock`, '');
+  assert.notEqual(reset().status, 0);
+  assert.equal(JSON.parse(readFileSync(file)).length, 2);
+  fs.unlinkSync(`${file}.lock`);
+  const result = reset();
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(file)).map(e => e.host), [other]);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  const stat = t.mock.method(fs, 'statSync');
+  assert.equal(h.ask(host).reason, 'approval_cap_host_day');
+  assert.equal(stat.mock.callCount(), 0, 'no extra mtime polling within ten seconds');
+  h.advance(10000);
+  assert.equal(h.ask(host).reason, 'approved_new');
+  assert.equal(h.ask(other).reason, 'approval_cap_host_day');
+});
+
+test('TLS reset is not undone by an edge save before the periodic reload', async (t) => {
+  const { resetTlsApprovals } = await import('../src/internal/tls-approval-state.js');
+  const h = direct(t);
+  h.save([h.claim('a.example.test'), h.claim('b.example.test')]);
+  assert.equal(h.ask('a.example.test').status, 200);
+  resetTlsApprovals('a.example.test', h.directory);
+  assert.equal(h.ask('b.example.test').status, 200);
+  assert.deepEqual(JSON.parse(readFileSync(`${h.directory}/tls_ask_approvals.json`)).map(e => e.host), ['b.example.test']);
+  h.advance(10000);
+  assert.equal(h.ask('a.example.test').reason, 'approved_new', 'reload clears stale hourly repeats');
+});
+
+test('failed approval writes fail closed, throttle hostname-free logs and recover', (t) => {
+  const h = direct(t);
+  h.save(['a', 'b', 'c'].map(label => h.claim(`${label}.example.test`)));
+  assert.equal(h.ask('a.example.test').reason, 'approved_new');
+  const rename = fs.renameSync;
+  const failure = t.mock.method(fs, 'renameSync', () => { throw new Error('synthetic'); });
+  const errors = t.mock.method(console, 'error', () => {});
+  for (let i = 0; i < 3; i++) {
+    assert.equal(h.ask('b.example.test').reason, 'approval_state_unavailable');
+    assert.equal(h.ask('c.example.test').status, 429);
+    assert.equal(h.ask('a.example.test').reason, 'approved_repeat');
+  }
+  assert.equal(errors.mock.callCount(), 1);
+  h.advance(5 * 60000);
+  assert.equal(h.ask('b.example.test').status, 429);
+  assert.equal(errors.mock.callCount(), 2);
+  assert.doesNotMatch(JSON.stringify(errors.mock.calls), /example\.test/);
+  failure.mock.mockImplementation(rename);
+  assert.equal(h.ask('b.example.test').reason, 'approved_new');
+  assert.equal(h.ask('b.example.test').reason, 'approved_repeat');
+  assert.deepEqual(JSON.parse(readFileSync(`${h.directory}/tls_ask_approvals.json`)).map(e => e.host), ['a.example.test', 'b.example.test']);
 });
