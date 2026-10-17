@@ -398,7 +398,6 @@
       "17d677cec6a85b721f163d776a90c7f1b810413854d0f32477405da7a90eb61d": 1,
       "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
       "4f0095887aad7fd917d2e425a0b4fefe83f19d83390c16378571893d6c9a82ce": 1,
-      "279ffc13afcfca2314283ef8266be3ebc99b7291430d408b5a3761831be4eb2d": 1,
       "9e29c6120c2eb1b08ea64149eb0ef167d41d04dcdde4281546a369beb3f697fb": 1,
       "a53c41882217f67e635b5ebae6d8dc1737b7fa0ef698405f2cf3536985744687": 2,
       "07fed5e93de1334460a4c6bedc00fb87475b6751d6c2171ca937f05e457aea5e": 1,
@@ -407,7 +406,9 @@
       "7095b954b83d490144453d9c401e4713c350ff7386df432f39cfb0d4a0f9c634": 1,
       "f48a38d461be87b40ac9eb682b6f4faebf086d6349711c162ec3d2143dc3b540": 1,
       "7f0b95caab2949a7c2c890ee90a95d81e4d90f19a46b0847cbc20f2644d03812": 1,
-      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1
+      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1,
+      "842ffe15c1cc8e793510a1bfd2a7603e507938962d217784448a96b4213c3d5e": 1,
+      "2a5039a6be78dde2834b198b8e106b666ed045107a3a0e5808d79f0a784a81e8": 1
     }
   },
   "site/js/domain-search.js": {
@@ -487,6 +488,12 @@
     "lines": {
       "ab1e49f9c201d385062ff17562e60e146322039bb12f6193fc6f1a2dd5990c48": 1,
       "8e7e618055b6172280f724e11644b2e93924e395c48dca430ce16f1d3be7c738": 1
+    }
+  },
+  "test/fixtures/pricing-section.html": {
+    "reason": "Exact pre-edit homepage pricing fixture; preserves the existing FastDog support mail link required by the pricing regression test.",
+    "lines": {
+      "5068d42325589a11aa0ca0a0ed33e70bdd7ddd24401900d527fecf7dce353ecc": 1
     }
   },
   "test/no-hardcoded-names.allow.json": {

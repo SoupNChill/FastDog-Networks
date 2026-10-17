@@ -143,3 +143,5 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE: one-approval Docker connect path shipped: curl writes the private env file and one secret-free docker run consumes it. Tradeoff: the 0600 agent-key file remains until the user deletes it.
 
 - DONE: Docker connect review clarifies initial header setup/curl approval, user-provided PORT, fresh env filenames, API Docker metadata and immediate user-run key-file cleanup with restart guidance.
+
+- DONE: homepage AI onboarding hero and assistant setup section reuse existing styles; regression coverage pins the copy, links and unchanged pricing markup.
