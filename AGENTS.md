@@ -30,7 +30,7 @@ Deploy only within the authorized operational scope using the deploy and rollbac
 - Keep code, tests and examples tenant-agnostic: synthetic tenant IDs and `example.test` or `.invalid` hostnames; no customer/person names or real hostnames.
 - Never read or print secrets or environment files during repository work. No secrets in git, logs, URLs or chat. Configured secrets live in protected runtime env files only; application-managed credential/session state stays private. Document secret locations and owners only, never values.
 - Guardrail hosts never receive Verdict enforce or `forward_auth`. Fail-open is the default for bot-filter outages; authentication and tenant ownership still fail closed.
-- `TLS_ASK_ENABLED` and `RECHECK_ENABLED` default off; keep them off pending operational review.
+- `TLS_ASK_ENABLED` and `RECHECK_ENABLED` default off in code. Production enabled `TLS_ASK_ENABLED=1` with v9 (operator-approved, 2026-10-17); `RECHECK_ENABLED` stays off pending operational review. Do not change either without operator approval.
 - Pricing is locked at Hobby $9 / Pro $29 / Agency $149, monthly USD.
 - No load tests on the shared PoP. Back up before every edge change, including configuration changes.
 - OpenSRS is read-only (`LOOKUP`/`GET_PRICE`) unless the operator approves. Purchases and spend require operator approval.
