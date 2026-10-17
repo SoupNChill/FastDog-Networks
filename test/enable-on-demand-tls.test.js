@@ -457,7 +457,14 @@ test('the real adapted live fdctl form is accepted; missing, weak or misordered 
     [[{ ...liveControl, match: [{ ...liveControl.match[0], method: ['GET'] }] }, liveMismatch, liveProxy], false],
     [[{ ...liveControl, match: [{ path: ['/_fastdog/*'], remote_ip: { ranges: ['10.0.0.0/8'] } }] }, liveMismatch, liveProxy], false],
     [[{ match: liveControl.match, handle: [{ handler: 'subroute', routes: [{ match: [{ method: ['GET'] }], handle: [proxy] }, { handle: [{ handler: 'static_response', status_code: 404 }] }] }] }, liveMismatch, liveProxy], false],
-    [[{ match: liveControl.match, handle: [{ handler: 'subroute', routes: [{ match: [{ method: ['GET'] }], handle: [{ handler: 'static_response', status_code: 404 }] }] }] }, liveMismatch, liveProxy], false]
+    [[{ match: liveControl.match, handle: [{ handler: 'subroute', routes: [{ match: [{ method: ['GET'] }], handle: [{ handler: 'static_response', status_code: 404 }] }] }] }, liveMismatch, liveProxy], false],
+    // A not-path may only list exact /_fastdog/ paths: never a wildcard or anything covering /_fastdog/*.
+    ...[['/_fastdog/*'], ['/_fastdog/'], ['/*'], ['/_fastdog/tunnel', '/_fastdog/agents/*'], ['/other']].map(not =>
+      [[{ ...liveControl, match: [{ path: ['/_fastdog/*'], not: [{ path: not }] }] }, liveMismatch, liveProxy], false]),
+    // The 421 route must match only the negated SNI host.
+    [[liveControl, { ...liveMismatch, match: [{ not: liveMismatch.match[0].not, method: ['GET'] }] }, liveProxy], false],
+    [[liveControl, { ...liveMismatch, match: [...liveMismatch.match, { method: ['GET'] }] }, liveProxy], false],
+    [[liveControl, { ...liveMismatch, match: [{ not: [{ host: ['{http.request.tls.server_name}'], method: ['GET'] }] }] }, liveProxy], false]
   ];
   for (const [routes, accepted] of cases) {
     const f = fixture(t);

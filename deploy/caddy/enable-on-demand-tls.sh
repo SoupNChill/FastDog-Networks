@@ -110,9 +110,13 @@ ask_healthy() {
 # Inspect adapted routes: a matcher in a named site does not protect the catch-all.
 catch_all_protected() {
   local adapted="$work/adapted.json"
+  local source="${1:-$caddyfile}" copy
+  copy="$work/adapt-${source##*/}"
+  # Adapt a root-owned private copy made now, not the caddy-owned file that could change underneath us.
   # The adapted JSON stays in the root-owned work directory; never write through a pre-existing file.
-  rm -f -- "$adapted"
-  ( set -o noclobber; "$caddy" adapt --adapter caddyfile --config "${1:-$caddyfile}" > "$adapted" ) || return 1
+  rm -f -- "$adapted" "$copy"
+  install -m600 -- "$source" "$copy" || return 1
+  ( set -o noclobber; "$caddy" adapt --adapter caddyfile --config "$copy" > "$adapted" ) || return 1
   node --input-type=module - "$adapted" <<'JS'
 import fs from 'node:fs';
 const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
@@ -132,17 +136,23 @@ const refusal = handler => ['static_response', 'error'].includes(handler?.handle
 // Any reverse_proxy inside the route, whatever its upstream form.
 const hasProxy = route => (route.handle ?? []).some(handler => handler.handler === 'reverse_proxy' ||
   (handler.handler === 'subroute' && (handler.routes ?? []).some(hasProxy)));
-const pathOnly = match => Object.keys(match).every(key => key === 'path');
+// A control exclusion may only list exact /_fastdog/ paths; a wildcard or a path covering /_fastdog/* would unprotect the prefix.
+const exactExclusion = negated => Object.keys(negated).every(key => key === 'path') &&
+  Array.isArray(negated.path) && negated.path.length > 0 &&
+  negated.path.every(path => typeof path === 'string' && path.startsWith('/_fastdog/') &&
+    !path.includes('*') && path !== '/_fastdog/');
 const controlMatch = match => Object.keys(match).every(key => key === 'path' || key === 'not') &&
-  (match.not === undefined || (Array.isArray(match.not) && match.not.every(pathOnly)));
+  (match.not === undefined || (Array.isArray(match.not) && match.not.every(exactExclusion)));
 const control = route => route.match?.length > 0 && route.match.every(controlMatch) &&
   route.match.some(match => match.path?.includes('/_fastdog/*')) && !hasProxy(route) &&
   route.handle?.some(handler => refusal(handler) || (handler.handler === 'subroute' && (() => {
     const end = (handler.routes ?? []).findIndex(inner => !inner.match?.length);
     return end >= 0 && refusal(handler.routes[end].handle?.at(-1));
   })()));
-const mismatch = route => route.match?.some(match =>
-  match.not?.some(negated => negated.host?.length === 1 && negated.host[0] === '{http.request.tls.server_name}')) &&
+// Exactly one match entry holding only the negated SNI host, so no extra matcher narrows the 421.
+const mismatch = route => route.match?.length === 1 && Object.keys(route.match[0]).join() === 'not' &&
+  route.match[0].not.length === 1 && Object.keys(route.match[0].not[0]).join() === 'host' &&
+  route.match[0].not[0].host.length === 1 && route.match[0].not[0].host[0] === '{http.request.tls.server_name}' &&
   route.handle?.some(handler => handler.handler === 'static_response' && String(handler.status_code) === '421');
 const servers = Object.values(config.apps?.http?.servers ?? {});
 process.exit(servers.some(server => {
@@ -257,6 +267,7 @@ fi
 work=$(mktemp -d)
 # Only this subdirectory is ever handed to caddy; the work directory itself stays root-owned.
 mkdir -- "$work/cand"
+# mktemp -d yields 0700 and umask 077 keeps every file made here private; 711 only lets caddy traverse to cand/.
 chmod 711 -- "$work"
 build="$work/cand/Caddyfile.candidate"
 if $has_global; then
