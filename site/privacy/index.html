@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#222831">
+  <title>Privacy Policy (draft) — FastDog Networks</title>
+  <meta name="description" content="Draft Privacy Policy for FastDog Networks. Not yet in effect.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/SpaceGrotesk-Medium.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="/fonts/SpaceGrotesk-Bold.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap">
+  <a class="brand" href="/" aria-label="FastDog Networks home"><picture><source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/hound-light.svg" width="70" height="21" alt=""></picture><span>FastDog <span class="brand-second">Networks</span></span></a>
+  <nav aria-label="Main navigation"><a href="/edge/">Edge</a><a href="/domains/">Domains</a><a href="/verdict/">Verdict</a><a href="/docs/">Docs</a></nav>
+</header>
+<main id="main" class="wrap docs">
+<section class="product-hero"><div><span class="eyebrow">Legal</span><h1>Privacy Policy</h1><p class="hero-lede"><strong>DRAFT. Not yet in effect.</strong> This draft is published for review. It does not apply to anyone until we replace it with a final version.</p><p class="small-note">Version 2026-10-17-draft</p></div></section>
+
+<section class="section" id="summary"><h2>In short</h2>
+<p>We collect what we need to run the service and keep it safe. We do not sell your data. We do not use it for advertising.</p>
+</section>
+
+<section class="section" id="collect"><h2>1. What we collect</h2>
+<dl>
+<dt>Account details</dt><dd>Your email address and a one-way hash of your password. We never store your password itself.</dd>
+<dt>Terms acceptance</dt><dd>Which version of these documents you accepted, when, and a salted hash of the IP address you used. Not the IP address itself.</dd>
+<dt>IP addresses</dt><dd>Kept briefly in rate limits (to stop abuse such as password guessing) and in access logs for the portal and the edge.</dd>
+<dt>Hostnames</dt><dd>The hostnames you attach, their DNS check results, and the origin address your agent forwards to.</dd>
+<dt>Request metadata</dt><dd>For traffic through the edge: time, hostname, path, status code, response time, request headers such as the user agent, IP address and network (ASN). We use it for logs, status pages and bot scoring. We do not store request or response bodies.</dd>
+<dt>Messages</dt><dd>Emails you send us and our replies.</dd>
+</dl>
+</section>
+
+<section class="section" id="use"><h2>2. Why we use it</h2>
+<ul>
+<li>To run the service: sign-in, routing your hostnames, issuing certificates, connecting your agent.</li>
+<li>To keep it safe: rate limits, abuse prevention, and investigating phishing, malware or attacks.</li>
+<li>To show you your status, traffic and bot scores.</li>
+<li>To bill paid plans and answer support requests.</li>
+<li>To meet legal obligations.</li>
+</ul>
+</section>
+
+<section class="section" id="retention"><h2>3. How long we keep it</h2>
+<ul>
+<li>Account details and terms acceptance: while your account exists, then deleted, except where we must keep billing records by law.</li>
+<li>Rate-limit entries: minutes to hours, then they expire.</li>
+<li>Access logs and request metadata: rotated and deleted on a short schedule (TODO: confirm the exact period before launch).</li>
+<li>Email messages: as long as needed to handle your request.</li>
+</ul>
+</section>
+
+<section class="section" id="processors"><h2>4. Who processes it for us</h2>
+<p>We use a small number of providers to run FastDog: hosting providers for our servers and an email provider for sign-in and service emails. When paid billing starts, a payment processor will handle card details; we will not see or store full card numbers. Each provider only gets the data it needs to do its job.</p>
+<!-- TODO(owner): confirm and list sub-processors by name, purpose and region before launch. -->
+<ul>
+<li>Hosting: TODO, list before launch.</li>
+<li>Email delivery: TODO, list before launch.</li>
+<li>Payments: TODO, list when billing goes live.</li>
+</ul>
+</section>
+
+<section class="section" id="selling"><h2>5. No selling</h2>
+<p>We do not sell or rent your personal data, and we do not share it for advertising. We disclose it only to the providers above, when the law requires it, or to protect people and the service from serious harm.</p>
+</section>
+
+<section class="section" id="rights"><h2>6. Your rights</h2>
+<p>You can ask us to show you the personal data we hold about you, correct it, export it, or delete it along with your account. Depending on where you live you may have further rights, including the right to complain to a data protection authority. We will verify the request comes from the account’s email address and reply within 30 days.</p>
+</section>
+
+<section class="section" id="security"><h2>7. Security</h2>
+<p>We use HTTPS everywhere, hash passwords and API keys, keep secrets out of logs and limit who can reach production systems. No system is perfectly secure; if a breach affects your data, we will tell you.</p>
+</section>
+
+<section class="section" id="changes"><h2>8. Changes</h2>
+<p>We may update this policy. Each version has a version string at the top of this page. For material changes we will email account holders before they take effect.</p>
+</section>
+
+<section class="section" id="contact"><h2>9. Contact</h2>
+<!-- TODO(operator): replace the placeholder support address before launch. -->
+<p>Privacy questions and requests: email <a href="mailto:support@example.invalid?subject=Privacy">support@example.invalid</a>. See also our <a href="/terms/">Terms of Service</a> and <a href="/faq/">FAQ</a>.</p>
+</section>
+</main>
+<footer class="footer wrap"><picture><source srcset="/logos/lockup-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/lockup-light.svg" width="180" height="110" alt="FastDog Networks. Fast by Design."></picture><div><span>DNS · tunnel · TLS</span><span>© FastDog Networks</span><span><a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="/faq/">FAQ</a></span><a class="footer-link" href="/docs/">Docs</a></div></footer>
+</body>
+</html>
