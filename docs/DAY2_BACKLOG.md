@@ -24,7 +24,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - LOW: per-account login lockout enables lock-out of a known email; also key on IP plus account.
 - LOW: `trustProxy` only accepts a single-IP `X-Forwarded-For`; document that Caddy overwrites it or take the last hop.
 - DONE (E2): `sessions.get()` persists `last_seen` and sliding expiry at most once a minute.
-- LOW: file mailer outbox keeps raw links; delete after delivery or TTL.
+- DONE (open signup B1): outbox files older than 7 days are deleted on portal startup; with `MAIL_TRANSPORT=smtp` the outbox keeps only a redacted copy of delivered mail (raw links only on fallback).
 - LOW: whitelist fields of `/api/domain-requests` (do not return operator `notes`).
 - LOW: tenant suspension has no path that deletes the tenant's hostnames and credentials.
 - LOW: `isReserved` in `portal/src/hostname.js` is unused (edge enforces); keep or remove.
@@ -84,7 +84,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 ## Open after the Day 3 reviews (flags stay off)
 - MEDIUM (re-check): a tenant that controls its own authoritative DNS can answer conclusively once every few checks and so never reach the inconclusive cap. Consider a cumulative inconclusive ratio over a window instead of a streak.
 - MEDIUM (suspension): suspending a tenant does not yet remove its edge hosts, tunnels or credentials. Until that ships, the operator revokes them per host (runbooks/portal-invites.md).
-- MEDIUM (outbox): files in the outbox hold live verify and reset links and are never swept. Add a TTL sweep, or delete each file after delivery.
+- MEDIUM (outbox) — DONE (open signup B1): startup TTL sweep deletes outbox messages older than 7 days; SMTP delivery leaves only a redacted audit copy.
 - DONE (lane K): agent 0.1.1 sends Bearer headers for registration and the tunnel; offline coverage verifies credential-free logs. Existing proxy query redaction remains required.
 
 ## Lane D (documentation refresh)
