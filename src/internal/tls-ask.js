@@ -4,13 +4,16 @@ import path from 'node:path';
 import { readJson, dataDir, jsonRevision } from '../onboard/json.js';
 import { reservedSuffixes } from '../lib/config.js';
 import { attachTarget, altAttachTarget } from '../onboard/attach.js';
+import { isTestLabelHost } from './test-labels.js';
 
 // Local writes invalidate immediately; external store changes are checked at most once per second.
 export function createTlsAsk(opts = {}) {
   const enabled = opts.tlsAskEnabled ?? (process.env.TLS_ASK_ENABLED === '1');
   const directory = opts.dataDir ?? dataDir();
   const now = opts.now ?? Date.now;
-  const targets = [opts.attachTarget ?? attachTarget(), opts.altAttachTarget ?? altAttachTarget()].filter(Boolean);
+  const primary = opts.attachTarget ?? attachTarget();
+  const alt = opts.altAttachTarget ?? altAttachTarget();
+  const targets = [primary, alt].filter(Boolean);
   const reserved = opts.reservedSuffixes ?? reservedSuffixes(...targets);
   let until = 0;
   let total = 0;
@@ -61,10 +64,13 @@ export function createTlsAsk(opts = {}) {
     let host;
     try { host = normalizeHostname(input); } catch { /* Invalid names share a budget. */ }
     const time = now();
-    if (host && !isReserved(host, reserved) && !targets.some((target) => host === target.toLowerCase().replace(/\.$/, ''))) {
+    const open = host && !isReserved(host, reserved) && !targets.some((target) => host === target.toLowerCase().replace(/\.$/, ''));
+    // A verified tenant claim on an internal test label is the only approved name under the reserved domain.
+    const testLabel = !open && host && primary && isTestLabelHost(host, primary, alt);
+    if (open || testLabel) {
       refresh(time);
       // Approved owners never spend or wait on anonymous deny budgets.
-      if (owners.has(host)) return { status: 200 };
+      if (owners.has(host) && (open || owners.get(host).tenant_id)) return { status: 200 };
     }
     if (time >= until) { until = time + 60000; total = 0; names.clear(); }
     const nameCount = names.get(host) ?? 0;
