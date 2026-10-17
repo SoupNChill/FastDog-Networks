@@ -150,24 +150,42 @@ All JSON, same-origin, `__Host-fd_session` cookie, `Origin` check and `x-fd-csrf
 | POST | `/api/hostnames/:hostname/test` | Test it (CSRF; 6/min per tenant) |
 | GET/POST/DELETE | `/api/hostnames/:hostname/connect-token` | list / issue (CSRF, verified, active host, 5/hour per tenant) / revoke all 1-hour connect tokens for the AI-assistant prompt |
 | GET | `/api/connect/v1/hostname` | Bearer connect token only (cookies ignored): one hostname's connection status |
-| POST | `/api/connect/v1/command` | Bearer connect token only: `{origin, platform: linux|docker}` returns the connect command once per token (rotates the credential; own budget of 3/day per hostname plus the shared 5/day rotate limit; a failed rotate does not consume the token, but every attempt that reaches the edge spends budget). Every bearer call re-checks that the hostname is still the tenant's active claim (404 revokes its tokens) and that the issuing user has not reset their password |
+| POST | `/api/connect/v1/command` | Bearer connect token only: `{origin, platform: linux|docker, format?: json|env}` returns the connect command once per token (rotates the credential; own budget of 3/day per hostname plus the shared 5/day rotate limit; a failed rotate does not consume the token, but every attempt that reaches the edge spends budget). Every bearer call re-checks that the hostname is still the tenant's active claim (404 revokes its tokens) and that the issuing user has not reset their password |
 | GET | `/api/domains/search?q=` | existing domain-search service (unchanged) |
 | GET/POST | `/api/domain-requests` | list / create a request (max 3 open); no registrar write path |
 | GET | `/api/plan` | operator-set plan and limits |
 
 The portal derives `tenant_id` from the session only. It never accepts a tenant id or hostname-owner field from the browser. Rate limits (per section 3 of the plan): login 5 fails/15 min/account, 20/IP; signup 3/h/IP; verify 6/min/tenant; rotate 5/day.
 
-Both connect command endpoints return `{hostname, platform, origin, command}`, plus `env_file` for Docker only: the exact env filename used by the command, without any token. Linux responses omit `env_file`.
+### Docker connect command
 
-### Docker connect command: security notes
+EARLY, right after reading this guide and before DNS work, tell the user: connecting needs exactly one approval of a single docker run command, with nothing chained. Ask for that approval up front and show this secret-free template:
 
-- Token handling: the command writes `fastdog-agent-<slug>-<10 hex>.env` (umask 077, only after `docker pull` succeeds) with shell builtins only (`printf`), so no subprocess argv carries the token. An AI assistant must write the command to a 0600 file, run it with `sh <file>`, and delete the file and the file named by the response `env_file` field (never a glob, never a copied example) afterwards (success or failure); it must never print them, run `docker inspect` on the agent container, read `ps` or `/proc/*/cmdline`, or echo the token.
-- Residual exposure: Docker stores `--env-file` values in the container config, so the token stays readable by root and anyone in the docker group (`docker inspect`). Docker group access is root-equivalent; use Docker only when the user already has it without sudo, never add users to the group, and otherwise use rootless Docker or the root systemd installer. If the token may have been exposed, rotate it by getting a new command in the portal (the old one stops working).
-- Host networking: the container uses `--network host` so the agent reaches origins on the host's `127.0.0.1`. Trade-off: the agent shares the host network namespace and can reach any host-local or LAN service. Mitigations: `--cap-drop ALL --security-opt no-new-privileges`, and origins in link-local 169.254.0.0/16, fe80::/10, fd00:ec2::/32, NAT64 64:ff9b::/96, 100.64.0.0/10 or 0.0.0.0 (including IPv4-mapped forms) are rejected (`400 invalid_origin` with a `message`).
-- Origin names: single-label origin hostnames other than `localhost` are rejected; `host.docker.internal` is also allowed.
-- Env-file cleanup: immediately before writing the env file, the Docker command removes its previous path with `rm -f` to avoid following a stale symlink or retaining old permissions. The write uses a subshell with `set -C` (noclobber), so a path planted after removal makes the write fail. Command failure removes the env file and returns false without exiting the calling shell. After success or failure, delete the file named by the response `env_file` field (never a glob, never a copied example).
+    docker run -d --name CONTAINER_NAME --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ENV_FILE IMAGE
 
-- Naming: container and env file use `fastdog-agent-<sanitised host, max 40>-<first 10 hex of sha256(lowercase hostname)>`, so `a-b.example.test` and `a.b-example.test` never collide. Order: `docker pull`, then remove and write the env file, then `docker rm -f`, then `docker run`, so a failed pull keeps the running agent and leaves no token file.
+Once the hostname exists, use the exact container name, pinned image and run template from its docker object {container_name, image, run}. API-key create and GET hostname responses and fdct GET /api/connect/v1/hostname expose it without a secret. Replace ENV_FILE with the absolute env-file path below. Docker group access is root-equivalent: the user must ALREADY have docker access without sudo; never add anyone to that group. Ask the user about access, without running docker info. If they lack access, use the systemd installer path (platform "linux"), run by the user.
+
+After DNS is verified, fetch the env file with ONE curl (requires curl 7.75+). Use a new, unused absolute path in the user's private ~/.config/fastdog directory; --create-file-mode does not fix permissions on an existing file. The user prepares the header file as described above.
+
+    curl -sS --create-file-mode 0600 -w '%{http_code}\n' -X POST -H @/home/USER/.config/fastdog/app.example.com.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:3000","platform":"docker","format":"env"}' -o /home/USER/.config/fastdog/app.example.com.agent.env https://portal.DOMAIN/api/v1/hostnames/app.example.com/connect
+
+For an fdct_ connect token, use:
+
+    curl -sS --create-file-mode 0600 -w '%{http_code}\n' -X POST -H @/abs/path/app.example.com.token.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:3000","platform":"docker","format":"env"}' -o /home/USER/.config/fastdog/app.example.com.agent.env https://portal.DOMAIN/api/connect/v1/command
+
+Check the printed HTTP code. If it is not 200, the file holds a JSON error without secrets and may be read; do not run Docker. On transport failure stop too. If 200, never read, print, cat or copy that file. Run exactly docker.run with ENV_FILE replaced by that absolute path, as one command with nothing chained. No docker info / docker pull / docker ps / rm around it: docker run pulls the pinned image itself. If a name conflict occurs on reconnect, ask the user to approve docker rm -f followed by the exact docker.container_name once, then rerun the same docker run with the same env file; do not request a new command. If permission denied on the Docker socket, stop and offer the linux installer path.
+
+Poll status with plain curl, never docker inspect, ps or /proc. For API keys the stop condition is live true. The fdct hostname endpoint exposes agent.connected and agent.origin_reachable, not live or certificate data; then open HTTPS to confirm (see below). Poll every 15 seconds, without shell loops.
+
+At the end tell the user to delete the env file, even after failure: it holds the agent's private key and the running container no longer needs it. Also tell them to delete the API key header file if no longer needed, or the connect-token header after connecting. The assistant does not delete these files itself: that would need a second approval.
+
+Why this design / tradeoff: the agent token never appears in any command line, shell history or process args: curl writes it straight to a 0600 file and Docker reads --env-file client-side. The cost is a 0600 env file holding the agent key stays on disk until the user deletes it. Like any Docker env var it is visible to anyone with docker access via docker inspect. Each new connect command rotates the key, so a leftover file is useless after a later reconnect, and the key can be revoked. Using -e AGENT_TOKEN=... was rejected because it puts the key in the command line and history.
+
+Both connect endpoints accept format "json" (default, unchanged) or "env" (Docker only; otherwise 400 invalid_format). Env success is 200 text/plain; charset=utf-8 with Cache-Control: no-store and exactly six unquoted KEY=value lines: AGENT_TOKEN, AGENT_HOSTNAME, AGENT_NAME, EDGE_HTTP_URL, EDGE_WS_URL, AGENT_LOCAL_UPSTREAM. Newline and NUL values are rejected. Errors stay JSON. The JSON command field remains the copy-paste human command for humans and old clients; Docker JSON also includes env_file. For linux, the user requests the JSON installer command and runs it themselves with sudo; the assistant must not print its private key.
+
+Host networking (--network host) reaches the app on 127.0.0.1; on Docker Desktop use host.docker.internal. Single-label origin hostnames other than localhost are rejected. Origins in 169.254.0.0/16, fe80::/10, fd00:ec2::/32, NAT64 64:ff9b::/96, 100.64.0.0/10 or 0.0.0.0 (including IPv4-mapped forms) are refused.
+
+Limits are shared across json and env: 3 commands per hostname per day with a key, or with connect tokens (5 per day overall, shared with the portal). A connect-token command is single use (second call 409 token_used). Each issuance rotates the key and drops the current connection; never request another just to retry.
 
 ### Scoped API keys (v1)
 

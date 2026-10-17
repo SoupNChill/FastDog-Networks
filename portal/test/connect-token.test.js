@@ -34,18 +34,11 @@ test('connect tokens need an active owned hostname, CSRF and a verified session'
   assert.ok(issued.data.prompt.includes('HISTCONTROL=ignorespace') && issued.data.prompt.includes('delete it from my history'));
   assert.ok(issued.data.prompt.includes(`I can delete ${headerFile}`), 'delete the header file after connecting');
   assert.ok(issued.data.prompt.includes('Never use curl -v or --trace'));
-  assert.ok(issued.data.prompt.includes('curl 7.75 or newer') && issued.data.prompt.includes('umask 077 first'));
-  assert.ok(issued.data.prompt.includes('ask me to run this one-time command') && issued.data.prompt.includes('do not write the header file yourself'));
-  assert.ok(issued.data.prompt.includes('HOME may differ') && issued.data.prompt.includes('only ask which port'));
-  assert.ok(issued.data.prompt.includes('curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json') && issued.data.prompt.includes('delete the file'));
-  assert.ok(!/curl -o |chmod [0-7]{3}/.test(issued.data.prompt), 'no umask/chmod reliance for the connect response');
   const prompt = issued.data.prompt;
-  assert.ok(prompt.includes('"platform": "docker"') && prompt.includes('docker info works without sudo') && prompt.includes('docker ps --filter name=fastdog-agent'));
-  for (const needle of ['Never print the command', 'docker inspect', '/proc/*/cmdline', 'never echo the token', 'sh /absolute/path/fastdog-run.sh', 'whether it succeeded or failed', 'root-equivalent', 'ALREADY', 'rootless Docker']) assert.ok(prompt.includes(needle), needle);
-  assert.ok(!prompt.includes('sh -c'));
-  assert.ok(prompt.indexOf('docker info') < prompt.indexOf('systemd installer'), 'Docker before systemd');
-  assert.ok(prompt.indexOf('"docker"') < prompt.indexOf('(use "linux" only'));
-  assert.ok(issued.data.prompt.includes('every 15 seconds') && issued.data.prompt.includes('3 a day'));
+  for (const needle of ['curl 7.75 or newer', 'only ask which port', '"format":"env"', 'exactly one approval',
+    'docker.run', 'ENV_FILE', 'never read, print, cat or copy', 'root-equivalent', 'ALREADY',
+    'Do not delete them yourself', 'same env file', 'every 15 seconds', '3 a day', 'live true']) assert.ok(prompt.includes(needle), needle);
+  assert.doesNotMatch(prompt, /fastdog-run\.sh|python3/);
   const stored = JSON.stringify(f.store.read('connect_tokens', []));
   assert.equal(stored.includes(issued.data.token), false, 'only a digest is stored');
   const list = await a.client.call('/api/hostnames/app.example.test/connect-token');
