@@ -4,8 +4,24 @@ const powershellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
 const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.2@sha256:6dcc855e5dcc5c058326d961133186b30cfa158a0173facd50d5e4e00cefd726';
 const LOCAL = (port) => `http:${'//'}127.0.0.1:${port}`;
 const PRIVATE_V4 = /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/;
-// Link-local (cloud metadata 169.254.0.0/16, fe80::/10, AWS IPv6 metadata fd00:ec2::/32, and the IPv4-mapped form) is never a valid origin: host networking would expose it to the agent.
-const LINK_LOCAL = /^(?:169\.254\.|fe[89ab][0-9a-f]:|fd00:0*ec2:|::ffff:(?:169\.254\.|a9fe:))/i;
+// URL.hostname has already canonicalised numeric addresses (including mapped IPv4).
+function blockedOriginHost(host) {
+  if (!host.includes(':')) {
+    const octets = host.split('.').map(Number);
+    if (octets.length !== 4 || octets.some((n) => !Number.isInteger(n))) return false;
+    const ip = octets.reduce((value, n) => value * 256 + n, 0);
+    // 0.0.0.0, 169.254.0.0/16 and 100.64.0.0/10.
+    return ip === 0 || Math.floor(ip / 65536) === 0xa9fe || Math.floor(ip / 4194304) === 0x191;
+  }
+  const halves = host.split('::').map((part) => part ? part.split(':') : []);
+  const words = halves.length === 2 ? [...halves[0], ...Array(8 - halves[0].length - halves[1].length).fill('0'), ...halves[1]] : halves[0];
+  const ip = words.reduce((value, word) => (value << 16n) + BigInt(`0x${word}`), 0n);
+  return ip >> 118n === 0x3fan // fe80::/10
+    || ip >> 96n === 0xfd000ec2n // fd00:ec2::/32
+    || ip >> 32n === 0x64ff9b0000000000000000n // 64:ff9b::/96
+    || (ip >> 32n === 0xffffn && blockedOriginHost([24n, 16n, 8n, 0n].map((shift) => Number((ip >> shift) & 255n)).join('.')));
+}
+export const LINK_LOCAL_ERROR = "Link-local and restricted addresses (169.254.0.0/16, fe80::/10, fd00:ec2::/32, 64:ff9b::/96, 100.64.0.0/10, 0.0.0.0, including IPv4-mapped forms) are not allowed as an origin. Use 127.0.0.1 or your app's private address.";
 // Small synchronous SHA-256 (hex) so the browser derives the same container name as the server twin.
 function sha256Hex(text) {
   const bytes = [...new TextEncoder().encode(text)];
@@ -54,9 +70,9 @@ export function validateOrigin(input) {
   if (!['http:', 'https:'].includes(url.protocol)) return { error: `The address must start with http:${'//'} or https:${'//'}.` };
   if (url.username || url.password || url.search || url.hash || (url.pathname && url.pathname !== '/')) return { error: `Use only the address and port, such as ${LOCAL(5000)}, with no path.` };
   const host = url.hostname.replace(/^\[|\]$/g, '');
-  if (LINK_LOCAL.test(host)) return { error: 'Link-local addresses (169.254.0.0/16, fe80::/10) are not allowed as an origin. Use 127.0.0.1 or your app’s private address.' };
+  if (blockedOriginHost(host)) return { error: LINK_LOCAL_ERROR };
   const local = host === 'localhost' || host === '::1' || host === 'host.docker.internal' || PRIVATE_V4.test(host)
-    || /^(?:fc|fd)[0-9a-f]{2}:/i.test(host) || /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(host);
+    || /^(?:fc|fd)[0-9a-f]{2}:/i.test(host);
   if (!local) return { error: `Use a local or private address on that server, such as ${LOCAL(5000)}.` };
   if (!url.port) return { error: 'Add the port your app uses, such as :5000.' };
   return { value: `${url.protocol}//${url.host}` };
@@ -85,7 +101,7 @@ export function connectionCommand(agentEnv, platform, portalOrigin = window.loca
   }
   const write = `printf '%s\\n' ${entries.map(([key, value]) => shellQuote(`${key}=${value}`)).join(' ')} > ${envFile} && chmod 600 ${envFile}`;
   // Docker pulls first so a failed pull never leaves the token file on disk.
-  return platform === 'docker' ? `umask 077; docker pull ${AGENT_IMAGE} && ${write} && ${hostRun}` : `umask 077; ${write} && ${run}`;
+  return platform === 'docker' ? `umask 077; docker pull ${AGENT_IMAGE} && rm -f ${envFile} && ${write} && ${hostRun} || { rm -f ${envFile}; exit 1; }` : `umask 077; ${write} && ${run}`;
 }
 const CHOICES = [['docker', 'Docker (recommended)'], ['linux', 'Linux installer (sudo)'], ['macos', 'macOS'], ['windows', 'Windows (Untested)']];
 // Docker (host networking) is Linux-only; Mac and Windows visitors start on their Docker Desktop tab.

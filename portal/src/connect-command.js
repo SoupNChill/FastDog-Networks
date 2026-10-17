@@ -12,14 +12,29 @@ export const AGENT_IMAGE = (() => {
 })();
 const shellQuote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
 const PRIVATE_V4 = /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/;
-// Link-local (cloud metadata 169.254.0.0/16, fe80::/10, AWS IPv6 metadata fd00:ec2::/32, and the IPv4-mapped form) is never a valid origin: host networking would expose it to the agent.
-const LINK_LOCAL = /^(?:169\.254\.|fe[89ab][0-9a-f]:|fd00:0*ec2:|::ffff:(?:169\.254\.|a9fe:))/i;
-export const LINK_LOCAL_ERROR = "Link-local addresses (169.254.0.0/16, fe80::/10) are not allowed as an origin. Use 127.0.0.1 or your app's private address.";
+// URL.hostname has already canonicalised numeric addresses (including mapped IPv4).
+function blockedOriginHost(host) {
+  if (!host.includes(':')) {
+    const octets = host.split('.').map(Number);
+    if (octets.length !== 4 || octets.some((n) => !Number.isInteger(n))) return false;
+    const ip = octets.reduce((value, n) => value * 256 + n, 0);
+    // 0.0.0.0, 169.254.0.0/16 and 100.64.0.0/10.
+    return ip === 0 || Math.floor(ip / 65536) === 0xa9fe || Math.floor(ip / 4194304) === 0x191;
+  }
+  const halves = host.split('::').map((part) => part ? part.split(':') : []);
+  const words = halves.length === 2 ? [...halves[0], ...Array(8 - halves[0].length - halves[1].length).fill('0'), ...halves[1]] : halves[0];
+  const ip = words.reduce((value, word) => (value << 16n) + BigInt(`0x${word}`), 0n);
+  return ip >> 118n === 0x3fan // fe80::/10
+    || ip >> 96n === 0xfd000ec2n // fd00:ec2::/32
+    || ip >> 32n === 0x64ff9b0000000000000000n // 64:ff9b::/96
+    || (ip >> 32n === 0xffffn && blockedOriginHost([24n, 16n, 8n, 0n].map((shift) => Number((ip >> shift) & 255n)).join('.')));
+}
+export const LINK_LOCAL_ERROR = "Link-local and restricted addresses (169.254.0.0/16, fe80::/10, fd00:ec2::/32, 64:ff9b::/96, 100.64.0.0/10, 0.0.0.0, including IPv4-mapped forms) are not allowed as an origin. Use 127.0.0.1 or your app's private address.";
 export function originError(input) {
   const text = String(input ?? '').trim();
   try {
     const host = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`).hostname.replace(/^\[|\]$/g, '');
-    if (LINK_LOCAL.test(host)) return LINK_LOCAL_ERROR;
+    if (blockedOriginHost(host)) return LINK_LOCAL_ERROR;
   } catch { /* generic error */ }
   return null;
 }
@@ -37,9 +52,9 @@ export function validOrigin(input) {
   try { url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`); } catch { return null; }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || (url.pathname && url.pathname !== '/') || !url.port) return null;
   const host = url.hostname.replace(/^\[|\]$/g, '');
-  if (LINK_LOCAL.test(host)) return null;
+  if (blockedOriginHost(host)) return null;
   const local = host === 'localhost' || host === '::1' || host === 'host.docker.internal' || PRIVATE_V4.test(host)
-    || /^(?:fc|fd)[0-9a-f]{2}:/i.test(host) || /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(host);
+    || /^(?:fc|fd)[0-9a-f]{2}:/i.test(host);
   return local ? `${url.protocol}//${url.host}` : null;
 }
 
@@ -58,7 +73,7 @@ export function buildCommand(agentEnv, { platform = 'linux', portalOrigin, origi
     const name = `fastdog-agent-${agentSuffix(env.AGENT_HOSTNAME)}`;
     const envFile = `${name}.env`;
     // Pull first so a failed pull never leaves the token file on disk.
-    return `umask 077; docker pull ${AGENT_IMAGE} && printf '%s\\n' ${Object.entries(env).map(([k, v]) => shellQuote(`${k}=${v}`)).join(' ')} > ${envFile} && chmod 600 ${envFile} && { docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ${envFile} ${AGENT_IMAGE}`;
+    return `umask 077; docker pull ${AGENT_IMAGE} && rm -f ${envFile} && printf '%s\\n' ${Object.entries(env).map(([k, v]) => shellQuote(`${k}=${v}`)).join(' ')} > ${envFile} && chmod 600 ${envFile} && { docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ${envFile} ${AGENT_IMAGE} || { rm -f ${envFile}; exit 1; }`;
   }
   return null;
 }

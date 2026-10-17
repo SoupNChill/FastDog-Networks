@@ -17,7 +17,7 @@ test('Linux installer receives quoted token, edge, hostname and origin', () => {
 });
 test('Docker command uses host networking, a stable name and replaces the old agent; macOS keeps the Desktop form', () => {
   const docker = connectionCommand(env, 'docker');
-  assert.match(docker, /^umask 077; docker pull \S+ && printf/);
+  assert.match(docker, /^umask 077; docker pull \S+ && rm -f fastdog-agent[\w.-]*\.env && printf/);
   const suffix = agentSuffix('app.example.test');
   assert.match(suffix, /^app-example-test-[0-9a-f]{10}$/);
   assert.equal(suffix, agentSuffixServer('app.example.test'), 'browser and server derive the same name');
@@ -37,7 +37,7 @@ test('Docker and macOS share a pinned command; Windows uses PowerShell quoting',
     assert.match(command, /docker run .*--env-file fastdog-agent[\w.-]*\.env/);
     assert.doesNotMatch(command.slice(command.indexOf('docker run')), /private| -e /);
   }
-  assert.match(docker, /ghcr.io\/soupnchill\/fastdog-agent:0.1.2@sha256:[0-9a-f]{64}$/);
+  assert.match(docker, /ghcr.io\/soupnchill\/fastdog-agent:0.1.2@sha256:[0-9a-f]{64} \|\| \{ rm -f fastdog-agent[\w.-]*\.env; exit 1; \}$/);
   assert.match(docker, /EDGE_WS_URL=wss:\/\/edge.example.test\/_fastdog\/tunnel/);
   assert.ok(connectionCommand(env, 'windows').includes("'AGENT_TOKEN=private''fixture'"));
   assert.match(connectionCommand(env, 'windows'), /^Set-Content /);
@@ -127,8 +127,8 @@ test('link-local origins are refused with a clear error', () => {
 test('origin field accepts local app addresses and explains bad ones', async () => {
   const { validateOrigin } = await import('../public/js/agent-view.js');
   for (const [input, value] of [['http://127.0.0.1:5000', 'http://127.0.0.1:5000'], ['127.0.0.1:3000', 'http://127.0.0.1:3000'], [' http://localhost:8080/ ', 'http://localhost:8080'],
-    ['https://10.0.0.5:8443', 'https://10.0.0.5:8443'], ['http://app:8000', 'http://app:8000'], ['http://[::1]:5000', 'http://[::1]:5000']]) assert.equal(validateOrigin(input).value, value, input);
-  for (const input of ['', 'ftp://127.0.0.1:21', 'http://127.0.0.1', 'http://127.0.0.1:5000/path', "http://127.0.0.1:5000'; rm -rf /", 'http://example.com:80', 'http://u:p@127.0.0.1:1', 'http://127.0.0.1:70000', '<LOCAL_UPSTREAM>']) {
+    ['https://10.0.0.5:8443', 'https://10.0.0.5:8443'], ['http://host.docker.internal:8000', 'http://host.docker.internal:8000'], ['http://[::1]:5000', 'http://[::1]:5000']]) assert.equal(validateOrigin(input).value, value, input);
+  for (const input of ['', 'http://app:8000', 'ftp://127.0.0.1:21', 'http://127.0.0.1', 'http://127.0.0.1:5000/path', "http://127.0.0.1:5000'; rm -rf /", 'http://example.com:80', 'http://u:p@127.0.0.1:1', 'http://127.0.0.1:70000', '<LOCAL_UPSTREAM>']) {
     assert.ok(validateOrigin(input).error, input);
   }
 });

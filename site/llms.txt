@@ -36,12 +36,14 @@ Docker is the default path, but docker group access is root-equivalent. Use Dock
 
     curl -sS --create-file-mode 0600 -X POST -H @/home/USER/.config/fastdog/app.example.com.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:3000","platform":"docker"}' -o /home/USER/fastdog-connect.json https://<portal>/api/v1/hostnames/app.example.com/connect
 
-Then write the command to a private file without displaying it, run that file with `sh`, and delete the files whether it succeeded or failed (the command's own env file is named fastdog-agent-<hostname-slug>-<10 hex>.env; delete exactly that file, never a glob):
+Then write the command to a private file without displaying it, run that file with `sh`, and delete the files whether it succeeded or failed (the command's own env file is named, for example, fastdog-agent-app-example-test-0123456789.env; substitute the exact name from the command; delete exactly that file, never a glob):
 
     (umask 077; python3 -c 'import json;print(json.load(open("/home/USER/fastdog-connect.json"))["command"])' > /home/USER/fastdog-run.sh)
-    sh /home/USER/fastdog-run.sh; rm -f /home/USER/fastdog-run.sh /home/USER/fastdog-connect.json fastdog-agent-<hostname-slug>-<10 hex>.env; docker ps --filter name=fastdog-agent
+    sh /home/USER/fastdog-run.sh; rm -f /home/USER/fastdog-run.sh /home/USER/fastdog-connect.json fastdog-agent-app-example-test-0123456789.env; docker ps --filter name=fastdog-agent
 
-The command writes the env file with shell builtins only (umask 077; no process carries the token in its arguments) after pulling the pinned image (a failed pull leaves no token file), replaces any old agent, then runs it with `--network host` (so 127.0.0.1 reaches the app; on Docker Desktop for macOS/Windows use host.docker.internal in the origin instead), `--cap-drop ALL --security-opt no-new-privileges`, `--restart unless-stopped` and the name fastdog-agent-<hostname-slug>-<10 hex>. Origins in 169.254.0.0/16, fe80::/10 or fd00:ec2::/32 (link-local, cloud metadata) are refused.
+Single-label origin hostnames other than `localhost` are rejected; `host.docker.internal` is also allowed. Immediately before writing the env file, the Docker command removes its previous path with `rm -f` to avoid following a stale symlink or retaining old permissions. Command failure removes the env file and exits 1; after success, delete the exact env file named in the command (for example `fastdog-agent-app-example-test-0123456789.env`; substitute the exact name from the command).
+
+The command writes the env file with shell builtins only (umask 077; no process carries the token in its arguments) after pulling the pinned image (a failed pull leaves no token file), replaces any old agent, then runs it with `--network host` (so 127.0.0.1 reaches the app; on Docker Desktop for macOS/Windows use host.docker.internal in the origin instead), `--cap-drop ALL --security-opt no-new-privileges`, `--restart unless-stopped` and the name fastdog-agent-<hostname-slug>-<10 hex>. Origins in 169.254.0.0/16, fe80::/10, fd00:ec2::/32, NAT64 64:ff9b::/96, 100.64.0.0/10 or 0.0.0.0 (including IPv4-mapped forms) are refused.
 
 Alternative: platform "linux" returns a root systemd installer command that uses sudo. The assistant must not run it and must not read the token inside it; tell the user the same one-line way to run it from the file (they type their own sudo password), then delete the file.
 
