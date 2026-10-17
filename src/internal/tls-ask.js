@@ -4,6 +4,7 @@ import path from 'node:path';
 import { readJson, dataDir, jsonRevision } from '../onboard/json.js';
 import { reservedSuffixes } from '../lib/config.js';
 import { attachTarget, altAttachTarget } from '../onboard/attach.js';
+import { isTestLabelHost } from './test-labels.js';
 
 const HOUR = 3600000;
 const MINUTE = 60000;
@@ -19,7 +20,9 @@ export function createTlsAsk(opts = {}) {
   const enabled = opts.tlsAskEnabled ?? (env.TLS_ASK_ENABLED === '1');
   const directory = opts.dataDir ?? dataDir();
   const now = opts.now ?? Date.now;
-  const targets = [opts.attachTarget ?? attachTarget(), opts.altAttachTarget ?? altAttachTarget()].filter(Boolean);
+  const primary = opts.attachTarget ?? attachTarget();
+  const alt = opts.altAttachTarget ?? altAttachTarget();
+  const targets = [primary, alt].filter(Boolean);
   const reserved = opts.reservedSuffixes ?? reservedSuffixes(...targets);
   const tenantMax = positive(opts.tenantMaxPerHour ?? env.TLS_ASK_TENANT_MAX_PER_HOUR, 20);
   const globalMax = positive(opts.globalMaxPerHour ?? env.TLS_ASK_GLOBAL_MAX_PER_HOUR, 100);
@@ -141,9 +144,13 @@ export function createTlsAsk(opts = {}) {
       let approvable = false;
       if (host) {
         if (statics.has(host)) approvable = true;
-        else if (!isReserved(host, reserved) && !targetNames.includes(host) && owners.has(host)) {
-          approvable = true;
-          tenant = owners.get(host);
+        else if (owners.has(host)) {
+          const open = !isReserved(host, reserved) && !targetNames.includes(host);
+          // Under the reserved attach domain only a verified tenant claim on an e2e test label is approvable.
+          if (open || (owners.get(host) && primary && isTestLabelHost(host, primary, alt))) {
+            approvable = true;
+            tenant = owners.get(host);
+          }
         }
       }
       // Approvable hosts only spend the issuance budget; anonymous checks never do.
