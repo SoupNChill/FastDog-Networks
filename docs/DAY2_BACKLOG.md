@@ -102,3 +102,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 
 ## Lane V (good-bot false positives)
 - DONE: published IPv4/IPv6 bot ranges precede DNS in edge and shadow scoring; tiny Google bootstrap seed, special crawler claims, atomic validated refresh and resource-capped weekly unit files. Offline regression samples cover desktop/mobile bots and DNS fallbacks. OPEN: the shadow tailer needs a one-line await for opt-in DNS results (outside lane V file scope; approval pending). Deployment and timer activation remain operator work; shadow and DNS-off defaults remain unchanged.
+
+- DONE (Docker connect review): paste-safe cleanup examples, numeric restricted-origin checks and single-label rejection in both builders, complete range errors, env-file replacement and failure cleanup with browser/server parity and offline regressions.
+
+- DONE (Docker connect follow-up): failure cleanup preserves the calling shell; Docker responses expose the exact token-free env_file for cleanup; noclobber rejects planted paths. Covered by shell, API and builder parity regressions.

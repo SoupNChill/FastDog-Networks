@@ -16,7 +16,7 @@ Use the API key (fdak_) for the whole flow from zero. The connect token (fdct_) 
 2. Show the user the two DNS records as a table (type, name, value, and "DNS only" / grey cloud on Cloudflare). You normally cannot add DNS records yourself; the user adds them at their DNS provider and tells you when done.
 3. Poll POST /api/v1/hostnames/<hostname>/verify every 30 seconds (limit: 6 a minute) until verified is true / status is active. Failures before the records exist are normal: checks.routing.ok and checks.ownership.ok are false, with errors such as txt_not_found, txt_mismatch or dns_timeout. DNS can take minutes to hours; stop and ask the user after about 30 minutes.
 4. Use the port or origin the user already gave you (origin like http://127.0.0.1:3000); only ask if they have not.
-5. POST /api/v1/hostnames/<hostname>/connect -> command. The user runs it (see "Connect command").
+5. POST /api/v1/hostnames/<hostname>/connect with platform "docker" -> command. Run it as in "Connect command" (Docker first; the systemd installer is the alternative).
 6. Poll GET /api/v1/hostnames/<hostname>/status every 15 seconds (results are cached for 30 s) until live is true (see "Status fields").
 7. Open https://<hostname>/ and confirm the app loads.
 
@@ -32,11 +32,22 @@ Use an absolute path in -H @file (no ~ or variables, so the command matches an a
 
 ## Connect command
 
-The Linux command uses sudo and contains the agent's private token. The assistant must not run it and must not read the token inside it. Instead save the response with `curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json` (curl 7.75+ creates the file private, so no umask or chmod is needed; with older curl run `umask 077` first):
+Docker is the default path, but docker group access is root-equivalent. Use Docker only if the user ALREADY has docker access without sudo (`docker info` works); never add anyone to the docker group yourself. Otherwise use rootless Docker, or the systemd installer (platform "linux"), which needs sudo, so the user runs it. The Docker command contains the agent's private token: never print the command or the env file, never run `docker inspect` on the agent container, never use `ps` or read `/proc/*/cmdline`, and never echo the token. Save the response with `curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json` (curl 7.75+ creates the file private, so no umask or chmod is needed; with older curl run `umask 077` first), using platform "docker":
 
-    curl -sS --create-file-mode 0600 -X POST -H @/home/USER/.config/fastdog/app.example.com.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:3000","platform":"linux"}' -o /home/USER/fastdog-connect.json https://<portal>/api/v1/hostnames/app.example.com/connect
+    curl -sS --create-file-mode 0600 -X POST -H @/home/USER/.config/fastdog/app.example.com.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:3000","platform":"docker"}' -o /home/USER/fastdog-connect.json https://<portal>/api/v1/hostnames/app.example.com/connect
 
-Then tell the user the one-line way to run it, for example: `sh -c "$(python3 -c 'import json;print(json.load(open("/home/USER/fastdog-connect.json"))["command"])')"; rm /home/USER/fastdog-connect.json` (or open the file and copy the "command" field), and delete the file afterwards. The user types their own sudo password. platform "docker" writes fastdog-agent.env; delete it after the container starts.
+Then write the command to a private file without displaying it, run that file with `sh`, and delete the files whether it succeeded or failed (delete the file named by the response `env_file` field, never a glob, never a copied example):
+
+    (umask 077; python3 -c 'import json;print(json.load(open("/home/USER/fastdog-connect.json"))["command"])' > /home/USER/fastdog-run.sh)
+    sh /home/USER/fastdog-run.sh
+    python3 -c 'import json, pathlib; pathlib.Path(json.load(open("/home/USER/fastdog-connect.json"))["env_file"]).unlink(missing_ok=True)'
+    rm -f /home/USER/fastdog-run.sh /home/USER/fastdog-connect.json; docker ps --filter name=fastdog-agent
+
+Single-label origin hostnames other than `localhost` are rejected; `host.docker.internal` is also allowed. Immediately before writing the env file, the Docker command removes its previous path with `rm -f` to avoid following a stale symlink or retaining old permissions. The write uses a subshell with `set -C` (noclobber), so a path planted after removal makes the write fail. Command failure removes the env file and returns false without exiting the calling shell. After success or failure, delete the file named by the response `env_file` field (never a glob, never a copied example).
+
+The command writes the env file with shell builtins only (umask 077; no process carries the token in its arguments) after pulling the pinned image (a failed pull leaves no token file), replaces any old agent, then runs it with `--network host` (so 127.0.0.1 reaches the app; on Docker Desktop for macOS/Windows use host.docker.internal in the origin instead), `--cap-drop ALL --security-opt no-new-privileges`, `--restart unless-stopped` and the name fastdog-agent-<hostname-slug>-<10 hex>. Origins in 169.254.0.0/16, fe80::/10, fd00:ec2::/32, NAT64 64:ff9b::/96, 100.64.0.0/10 or 0.0.0.0 (including IPv4-mapped forms) are refused.
+
+Alternative: platform "linux" returns a root systemd installer command that uses sudo. The assistant must not run it and must not read the token inside it; tell the user the same one-line way to run it from the file (they type their own sudo password), then delete the file.
 
 Limits: 3 commands per hostname per day with a key (5 per day overall, shared with the portal); a connect-token command is single use. Each new command replaces the old key and drops the current connection until it runs, so do not request one again just to retry; first check status.
 
@@ -68,7 +79,7 @@ Certificates: they are not guaranteed to appear on the first visit. Automatic on
    - CNAME on the address, pointing at the attach target the portal shows. It routes visitors to FastDog.
    - TXT on _fastdog-challenge.<address> with the value the portal shows. It proves ownership.
    - On Cloudflare set Proxy status to "DNS only" (grey cloud). Orange cloud hides the record from the check and blocks the certificate.
-3. Connect the server: the portal returns a one-time connect command for Linux (recommended) or Docker. It contains a private key: never print it to logs, commits or chats. A new command replaces the old key.
+3. Connect the server: the portal returns a one-time connect command for Docker (recommended) or the Linux systemd installer. It contains a private key: never print it to logs, commits or chats. A new command replaces the old key.
 4. Check the Status page: Live / Not live, last checked, certificate expiry, agent connected, origin answering, 24h requests, p50 latency, bot-check counts (shadow mode, nothing blocked), and a Test it button.
 
 ## Connect token API (fdct_, connect step only)
@@ -76,7 +87,7 @@ Certificates: they are not guaranteed to appear on the first visit. Automatic on
 The user creates a prompt on the portal's Server page (only possible once the hostname is verified). It contains a connect token that works for one hostname, can only read that hostname's connection status and get its connect command once, expires after one hour, and is revocable. Send it only as `Authorization: Bearer <token>`.
 
 - GET {portal}/api/connect/v1/hostname -> {hostname, scope, expires_at, command_issued, agent: {connected, last_seen, origin_reachable, origin_checked_at}}
-- POST {portal}/api/connect/v1/command with JSON {"origin": "http://127.0.0.1:<port>", "platform": "linux" | "docker"} -> {hostname, platform, origin, command}. Single use per token (409 token_used after). Origins must be local or private addresses with a port (400 invalid_origin otherwise).
+- POST {portal}/api/connect/v1/command with JSON {"origin": "http://127.0.0.1:<port>", "platform": "docker" | "linux"} -> {hostname, platform, origin, command, env_file} (env_file is Docker-only and contains the exact filename, no token). Single use per token (409 token_used after). Origins must be local or private addresses with a port (400 invalid_origin otherwise).
 - Errors: 401 unauthorized (missing, expired or revoked token), 409 not_active (hostname not verified), 429 rate_limited (honour Retry-After).
 
 Poll the hostname endpoint every 15 seconds until agent.connected is true and agent.origin_reachable is not false; it has no certificate data, so open https://<hostname>/ to confirm.
@@ -97,7 +108,7 @@ There is no endpoint that lists a key's scopes. 403 forbidden means the key lack
 - GET {portal}/api/v1/hostnames/<hostname> -> {hostname, status, dns?, agent?} (`status:read` or `hostnames:create`)
 - POST {portal}/api/v1/hostnames/<hostname>/verify -> {hostname, status, verified, checks} (`hostnames:create`)
 - GET {portal}/api/v1/hostnames/<hostname>/status -> see Status fields (`status:read`)
-- POST {portal}/api/v1/hostnames/<hostname>/connect with JSON {"origin": "http://127.0.0.1:<port>", "platform": "linux" | "docker"} -> {command} (`connect`)
+- POST {portal}/api/v1/hostnames/<hostname>/connect with JSON {"origin": "http://127.0.0.1:<port>", "platform": "docker" | "linux"} -> {command, env_file} (env_file is Docker-only; `connect`)
 
 Errors: 401 unauthorized (missing, expired or revoked key), 403 forbidden, 404 hostname_not_found, 400 invalid_origin, 409 hostname_limit_reached, 409 hostname_unavailable, 409 not_active, 429 rate_limited (60 requests a minute per key; honour Retry-After).
 
@@ -106,7 +117,7 @@ These return 409 not_active until the hostname is verified (status still pending
 ## Troubleshooting
 
 - Records not seen: wait a few minutes; check the TXT name starts with _fastdog-challenge. and the provider did not append the domain twice.
-- Agent connected but origin not answering: start the app or fix the origin address. Inside Docker, 127.0.0.1 is the container; use host.docker.internal on Docker Desktop.
+- Agent connected but origin not answering: start the app or fix the origin address. The Linux Docker command uses host networking, so 127.0.0.1 works; on Docker Desktop 127.0.0.1 is the container, so use host.docker.internal.
 - certificate_missing: see Status fields.
 
 ## Optional

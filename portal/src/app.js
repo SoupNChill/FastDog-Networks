@@ -12,7 +12,7 @@ import { normalizeHostname } from './hostname.js';
 import { safePath, serveStatic, pages } from './static.js';
 import { createFileMailer } from './mailer-file.js';
 import { createConnectTokens, assistantPrompt } from './connect-tokens.js';
-import { buildCommand, validOrigin } from './connect-command.js';
+import { dockerEnvFile, buildCommand, validOrigin, originError } from './connect-command.js';
 import { verifyPassword } from './passwords.js';
 import { createApiKeys, planAllowsKeys, API_KEY_SCOPES, DEFAULT_DAYS, MAX_DAYS } from './api-keys.js';
 
@@ -177,7 +177,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         }
         const upstream = validOrigin(body.origin);
         const platform = body.platform === undefined ? 'linux' : body.platform;
-        if (!upstream || !['linux', 'docker'].includes(platform)) throw fail('invalid_origin');
+        if (!upstream || !['linux', 'docker'].includes(platform)) throw Object.assign(fail('invalid_origin'), { detail: originError(body.origin) });
         if (!edgeUrl) throw fail('internal_error');
         if ((await edge.getHostname(tid, hostname)).status !== 'active') throw fail('not_active');
         // Key-driven rotations get their own budget on top of the shared 5/day rotate limit, so a
@@ -190,6 +190,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
         if (!command) throw fail('internal_error');
         return send(200, { hostname, platform, origin: upstream, command,
+          ...(platform === 'docker' ? { env_file: dockerEnvFile(rotated.credential.agent_env.AGENT_HOSTNAME) } : {}),
           note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it.' });
       }
       if (path.startsWith('/api/connect/v1/')) {
@@ -225,7 +226,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const body = await readBody(request);
         const upstream = validOrigin(body.origin);
         const platform = body.platform === undefined ? 'linux' : body.platform;
-        if (!upstream || !['linux', 'docker'].includes(platform)) throw fail('invalid_origin');
+        if (!upstream || !['linux', 'docker'].includes(platform)) throw Object.assign(fail('invalid_origin'), { detail: originError(body.origin) });
         if (!edgeUrl) throw fail('internal_error');
         if (record.command_issued_at || !connectTokens.markCommand(record.id)) throw fail('token_used');
         // Token-driven rotations get their own small budget on top of the shared 5/day rotate limit,
@@ -245,7 +246,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
         if (!command) throw fail('internal_error');
         return send(200, { hostname: record.hostname, platform, origin: upstream, command,
-          note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it. Delete fastdog-agent.env (Docker) after the container starts if you keep no copy.' });
+          ...(platform === 'docker' ? { env_file: dockerEnvFile(rotated.credential.agent_env.AGENT_HOSTNAME) } : {}),
+          note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it. For Docker, delete the file named by env_file after success or failure; never a glob or a copied example.' });
       }
       const match = path.match(/^\/api\/hostnames\/([^/]+)(?:\/(verify|rotate|agent|status|test|connect-token))?$/);
       const keyMatch = path.match(/^\/api\/keys\/([0-9a-f-]{36})$/);
@@ -369,7 +371,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
     } catch (error) {
       const code = Object.hasOwn(statuses, error.code) ? error.code : 'internal_error';
       const retry = Number.isFinite(error.retry_after) && error.retry_after > 0 ? Math.ceil(error.retry_after) : 60;
-      if (!response.headersSent) send(statuses[code], { error: code, ...(code === 'rate_limited' ? { retry_after: retry } : {}) }, code === 'rate_limited' ? { 'Retry-After': String(retry) } : {});
+      if (!response.headersSent) send(statuses[code], { error: code, ...(code === 'invalid_origin' && error.detail ? { message: error.detail } : {}), ...(code === 'rate_limited' ? { retry_after: retry } : {}) }, code === 'rate_limited' ? { 'Retry-After': String(retry) } : {});
       else response.end();
     }
   });
