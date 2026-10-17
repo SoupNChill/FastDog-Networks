@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 const script = resolve('deploy/caddy/enable-on-demand-tls.sh');
 const initial = '(fdlog) {}\n(fdctl) {\n    @ctl path /_fastdog/*\n}\nexisting.example.test {\n    import fdlog existing.example.test\n    reverse_proxy 127.0.0.1:8787\n}\n';
 const globalBlock = '{\n    on_demand_tls {\n        ask http://127.0.0.1:8789/tls/ask\n    }\n}\n';
-const siteBlock = 'https:// {\n    tls {\n        on_demand\n    }\n    import fdctl\n    reverse_proxy 127.0.0.1:8787\n}\n';
+const siteBlock = 'https:// {\n    tls {\n        on_demand\n    }\n    @sni_mismatch expression "{http.request.host} != {http.request.tls.server_name}"\n    respond @sni_mismatch 421\n    import fdctl\n    reverse_proxy 127.0.0.1:8787\n}\n';
 
 function fixture(t, content = initial) {
   const dir = mkdtempSync(join(tmpdir(), 'on-demand-'));
@@ -51,7 +51,7 @@ exit "\${CURL_STATUS:-0}"
   const run = (args = [], extra = {}) => spawnSync('bash', [fixtureScript, ...args],
     { encoding: 'utf8', env: { ...process.env, BIN: bin, HEALTH_DELAY: '0',
       ADAPT_JSON: JSON.stringify({ apps: { http: { servers: { srv0: { listen: [':443'], routes: [
-        { handle: [{ handler: 'subroute', routes: [{ match: [{ path: ['/_fastdog/*'] }], handle: [{ handler: 'static_response', status_code: 404 }] }] }] }
+        { handle: [{ handler: 'subroute', routes: [{ match: [{ expression: '{http.request.host} != {http.request.tls.server_name}' }], handle: [{ handler: 'static_response', status_code: 421 }] }, { match: [{ path: ['/_fastdog/*'] }], handle: [{ handler: 'static_response', status_code: 404 }] }] }] }
       ] } } } } }), ...extra } });
   const callLog = () => (existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n') : []);
   const backups = () => readdirSync(etc).filter((name) => name.startsWith('Caddyfile.bak-ondemand-') && !name.includes('prerollback'));
@@ -338,6 +338,59 @@ test('enable rolls back on non-denial responses and missing catch-all protection
     const result = f.run([f.file], env);
     assert.notEqual(result.status, 0);
     assert.equal(f.read(), initial);
+    assert.match(result.stderr, /Restored/);
+  }
+});
+
+test('probe-host requires 200 and fallback warns that enablement is unconfirmed', (t) => {
+  const f = fixture(t);
+  const result = f.run(['--probe-host', 'static.example.test', f.file], { ASK_STATUS: '200' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(f.callLog().some(line => line.includes('domain=static.example.test')));
+  assert.doesNotMatch(result.stderr, /cannot confirm/);
+  const g = fixture(t);
+  assert.match(g.run([g.file]).stderr, /cannot confirm/);
+  const h = fixture(t);
+  assert.notEqual(h.run(['--probe-host', 'static.example.test', h.file]).status, 0);
+  assert.equal(h.read(), initial);
+});
+
+test('adapted catch-all must include the mismatch 421 response', (t) => {
+  for (const route of [
+    { match: [{ expression: '{http.request.host} != {http.request.tls.server_name}' }], handle: [{ handler: 'static_response', status_code: 200 }] },
+    { match: [{ host: ['named.example.test'], expression: '{http.request.host} != {http.request.tls.server_name}' }], handle: [{ handler: 'static_response', status_code: 421 }] },
+    { handle: [{ handler: 'static_response', status_code: 421 }] }
+  ]) {
+    const f = fixture(t);
+    const config = { apps: { http: { servers: { srv0: { listen: [':443'], routes: [
+      { handle: [{ handler: 'subroute', routes: [
+        route, { match: [{ path: ['/_fastdog/*'] }], handle: [{ handler: 'static_response', status_code: 404 }] }
+      ] }] }
+    ] } } } } };
+    assert.notEqual(f.run([f.file], { ADAPT_JSON: JSON.stringify(config) }).status, 0);
+    assert.equal(f.read(), initial);
+  }
+});
+
+test('signal immediately after rename restores enable and rollback files', (t) => {
+  for (const rollback of [false, true]) {
+    const f = fixture(t);
+    let args = [f.file];
+    if (rollback) {
+      assert.equal(f.run(args).status, 0);
+      args = ['--rollback', join(f.etc, f.backups()[0]), f.file];
+    }
+    const before = f.read();
+    writeFileSync(join(f.dir, 'bin', 'mv'), `#!/bin/sh
+/bin/mv "$@" || exit 1
+if [ ! -e '${f.dir}/signalled' ]; then
+  touch '${f.dir}/signalled'
+  kill -TERM "$PPID"
+fi
+`, { mode: 0o755 });
+    const result = f.run(args, { PATH: `${join(f.dir, 'bin')}:${process.env.PATH}` });
+    assert.notEqual(result.status, 0);
+    assert.equal(f.read(), before);
     assert.match(result.stderr, /Restored/);
   }
 });

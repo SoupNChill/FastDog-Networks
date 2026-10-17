@@ -24,7 +24,7 @@ function setup(t, overrides = {}) {
   });
   const save = (records, file = 'tenant_hostnames.json') => writeJson(file, records, 0o600, directory);
   const claim = (hostname, extra = {}) => ({ hostname, tenant_id: TENANT_A,
-    status: 'active', verified_at: new Date(time).toISOString(), ...extra });
+    txt_value: 'synthetic-proof', status: 'active', verified_at: new Date(time).toISOString(), ...extra });
   // Exercise the real handler without opening sockets or making network calls.
   async function ask(domain = 'app.example.test', { address = '127.0.0.1', headers = {}, method = 'GET', prefix = '' } = {}) {
     const req = new EventEmitter();
@@ -50,7 +50,7 @@ function direct(t, options = {}) {
     attachTarget: 'attach.example.test', altAttachTarget: 'edge.example.test',
     reservedSuffixes: ['reserved.example.test'], ...options });
   const save = (records, file = 'tenant_hostnames.json') => writeJson(file, records, 0o600, directory);
-  const claim = (hostname, tenant = TENANT_A, extra = {}) => ({ hostname, tenant_id: tenant, status: 'active',
+  const claim = (hostname, tenant = TENANT_A, extra = {}) => ({ hostname, tenant_id: tenant, txt_value: 'synthetic-proof', status: 'active',
     verified_at: new Date(time).toISOString(), ...extra });
   return { ask, save, claim, directory, advance: (ms = 60000) => { time += ms; } };
 }
@@ -333,12 +333,12 @@ test('TLS ask live verify is on by default and TLS_ASK_LIVE_VERIFY=0 disables it
   assert.equal(make('0')('app.example.test').reason, 'approved_new');
 });
 
-test('TLS ask static hosts do not spend global or tenant caps', (t) => {
+test('TLS ask static hosts spend the global cap and repeats remain free', (t) => {
   const h = direct(t, { staticHosts: ['s1.example.test', 's2.example.test'], tenantMaxPerHour: 1, globalMaxPerHour: 2 });
   h.save([h.claim('a.example.test')]);
   assert.equal(h.ask('s1.example.test').status, 200);
   assert.equal(h.ask('a.example.test').status, 200);
-  assert.equal(h.ask('s2.example.test').status, 200);
+  assert.equal(h.ask('s2.example.test').reason, 'approval_cap_global');
   assert.equal(h.ask('s1.example.test').status, 200);
 });
 
@@ -469,7 +469,7 @@ test('TLS ask memory stays bounded under a flood of random names', (t) => {
 });
 
 test('TLS ask approval and deny maps are bounded by their caps', (t) => {
-  const h = direct(t, { globalMaxPerHour: 5, tenantMaxPerHour: 1000 });
+  const h = direct(t, { globalMaxPerHour: 5, globalReserve: 0, tenantMaxPerHour: 1000 });
   const names = Array.from({ length: 200 }, (_, i) => `n${i}.example.test`);
   h.save(names.map((n) => h.claim(n)));
   const statuses = names.map((n) => h.ask(n).status);
@@ -519,7 +519,7 @@ test('TLS ask 429 responses carry Retry-After and JSON retry_after', async (t) =
 test('Caddy snippet is the go-live form: global ask block plus the catch-all site', () => {
   const snippet = readFileSync(new URL('../deploy/caddy/on-demand-tls.snippet', import.meta.url), 'utf8');
   assert.match(snippet, /^\{\s*on_demand_tls\s*\{\s*ask http:\/\/127\.0\.0\.1:8789\/tls\/ask\s*\}\s*\}/m);
-  assert.match(snippet, /^https:\/\/ \{\s*tls \{\s*on_demand\s*\}\s*import fdctl\s*reverse_proxy 127\.0\.0\.1:8787\s*\}/m);
+  assert.match(snippet, /^https:\/\/ \{\s*tls \{\s*on_demand\s*\}\s*@sni_mismatch expression "[^"]+"\s*respond @sni_mismatch 421\s*import fdctl\s*reverse_proxy 127\.0\.0\.1:8787\s*\}/m);
 });
 
 test('TLS ask checks external changes once per second and only rereads changed stores', async (t) => {
@@ -716,8 +716,8 @@ test('TLS ask daily host cap survives restart, allows repeats and resets at 24h'
   assert.equal(capped.ask(host).reason, 'approval_cap_host_day');
 });
 
-test('TLS ask static hosts bypass global and tenant caps but retain week guard', (t) => {
-  const h = direct(t, { staticHosts: ['s.example.test', 't.example.test'], globalMaxPerHour: 1,
+test('TLS ask static hosts use reserve and retain week guard', (t) => {
+  const h = direct(t, { staticHosts: ['s.example.test', 't.example.test'], globalMaxPerHour: 3,
     tenantMaxPerHour: 1, domainMaxPerHour: 10, domainMaxPerWeek: 1 });
   h.save([h.claim('a.example.test'), h.claim('b.other.test')]);
   assert.equal(h.ask('s.example.test').status, 200);
@@ -727,11 +727,11 @@ test('TLS ask static hosts bypass global and tenant caps but retain week guard',
   assert.equal(h.ask('b.other.test').reason, 'approval_cap_global');
 });
 
-test('TLS ask global default is 60 new approvals per hour', (t) => {
+test('TLS ask global default reserves 20 of 60 approvals for newcomers and static hosts', (t) => {
   const h = direct(t, { tenantMaxPerHour: 100, domainMaxPerHour: 100, domainMaxPerWeek: 100 });
   const hosts = Array.from({ length: 61 }, (_, i) => `h${i}.example.test`);
   h.save(hosts.map(host => h.claim(host)));
-  assert.deepEqual(hosts.map(host => h.ask(host).status), [...Array(60).fill(200), 429]);
+  assert.deepEqual(hosts.map(host => h.ask(host).status), [...Array(40).fill(200), ...Array(21).fill(429)]);
 });
 
 test('TLS ask refuses approvals if corrupt state cannot be quarantined', (t) => {
@@ -752,4 +752,69 @@ test('TLS ask refuses approvals if corrupt state cannot be quarantined', (t) => 
   }
   assert.match(messages[0], /could not quarantine/);
   assert.deepEqual(ask('app.example.test'), { status: 429, reason: 'approval_state_unavailable', retry_after: 600 });
+});
+
+test('global reserve admits new tenants and statics only, warns without names every five minutes', (t) => {
+  const messages = [];
+  const warn = console.warn;
+  console.warn = line => messages.push(line);
+  t.after(() => { console.warn = warn; });
+  const h = direct(t, { globalMaxPerHour: 4, globalReserve: 2, staticHosts: ['s.example.test'] });
+  h.save([h.claim('a.example.test'), h.claim('b.example.test'), h.claim('c.example.test'),
+    h.claim('d.example.test', TENANT_B), h.claim('e.example.test', TENANT_B)]);
+  assert.equal(h.ask('a.example.test').status, 200);
+  assert.equal(h.ask('b.example.test').status, 200);
+  assert.equal(h.ask('c.example.test').reason, 'approval_cap_global');
+  assert.equal(h.ask('d.example.test').status, 200);
+  assert.equal(h.ask('e.example.test').reason, 'approval_cap_global');
+  assert.equal(h.ask('s.example.test').status, 200);
+  assert.deepEqual(messages, ['tls ask: approval_cap_global']);
+  h.advance(5 * 60000);
+  assert.equal(h.ask('c.example.test').status, 429);
+  assert.equal(messages.length, 2);
+  h.advance(HOUR_MS);
+  assert.equal(h.ask('c.example.test').status, 200);
+});
+
+test('weekly per-host cap persists and expires at seven days', (t) => {
+  const h = direct(t);
+  h.save([h.claim('a.example.test')]);
+  for (let i = 0; i < 5; i++) {
+    assert.equal(h.ask('a.example.test').status, 200);
+    assert.equal(h.ask('a.example.test').reason, 'approved_repeat');
+    h.advance(24 * HOUR_MS);
+  }
+  assert.equal(h.ask('a.example.test').reason, 'approval_cap_host_week');
+  assert.equal(restart(h.directory, Date.UTC(2026, 0, 6))('a.example.test').reason, 'approval_cap_host_week');
+  h.advance(2 * 24 * HOUR_MS);
+  assert.equal(h.ask('a.example.test').status, 200);
+  const previous = process.env.TLS_ASK_HOST_WEEK_MAX;
+  t.after(() => { if (previous === undefined) delete process.env.TLS_ASK_HOST_WEEK_MAX; else process.env.TLS_ASK_HOST_WEEK_MAX = previous; });
+  process.env.TLS_ASK_HOST_WEEK_MAX = '1';
+  const capped = direct(t);
+  capped.save([capped.claim('a.example.test')]);
+  assert.equal(capped.ask('a.example.test').status, 200);
+  capped.advance(24 * HOUR_MS);
+  assert.equal(capped.ask('a.example.test').reason, 'approval_cap_host_week');
+});
+
+test('claims with missing, empty or non-string TXT proofs are excluded even without live verification', (t) => {
+  for (const txt_value of [undefined, null, '', ' ', 123, []]) {
+    const h = direct(t);
+    h.save([h.claim('a.example.test', TENANT_A, { txt_value })]);
+    assert.equal(h.ask('a.example.test').status, 404);
+  }
+});
+
+test('global reserve environment override protects the total and excludes legacy hosts', (t) => {
+  const previous = process.env.TLS_ASK_GLOBAL_RESERVE;
+  t.after(() => { if (previous === undefined) delete process.env.TLS_ASK_GLOBAL_RESERVE; else process.env.TLS_ASK_GLOBAL_RESERVE = previous; });
+  process.env.TLS_ASK_GLOBAL_RESERVE = '1';
+  const h = direct(t, { globalMaxPerHour: 2, staticHosts: ['s.example.test', 't.example.test'] });
+  h.save([h.claim('a.example.test')]);
+  h.save([{ hostname: 'legacy.example.test', status: 'active' }], 'attached_hosts.json');
+  assert.equal(h.ask('a.example.test').status, 200);
+  assert.equal(h.ask('legacy.example.test').reason, 'approval_cap_global');
+  assert.equal(h.ask('s.example.test').status, 200);
+  assert.equal(h.ask('t.example.test').reason, 'approval_cap_global');
 });

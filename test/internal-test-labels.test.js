@@ -203,3 +203,33 @@ test('guardrail hosts and their subdomains are refused when claiming and never a
     reservedSuffixes: [], staticHosts: ENFORCE_DENYLIST, now: () => Date.UTC(2026, 0, 1) });
   for (const { hostname } of records) assert.equal(ask(hostname).status, 404, hostname);
 });
+
+test('test tenants cache avoids reads until file metadata changes and fails closed on removal', (t) => {
+  const directory = tempDir(t);
+  const file = path.join(directory, 'test_tenants.json');
+  fs.writeFileSync(file, JSON.stringify([tester]));
+  const read = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = (...args) => { if (args[0] === file) reads++; return read(...args); };
+  t.after(() => { fs.readFileSync = read; });
+  assert.ok(testTenants(directory).has(tester));
+  testTenants(directory).clear();
+  assert.ok(testTenants(directory).has(tester));
+  assert.equal(reads, 1);
+  fs.writeFileSync(file, JSON.stringify([normal]));
+  fs.utimesSync(file, new Date(), new Date(Date.now() + 2000));
+  assert.ok(testTenants(directory).has(normal));
+  assert.equal(testTenants(directory).has(tester), false);
+  assert.equal(reads, 2);
+  fs.unlinkSync(file);
+  assert.equal(testTenants(directory).size, 0);
+  fs.writeFileSync(file, '{invalid');
+  assert.equal(testTenants(directory).size, 0);
+});
+
+test('reserved suffix overrides always retain both attach domains', async () => {
+  const { reservedSuffixes } = await import('../src/lib/config.js');
+  assert.deepEqual(reservedSuffixes('attach.example.test', 'edge.example.invalid', 'Custom.TEST., example.test'),
+    ['example.test', 'example.invalid', 'custom.test']);
+  assert.deepEqual(reservedSuffixes('attach.example.test', undefined, ''), ['example.test']);
+});

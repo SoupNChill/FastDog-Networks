@@ -3,18 +3,21 @@
 # block is prepended (or merged into an existing one) and the catch-all site is appended.
 set -euo pipefail
 export LC_ALL=C
+umask 077
 usage() {
-  echo 'Usage: enable-on-demand-tls.sh [--dry-run] [Caddyfile]' >&2
+  echo 'Usage: enable-on-demand-tls.sh [--dry-run] [--probe-host HOST] [Caddyfile]' >&2
   echo '       enable-on-demand-tls.sh --rollback <backup> [--force] [Caddyfile]' >&2
   exit 1
 }
 dry_run=false
 rollback=
 force=false
+probe_host=
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run) dry_run=true; shift ;;
     --rollback) [[ $# -ge 2 ]] || usage; rollback=$2; shift 2 ;;
+    --probe-host) [[ $# -ge 2 ]] || usage; probe_host=$2; shift 2 ;;
     --force) force=true; shift ;;
     -*) usage ;;
     *) break ;;
@@ -23,6 +26,7 @@ done
 [[ $# -le 1 ]] || usage
 [[ -z $rollback ]] || ! $dry_run || usage
 [[ -n $rollback ]] || ! $force || usage
+[[ -z $probe_host || $probe_host =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || usage
 caddyfile=${1:-/etc/caddy/Caddyfile}
 # BIN is a directory containing caddy, curl and systemctl; only override it for fixtures.
 caddy=${BIN:+$BIN/}caddy
@@ -90,11 +94,12 @@ reload_and_check() {
 # The edge internal listener must answer after a reload; the ask route depends on it.
 ask_healthy() {
   local try status
+  [[ -n $probe_host ]] || echo "Warning: a 4xx probe cannot confirm the ask route is enabled; use --probe-host with an approved static host." >&2
   for try in 1 2 3; do
-    if status=$("$curl" -sS --max-time 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${ask_port}/tls/ask?domain=probe.invalid" 2>/dev/null) && [[ $status =~ ^4[0-9][0-9]$ ]]; then return 0; fi
+    if status=$("$curl" -sS --max-time 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${ask_port}/tls/ask?domain=${probe_host:-probe.invalid}" 2>/dev/null) && [[ ( -n $probe_host && $status == 200 ) || ( -z $probe_host && $status =~ ^4[0-9][0-9]$ ) ]]; then return 0; fi
     (( try == 3 )) || sleep "${HEALTH_DELAY:-1}"
   done
-  echo "Ask endpoint http://127.0.0.1:${ask_port}/tls/ask is not healthy (expected a 4xx denial)." >&2
+  echo "Ask endpoint http://127.0.0.1:${ask_port}/tls/ask is not healthy (expected 200 with --probe-host, otherwise a 4xx denial)." >&2
   return 1
 }
 
@@ -104,16 +109,32 @@ catch_all_protected() {
   node --input-type=module - "$work/adapted.json" <<'JS'
 import fs from 'node:fs';
 const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-function protectedRoutes(routes) {
+function protectedRoutes(routes, predicate) {
   return (routes ?? []).some(route => {
     if (route.match?.some(match => match.host)) return false;
-    if (route.match?.some(match => match.path?.includes('/_fastdog/*'))) return true;
-    return (route.handle ?? []).some(handler => protectedRoutes(handler.routes));
+    if (predicate(route)) return true;
+    return (route.handle ?? []).some(handler => protectedRoutes(handler.routes, predicate));
   });
 }
+const control = route => route.match?.some(match => match.path?.includes('/_fastdog/*'));
+const mismatch = route => route.match?.some(match =>
+  match.expression === '{http.request.host} != {http.request.tls.server_name}') &&
+  route.handle?.some(handler => handler.handler === 'static_response' && String(handler.status_code) === '421');
 const servers = Object.values(config.apps?.http?.servers ?? {});
-process.exit(servers.some(server => server.listen?.some(address => address.endsWith(':443')) && protectedRoutes(server.routes)) ? 0 : 1);
+process.exit(servers.some(server => server.listen?.some(address => address.endsWith(':443')) && server.routes?.some(route =>
+  protectedRoutes([route], control) && protectedRoutes([route], mismatch))) ? 0 : 1);
 JS
+}
+
+installed=false
+restore() {
+  trap - ERR HUP INT TERM
+  local code=0
+  if $installed; then
+    restore_file "$backup" || code=$?
+    [[ $code != 0 ]] || echo "Restored $backup." >&2
+  fi
+  return $code
 }
 
 if [[ -n $rollback ]]; then
@@ -137,14 +158,17 @@ if [[ -n $rollback ]]; then
   candidate="${caddyfile}.candidate-ondemand-$stamp"
   cp -p -- "$rollback" "$candidate"
   validate "$candidate"
-  install_over "$candidate"
-  if ! reload_and_check; then
+  backup=$safety
+  trap 'code=0; restore || code=$?; exit $(( code == 0 ? 1 : code ))' HUP INT TERM
+  installed=true
+  if ! { install_over "$candidate" && reload_and_check; }; then
     echo "Reload failed after rollback; restoring pre-rollback file $safety." >&2
     code=0
     restore_file "$safety" || code=$?
     [[ $code != 0 ]] || echo "Restored $safety." >&2
     exit $(( code == 0 ? 1 : code ))
   fi
+  trap - HUP INT TERM
   printf 'Rolled back from %s. Pre-rollback copy: %s\n' "$rollback" "$safety"
   exit 0
 fi
@@ -177,6 +201,8 @@ https:// {
     tls {
         on_demand
     }
+    @sni_mismatch expression "{http.request.host} != {http.request.tls.server_name}"
+    respond @sni_mismatch 421
     import fdctl
     reverse_proxy 127.0.0.1:${upstream_port}
 }
@@ -226,18 +252,9 @@ cat -- "$build" > "$candidate"
 validate "$candidate"
 
 # (e)-(f) Install, reload, verify; restore the backup if anything fails from here on.
-installed=false
-restore() {
-  trap - ERR HUP INT TERM
-  local code=0
-  if $installed; then
-    restore_file "$backup" || code=$?
-    [[ $code != 0 ]] || echo "Restored $backup." >&2
-  fi
-  return $code
-}
 trap 'code=0; restore || code=$?; exit $(( code == 0 ? 1 : code ))' HUP INT TERM
-if ! { install_over "$candidate" && installed=true && reload_and_check && ask_healthy && catch_all_protected; }; then
+installed=true
+if ! { install_over "$candidate" && reload_and_check && ask_healthy && catch_all_protected; }; then
   installed=true # A partial install is restored too; the backup is a complete copy.
   code=0
   restore || code=$?

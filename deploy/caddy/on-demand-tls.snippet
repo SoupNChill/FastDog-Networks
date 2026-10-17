@@ -12,6 +12,8 @@ https:// {
     tls {
         on_demand
     }
+    @sni_mismatch expression "{http.request.host} != {http.request.tls.server_name}"
+    respond @sni_mismatch 421
     import fdctl
     reverse_proxy 127.0.0.1:8787
 }

@@ -40,10 +40,14 @@ export function createTlsAsk(opts = {}) {
   const reserved = opts.reservedSuffixes ?? reservedSuffixes(...targets);
   const tenantMax = positive(opts.tenantMaxPerHour ?? env.TLS_ASK_TENANT_MAX_PER_HOUR, 10);
   const globalMax = positive(opts.globalMaxPerHour ?? env.TLS_ASK_GLOBAL_MAX_PER_HOUR, 60);
+  const reserveValue = Number(opts.globalReserve ?? env.TLS_ASK_GLOBAL_RESERVE ?? 20);
+  const globalReserve = Math.min(globalMax, Number.isSafeInteger(reserveValue) && reserveValue >= 0 ? reserveValue : 20);
   const domainMax = positive(opts.domainMaxPerHour ?? env.TLS_ASK_DOMAIN_MAX_PER_HOUR, 5);
   // Conservative weekly guard per tenant/domain, or globally for static/legacy hosts.
   const domainWeekMax = positive(opts.domainMaxPerWeek ?? env.TLS_ASK_DOMAIN_WEEK_MAX, 40);
   const hostDayMax = positive(opts.hostDayMax ?? env.TLS_ASK_HOST_DAY_MAX, 3);
+  const hostWeekMax = positive(opts.hostWeekMax ?? env.TLS_ASK_HOST_WEEK_MAX, 5);
+  let lastGlobalWarning = -Infinity;
   const liveVerify = opts.liveVerify ?? (env.TLS_ASK_LIVE_VERIFY !== '0');
   const resolver = opts.resolver ?? dns;
   const liveTimeout = positive(opts.liveVerifyTimeoutMs, 3000);
@@ -148,9 +152,9 @@ export function createTlsAsk(opts = {}) {
       if (active.length !== 1) continue;
       const owner = active[0];
       if (claimSet.has(owner)) {
-        if (/^t_[a-z2-7]{20}$/.test(owner.tenant_id) && Number.isFinite(Date.parse(owner.verified_at))) {
+        if (typeof owner.txt_value === 'string' && owner.txt_value.trim() && /^t_[a-z2-7]{20}$/.test(owner.tenant_id) && Number.isFinite(Date.parse(owner.verified_at))) {
           index.set(host, owner.tenant_id);
-          proofIndex.set(host, typeof owner.txt_value === 'string' ? owner.txt_value : '');
+          proofIndex.set(host, owner.txt_value);
         }
       } else if (!owner.tenant_id) index.set(host, null);
     }
@@ -180,9 +184,16 @@ export function createTlsAsk(opts = {}) {
     history = history.filter((entry) => time - entry.at < WEEK);
     const day = history.filter((entry) => entry.host === host && time - entry.at < 24 * HOUR);
     if (day.length >= hostDayMax) return decide(429, 'approval_cap_host_day', { retry_after: seconds(day[0].at + 24 * HOUR - time) });
-    const global = [...approvals.entries()].filter(([name]) => !statics.has(name)).map(([, entry]) => entry);
-    if (!statics.has(host) && global.length >= globalMax) {
-      return decide(429, 'approval_cap_global', { retry_after: seconds(global[0].at + HOUR - time) });
+    const hostWeek = history.filter((entry) => entry.host === host);
+    if (hostWeek.length >= hostWeekMax) return decide(429, 'approval_cap_host_week', { retry_after: seconds(hostWeek[0].at + WEEK - time) });
+    const global = history.filter((entry) => time - entry.at < HOUR);
+    const reserveEligible = statics.has(host) || (tenant && !global.some(entry => entry.tenant === tenant));
+    if (global.length >= (reserveEligible ? globalMax : globalMax - globalReserve)) {
+      if (time - lastGlobalWarning >= 5 * MINUTE) {
+        console.warn('tls ask: approval_cap_global');
+        lastGlobalWarning = time;
+      }
+      return decide(429, 'approval_cap_global', { retry_after: global.length ? seconds(global[0].at + HOUR - time) : 3600 });
     }
     if (tenant) {
       const mine = [...approvals.values()].filter((entry) => entry.tenant === tenant);

@@ -18,7 +18,7 @@ After separately approved application, rollback means restore the saved Caddyfil
 
 ## On-demand TLS (go-live form; not applied by the repository)
 
-`on-demand-tls.snippet` is the go-live configuration for Caddy 2.11: a global `on_demand_tls { ask http://127.0.0.1:8789/tls/ask }` block and a catch-all `https:// { tls { on_demand } import fdctl reverse_proxy 127.0.0.1:8787 }` site. `fdctl` is the existing snippet in the live Caddyfile that hides `/_fastdog/*` except tunnel/register; it must be defined before use. Explicit site blocks keep precedence over the catch-all. Replace 8789 with the edge's `INTERNAL_PORT` (the script reads `INTERNAL_PORT` and `UPSTREAM_PORT` from its environment) and set `INTERNAL_ENABLED=1` and `TLS_ASK_ENABLED=1` on the edge. The ask URL must reach the edge directly over loopback without forwarded headers; Caddy supplies the `domain` query parameter.
+`on-demand-tls.snippet` is the go-live configuration for Caddy 2.11: a global `on_demand_tls { ask http://127.0.0.1:8789/tls/ask }` block and a catch-all HTTPS site with on-demand TLS and the edge reverse proxy. `fdctl` is the existing snippet in the live Caddyfile that hides `/_fastdog/*` except tunnel/register; it must be defined before use. Explicit site blocks keep precedence over the catch-all. Replace 8789 with the edge's `INTERNAL_PORT` (the script reads `INTERNAL_PORT` and `UPSTREAM_PORT` from its environment) and set `INTERNAL_ENABLED=1` and `TLS_ASK_ENABLED=1` on the edge. The ask URL must reach the edge directly over loopback without forwarded headers; Caddy supplies the `domain` query parameter.
 
 ### Applying
 
@@ -48,12 +48,14 @@ Rollback refuses (exit 1, with a `diff -u` hint) when the current Caddyfile diff
 | `TLS_ASK_TENANT_MAX_PER_HOUR` | 10 | New approvals per tenant per hour, counted per distinct hostname. |
 | `TLS_ASK_DOMAIN_MAX_PER_HOUR` | 5 | New approvals per tenant + registered domain per hour; static/legacy hosts share a separate domain bucket. |
 | `TLS_ASK_DOMAIN_WEEK_MAX` | 40 | New approvals per tenant + registered domain per 7 days; a separate global domain guard applies to static/legacy hosts. Approvals are persisted in `DATA_DIR/tls_ask_approvals.json`, so restarts do not reset budgets. |
-| `TLS_ASK_GLOBAL_MAX_PER_HOUR` | 60 | New approvals per hour, excluding static allow-list hosts (also exempt from tenant caps). |
+| `TLS_ASK_GLOBAL_MAX_PER_HOUR` | 60 | New approvals per rolling hour, including static allow-list hosts (which remain exempt from tenant caps). |
+| `TLS_ASK_GLOBAL_RESERVE` | 20 | Of the global 60 slots, reserve 20 for tenants with zero approvals in the last hour and static hosts. Clamped to the global cap; 0 disables the reserve. Legacy attachments cannot use it. |
+| `TLS_ASK_HOST_WEEK_MAX` | 5 | New approvals per hostname per rolling 7 days, persisted. |
 | `TLS_ASK_HOST_DAY_MAX` | 3 | New approvals per hostname per rolling 24 hours, persisted; hourly repeats remain free. |
 | `TLS_ASK_LIVE_VERIFY` | 1 | `0` disables the live DNS re-check before a first approval of a tenant claim (see below). |
 | `TLS_ASK_CHECKS_PER_MINUTE` | 600 | Anonymous (non-approvable) checks per minute; approved hosts are never blocked by it. |
 
-Over a cap the ask route returns 429 with `retry_after` (reasons `approval_cap_global`, `approval_cap_tenant`, `approval_cap_domain`, `approval_cap_domain_week`, `approval_cap_host_day`, `approval_state_unavailable`). Before the first approval of a tenant claim in a window the edge re-checks the claim's DNS proof (routing to the edge plus the `_fastdog-challenge` TXT record, so keep that TXT in place); present proof is cached 10 minutes, missing proof 60 seconds. Missing proof returns 404 `live_verify_failed`; a DNS error or timeout (3 s) returns 503 `live_verify_unavailable` (fail closed, cached 10 seconds), which Caddy treats as a refusal and retries later. Static hosts and legacy attachments have no claim proof and are not live-verified. See [internal API operations](../../docs/INTERNAL_API_OPS.md) for the full rules, deny caching and log reason codes.
+Over a cap the ask route returns 429 with `retry_after` (reasons `approval_cap_global`, `approval_cap_tenant`, `approval_cap_domain`, `approval_cap_domain_week`, `approval_cap_host_day`, `approval_cap_host_week`, `approval_state_unavailable`). Before the first approval of a tenant claim in a window the edge re-checks the claim's DNS proof (routing to the edge plus the `_fastdog-challenge` TXT record, so keep that TXT in place); present proof is cached 10 minutes, missing proof 60 seconds. Missing proof returns 404 `live_verify_failed`; a DNS error or timeout (3 s) returns 503 `live_verify_unavailable` (fail closed, cached 10 seconds), which Caddy treats as a refusal and retries later. Static hosts and legacy attachments have no claim proof and are not live-verified. See [internal API operations](../../docs/INTERNAL_API_OPS.md) for the full rules, deny caching and log reason codes.
 
 ### Known limit
 
@@ -62,3 +64,9 @@ Hosts served only by the catch-all do not get per-host access logs (no `import f
 The offline tests use fixture binaries only; no Caddy binary validation was performed in this repository. Run `caddy adapt` and `caddy validate` with the installed Caddy 2.11 (the script does the latter) and inspect the adapted ask URL before relying on it.
 
 Ask requests must use canonical ASCII lowercase hostnames without trailing dots. Pending/expired claims do not shadow legacy attachments. Corrupt approval state is quarantined as `.corrupt-<timestamp>`; an operator message announces a ten-minute pause followed by automatic empty-history recovery. Failed quarantine keeps approvals refused until restart. The suffix grouping is approximate; tenant-isolated caps cannot guarantee the CA aggregate domain limit.
+
+The catch-all uses the Caddy v2.11 expression matcher `@sni_mismatch expression "{http.request.host} != {http.request.tls.server_name}"` and `respond @sni_mismatch 421`. The enable script checks the adapted JSON for that response in the catch-all as well as fdctl protection. No global `strict_sni_host` setting is added.
+
+When an approved static host is configured in `TLS_ASK_STATIC_HOSTS`, pass `--probe-host static.example.test` before the Caddyfile argument; the probe then requires HTTP 200. Without that option the script keeps the 4xx check and warns that it cannot confirm the ask route is enabled. Temporary files use umask 077. Signals during installation or rollback restore the saved file, including interruption immediately after rename.
+
+Global-cap denials emit one hostname-free warning at most once per five minutes per process. Hourly repeat approvals remain free; static hosts can use the reserve but cannot exceed the total global cap.

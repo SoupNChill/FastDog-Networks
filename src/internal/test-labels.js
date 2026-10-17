@@ -32,11 +32,18 @@ export function isTestLabelHost(host, attachTarget, ...otherTargets) {
   return LABEL.test(label) && !neverClaimable(name, [attachTarget, ...otherTargets]);
 }
 
+const tenantCache = new Map();
 export function testTenants(directory = defaultDataDir()) {
+  const file = path.join(directory, TEST_TENANTS_FILE);
   try {
-    const list = JSON.parse(fs.readFileSync(path.join(directory, TEST_TENANTS_FILE), 'utf8'));
-    return Array.isArray(list) && list.every((id) => typeof id === 'string' && TENANT_ID.test(id)) ? new Set(list) : new Set();
-  } catch { return new Set(); }
+    const stat = fs.statSync(file);
+    const stamp = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}:${stat.size}`;
+    if (tenantCache.get(file)?.stamp === stamp) return new Set(tenantCache.get(file).tenants);
+    const list = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const tenants = Array.isArray(list) && list.every((id) => typeof id === 'string' && TENANT_ID.test(id)) ? new Set(list) : new Set();
+    tenantCache.set(file, { stamp, tenants });
+    return new Set(tenants);
+  } catch { tenantCache.delete(file); return new Set(); }
 }
 
 export const mayClaimTestLabel = (tid, host, attachTarget, altAttachTarget, directory) =>

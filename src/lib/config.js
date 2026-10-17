@@ -45,8 +45,9 @@ export function defaultUpstream() {
 }
 
 export function reservedSuffixes(attachTarget, altAttachTarget, configured = process.env.RESERVED_SUFFIXES) {
-  if (configured !== undefined) return configured.split(',').map((s) => s.trim().toLowerCase().replace(/\.$/, '')).filter(Boolean);
+  const suffixes = configured !== undefined ? configured.split(',').map((s) => s.trim().toLowerCase().replace(/\.$/, '')).filter(Boolean)
+    : ['localhost', 'local', 'lan', 'internal', 'test', 'invalid', 'example'];
   // Reserving the final two labels is conservative for multi-label public suffixes.
   const domains = [attachTarget, altAttachTarget].filter(Boolean).map((host) => host.toLowerCase().replace(/\.$/, '').split('.').slice(-2).join('.'));
-  return [...new Set([...domains, 'localhost', 'local', 'lan', 'internal', 'test', 'invalid', 'example'])];
+  return [...new Set([...domains, ...suffixes])];
 }
