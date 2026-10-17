@@ -6,11 +6,13 @@ import { findInvite } from './invites.js';
 import { fail } from './errors.js';
 import { sessionCookie } from './sessions.js';
 import { createSignupGuard } from './signup-guard.js';
+import { createSuspensions, effectiveTenant } from './suspensions.js';
 
 export function createAuth({ store, sessions, limits, now, mailer, config }) {
   const read = () => store.read('accounts', emptyAccounts());
   const generic = { ok: true };
   const guard = createSignupGuard({ limits, config });
+  const suspensions = createSuspensions(store);
   // Open sign-up outcomes: a reason code only, never the email or its domain.
   const log = (outcome, reason) => {
     try { config.logger?.({ event: 'signup', source: 'open', outcome, ...(reason ? { reason } : {}) }); }
@@ -26,11 +28,17 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
     return typeof body.token === 'string' && data.links.find((item) => item.token_hash === digest(body.token)
       && item.kind === kind && item.expires_at > now());
   }
+  const suspended = (data, user) => {
+    const tenant = data.tenants.find((t) => t.id === user?.tenant_id);
+    return !tenant || effectiveTenant(tenant, suspensions).status === 'suspended';
+  };
   return {
     identity(session) {
       const data = read();
       const user = data.users.find((u) => u.id === session?.user_id && u.auth_version === session.auth_version);
       const tenant = data.tenants.find((t) => t.id === user?.tenant_id && t.status === 'active');
+      // A suspended tenant's sessions end on their next request.
+      if (tenant && suspensions.has(tenant.id)) { sessions.revokeUser(user.id); return null; }
       return user && tenant ? { user, tenant } : null;
     },
     async handle(path, body, context) {
@@ -77,8 +85,10 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         limits.take(accountKey, 5, 900000, true);
         const initial = read().users.find((u) => u.email === email);
         const valid = await verifyPassword(body.password, initial?.password_hash || dummyPassword);
-        const user = read().users.find((u) => u.id === initial?.id);
-        if (!valid || !user || user.auth_version !== initial.auth_version) throw fail('unauthorized');
+        const data = read();
+        const user = data.users.find((u) => u.id === initial?.id);
+        // A suspended tenant cannot sign back in; the answer matches a wrong password.
+        if (!valid || !user || user.auth_version !== initial.auth_version || suspended(data, user)) throw fail('unauthorized');
         limits.refund(ipKey);
         limits.refund(accountKey, true);
         const next = sessions.create(user);
@@ -94,7 +104,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         limits.take(`reset-account:${digest(email || '')}`, 3, 900000);
         const data = read();
         const user = data.users.find((u) => u.email === email);
-        if (user) {
+        if (user && !suspended(data, user)) {
           const url = link(data, user, 'password-reset');
           store.write('accounts', data);
           await mailer.send({ to: email, kind: 'password-reset', link: url });
@@ -120,7 +130,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         const entry = findLink(data, body, 'password-reset');
         if (!entry) throw fail('unauthorized');
         const user = data.users.find((u) => u.id === entry.user_id);
-        if (!user) throw fail('unauthorized');
+        if (!user || suspended(data, user)) throw fail('unauthorized');
         user.password_hash = password_hash;
         user.auth_version++;
         data.links = data.links.filter((item) => item.user_id !== user.id || item.kind !== 'password-reset');

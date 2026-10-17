@@ -84,6 +84,15 @@ export function createApiKeys(store, now) {
       if (count) store.write('api_keys', records);
       return count;
     },
+    // Every live key of a tenant (suspension).
+    revokeTenant(tenantId) {
+      const records = all();
+      let count = 0;
+      for (const k of records) if (k.tenant_id === tenantId && live(k)) { k.revoked_at = new Date(now()).toISOString(); count++; }
+      if (count) store.write('api_keys', records);
+      return count;
+    },
+    countLive: (tenantId) => all().filter((k) => k.tenant_id === tenantId && live(k)).length,
     touch(id) {
       const records = all();
       const record = records.find((k) => k.id === id);

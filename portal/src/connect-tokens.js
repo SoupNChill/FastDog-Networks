@@ -57,6 +57,15 @@ export function createConnectTokens(store, now) {
       store.write('connect_tokens', records);
       return count;
     },
+    // Every live token of a tenant (suspension).
+    revokeTenant(tenantId) {
+      const records = all();
+      let count = 0;
+      for (const t of records) if (t.tenant_id === tenantId && live(t)) { t.revoked_at = new Date(now()).toISOString(); count++; }
+      if (count) store.write('connect_tokens', records);
+      return count;
+    },
+    countLive: (tenantId) => all().filter((t) => t.tenant_id === tenantId && live(t)).length,
   };
 }
 

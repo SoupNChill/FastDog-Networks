@@ -15,6 +15,7 @@ import { createConnectTokens, assistantPrompt } from './connect-tokens.js';
 import { dockerDetails, serializeDockerEnv, dockerEnvFile, buildCommand, validOrigin, originError } from './connect-command.js';
 import { verifyPassword } from './passwords.js';
 import { createApiKeys, planAllowsKeys, API_KEY_SCOPES, DEFAULT_DAYS, MAX_DAYS } from './api-keys.js';
+import { createSuspensions, effectiveTenant } from './suspensions.js';
 
 const authPaths = new Set(['/api/signup', '/api/login', '/api/logout', '/api/verify-email', '/api/password-reset', '/api/password-reset/confirm']);
 const staticRoutes = new Map([
@@ -98,6 +99,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
   const auth = createAuth({ store, sessions, limits, now, mailer, config });
   const connectTokens = createConnectTokens(store, now);
   const apiKeys = createApiKeys(store, now);
+  const suspensions = createSuspensions(store);
   const docsUrl = typeof config.docsUrl === 'string' && /^https:\/\/[a-z0-9.-]+(?:\/[a-z0-9/_-]*)?$/i.test(config.docsUrl) ? config.docsUrl : null;
   const server = http.createServer(async (request, response) => {
     const started = now();
@@ -151,8 +153,10 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
           catch { /* Auditing cannot affect a response. */ }
         });
         const accounts = store.read('accounts', { tenants: [], users: [] });
-        const tenant = accounts.tenants.find((t) => t.id === key.tenant_id);
+        const tenant = effectiveTenant(accounts.tenants.find((t) => t.id === key.tenant_id), suspensions);
         const issuer = accounts.users.find((u) => u.id === key.user_id && u.tenant_id === key.tenant_id);
+        // A kill-switch suspension revokes every key of the tenant on first touch.
+        if (tenant?.status === 'suspended' && suspensions.has(tenant.id)) { apiKeys.revokeTenant(tenant.id); throw fail('unauthorized'); }
         // Suspension, losing a paid plan, or a password change (auth_version bump) ends every key.
         if (!planAllowsKeys(tenant) || !issuer || !issuer.email_verified_at || (issuer.auth_version ?? null) !== (key.auth_version ?? null)) throw fail('unauthorized');
         limits.take(`api-key:${key.id}`, 60, 60000);
@@ -218,8 +222,9 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const record = connectTokens.find(typeof header === 'string' && /^Bearer /.test(header) ? header.slice(7).trim() : null);
         if (!record) throw fail('unauthorized');
         const accounts = store.read('accounts', { tenants: [], users: [] });
-        const tenant = accounts.tenants.find((t) => t.id === record.tenant_id);
+        const tenant = effectiveTenant(accounts.tenants.find((t) => t.id === record.tenant_id), suspensions);
         const issuer = accounts.users.find((u) => u.id === record.user_id && u.tenant_id === record.tenant_id);
+        if (tenant?.status === 'suspended' && suspensions.has(tenant.id)) { connectTokens.revokeTenant(tenant.id); throw fail('unauthorized'); }
         // A password reset (auth_version bump) or a suspended tenant ends every token that user issued.
         if (!tenant || (tenant.status && tenant.status !== 'active') || !issuer || (issuer.auth_version ?? null) !== (record.auth_version ?? null)) throw fail('unauthorized');
         limits.take(`connect-token:${record.id}`, 30, 60000);
