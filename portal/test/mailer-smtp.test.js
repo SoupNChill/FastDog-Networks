@@ -3,16 +3,27 @@ import assert from 'node:assert/strict';
 import net from 'node:net';
 import tls from 'node:tls';
 import { once } from 'node:events';
-import { readFileSync, readdirSync, statSync, writeFileSync, utimesSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, writeFileSync, utimesSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { createSmtpMailer, buildMessage, smtpDeliver } from '../src/mailer-smtp.js';
 import { createFileMailer, purgeOutbox } from '../src/mailer-file.js';
 import { renderMail, mailKinds } from '../src/mail-templates.js';
 import { selectMailer } from '../server.js';
 import { temporary, fakeSecret } from './helpers.js';
 
-const key = readFileSync(new URL('./fixtures/smtp-test-key.pem', import.meta.url));
-const cert = readFileSync(new URL('./fixtures/smtp-test-cert.pem', import.meta.url));
+// Throwaway self-signed localhost pair generated per run; nothing key-like is committed.
+function throwawayCert() {
+  const dir = mkdtempSync(join(tmpdir(), 'smtp-test-tls-'));
+  const key = join(dir, 'key.pem'), cert = join(dir, 'cert.pem');
+  try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost', '-keyout', key, '-out', cert], { stdio: 'ignore' });
+    return { key: readFileSync(key), cert: readFileSync(cert) };
+  } catch { return {}; } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+const { key, cert } = throwawayCert();
+const needsTls = { skip: cert ? false : 'openssl unavailable: cannot generate a throwaway TLS certificate for STARTTLS tests' };
 const tlsOptions = { ca: cert, servername: 'localhost' };
 
 // In-process fake submission server on 127.0.0.1. `stall` names a verb (or 'greeting') that never gets a reply.
@@ -85,7 +96,7 @@ const noSecrets = (logs, ...secrets) => {
   for (const secret of secrets) assert.ok(!text.includes(secret), 'log leaked a secret or address');
 };
 
-test('happy path: STARTTLS before AUTH PLAIN, full headers, redacted outbox audit copy', async (t) => {
+test('happy path: STARTTLS before AUTH PLAIN, full headers, redacted outbox audit copy', needsTls, async (t) => {
   const smtp = await fakeSmtp(t);
   const m = mailer(t, smtp.port);
   const link = verifyLink();
@@ -116,7 +127,7 @@ test('refuses to authenticate when STARTTLS is not offered and falls back to the
   noSecrets(m.logs, link, m.pass, 'new@example.test');
 });
 
-test('an untrusted or mismatched STARTTLS certificate is refused before AUTH', async (t) => {
+test('an untrusted or mismatched STARTTLS certificate is refused before AUTH', needsTls, async (t) => {
   for (const options of [{}, { ca: cert, servername: 'other.example.test' }]) {
     const smtp = await fakeSmtp(t);
     const m = mailer(t, smtp.port, { tlsOptions: options });
@@ -125,7 +136,7 @@ test('an untrusted or mismatched STARTTLS certificate is refused before AUTH', a
   }
 });
 
-test('authentication failure stops before MAIL FROM and keeps the message in the outbox', async (t) => {
+test('authentication failure stops before MAIL FROM and keeps the message in the outbox', needsTls, async (t) => {
   const smtp = await fakeSmtp(t, { authOk: false });
   const m = mailer(t, smtp.port);
   const link = verifyLink();
@@ -135,7 +146,7 @@ test('authentication failure stops before MAIL FROM and keeps the message in the
   noSecrets(m.logs, link, m.pass, 'new@example.test');
 });
 
-test('timeouts on a silent greeting or an unanswered DATA terminator fall back without throwing', async (t) => {
+test('timeouts on a silent greeting or an unanswered DATA terminator fall back without throwing', needsTls, async (t) => {
   for (const stall of ['greeting', 'message']) {
     const smtp = await fakeSmtp(t, { stall });
     const m = mailer(t, smtp.port, { timeoutMs: 150 });
@@ -168,7 +179,7 @@ test('header and command injection is rejected before any connection', async (t)
   }
 });
 
-test('message body is dot-stuffed and terminated once', async (t) => {
+test('message body is dot-stuffed and terminated once', needsTls, async (t) => {
   const smtp = await fakeSmtp(t);
   const message = buildMessage({ from: 'a@example.test', to: 'b@example.test', subject: 'Hi', text: 'one\n.\n..two\nend',
     date: new Date(0).toUTCString(), messageId: '<1@example.test>' });
@@ -178,7 +189,7 @@ test('message body is dot-stuffed and terminated once', async (t) => {
   assert.equal(smtp.state.messages.length, 1);
 });
 
-test('local hourly cap diverts to the outbox and recovers after the window', async (t) => {
+test('local hourly cap diverts to the outbox and recovers after the window', needsTls, async (t) => {
   const smtp = await fakeSmtp(t);
   let clock = Date.UTC(2026, 0, 1);
   const m = mailer(t, smtp.port, { maxPerHour: 2, now: () => clock });
@@ -224,7 +235,7 @@ test('transport selection defaults to file and rejects invalid smtp settings wit
   }
 });
 
-test('smtp transport via selectMailer uses PORTAL_SUPPORT_EMAIL as Reply-To and the documented From fallback', async (t) => {
+test('smtp transport via selectMailer uses PORTAL_SUPPORT_EMAIL as Reply-To and the documented From fallback', needsTls, async (t) => {
   const smtp = await fakeSmtp(t);
   const outboxDir = temporary(t);
   const mail = selectMailer({ MAIL_TRANSPORT: 'smtp', SMTP_HOST: '127.0.0.1', SMTP_PORT: String(smtp.port), SMTP_USER: 'u', SMTP_PASS: fakeSecret(),
