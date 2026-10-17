@@ -49,7 +49,7 @@ export function createClaims(opts, changed) {
   const registry = opts.registry;
   const read = (name) => readJson(name, [], directory);
   const write = (name, data) => writeJson(name, data, 0o600, directory);
-  const claims = () => read('tenant_hostnames.json').filter((c) => c.status === 'active' || Date.parse(c.expires_at) > now());
+  const claims = () => read('tenant_hostnames.json').filter((c) => c.status === 'active' || (c.status === 'suspended' && c.expires_at === null) || Date.parse(c.expires_at) > now());
   const save = (records) => write('tenant_hostnames.json', records);
   const legacy = (host) => read('attached_hosts.json').find((c) => c.hostname === host && !c.tenant_id);
   const unavailable = (records, tid, host) => Boolean(legacy(host) || records.some((c) => c.hostname === host && c.status === 'active' && c.tenant_id !== tid));
@@ -229,6 +229,32 @@ export function createClaims(opts, changed) {
     agent(tid, host) { active(find(claims(), tid, host)); return agent(host); },
     // When this tenant's current claim became active (verified_at only; null makes the probes fail closed).
     claimSince(tid, host) { const c = find(claims(), tid, host); active(c); return c.verified_at || null; },
+    suspendTenant(tid) {
+      const records = read('tenant_hostnames.json');
+      const owned = records.filter((c) => c.tenant_id === tid);
+      const suspended = owned.filter((c) => c.status !== 'pending' && c.status !== 'suspended');
+      const hosts = new Set(owned.map((c) => c.hostname));
+      const credentials = read('agent-credentials.json');
+      const remainingCredentials = credentials.filter((c) => c.tenant_id !== tid || !hosts.has(c.claim_hostname));
+      // Pending or previously suspended claims can overlap another active owner.
+      const removable = new Set(owned.filter((c) => !legacy(c.hostname) &&
+        !records.some((other) => other.tenant_id !== tid && other.hostname === c.hostname && other.status === 'active'))
+        .map((c) => c.hostname));
+      const tunnels = read('tunnel_hosts.json');
+      const remainingTunnels = tunnels.filter((host) => !removable.has(host));
+      const recordsChanged = suspended.length > 0 || owned.some((c) => c.status === 'pending' || c.expires_at !== null);
+      for (const record of owned) if (record.status !== 'pending') {
+        record.status = 'suspended';
+        record.expires_at = null; // Explicit tenant suspension retains the proof until re-verification.
+      }
+      if (recordsChanged) save(records.filter((c) => c.tenant_id !== tid || c.status !== 'pending'));
+      if (remainingCredentials.length !== credentials.length) write('agent-credentials.json', remainingCredentials);
+      if (remainingTunnels.length !== tunnels.length) write('tunnel_hosts.json', remainingTunnels);
+      const closed = new Set([...suspended.map((c) => c.hostname), ...tunnels.filter((host) => removable.has(host))]);
+      for (const host of closed) if (removable.has(host)) registry?.closeHost(host);
+      if (recordsChanged || remainingCredentials.length !== credentials.length || remainingTunnels.length !== tunnels.length) changed();
+      return { tenant_id: tid, suspended: suspended.length, hostnames: suspended.map((c) => c.hostname) };
+    },
     delete(tid, host) {
       const records = claims();
       const record = find(records, tid, host);
