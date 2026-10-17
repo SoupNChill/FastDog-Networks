@@ -19,9 +19,13 @@ export const attachDomain = (attachTarget) => clean(attachTarget).split('.').sli
 const neverClaimable = (host, targets) => ENFORCE_DENYLIST.includes(host) || targets.some((target) => host === clean(target));
 
 // Guardrail hosts (and their subdomains) are never claimed or approved for on-demand certificates.
-export const isGuardrailHost = (host) => {
+// Exception: an operator test label directly under the attach domain is not made a guardrail by the
+// attach domain's own denylist entry; every other entry (and exact names) still applies.
+export const isGuardrailHost = (host, attachTarget, ...otherTargets) => {
   const name = clean(host);
-  return ENFORCE_DENYLIST.some((guard) => name === guard || name.endsWith(`.${guard}`));
+  const domain = attachTarget ? attachDomain(attachTarget) : '';
+  const testLabel = Boolean(domain) && isTestLabelHost(name, attachTarget, ...otherTargets);
+  return ENFORCE_DENYLIST.some((guard) => name === guard || (name.endsWith(`.${guard}`) && !(testLabel && guard === domain)));
 };
 
 export function isTestLabelHost(host, attachTarget, ...otherTargets) {

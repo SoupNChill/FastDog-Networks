@@ -316,7 +316,7 @@ export function createTlsAsk(opts = {}) {
       try { host = normalizeHostname(input); if (host !== input) host = undefined; } catch { /* Invalid names share the check budget. */ }
       let tenant = null;
       let approvable = false;
-      if (host && !isGuardrailHost(host)) {
+      if (host && !isGuardrailHost(host, primary, alt)) {
         if (statics.has(host)) approvable = true;
         else if (owners.has(host)) {
           const open = !isReserved(host, reserved) && !targetNames.includes(host);

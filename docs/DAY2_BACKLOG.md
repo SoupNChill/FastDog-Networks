@@ -120,3 +120,16 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - ACCEPTED (MEDIUM, availability): first issuance requires the _fastdog-challenge TXT and routing to still resolve; a single-resolver NXDOMAIN/ENODATA is treated as not found (60 s cache). Follow-up: map SERVFAIL/NXDOMAIN-from-one-resolver to inconclusive (503); keep the "keep the TXT" note prominent in tenant docs.
 - OPEN (LOW): per-host day cap counts approvals not issuances (operator reset: onboard.js tls-reset); stale-lock recovery race (use rename or flock); history rescans on capped hosts; revision-change reparse not throttled; 421 SNI check only in the catch-all; duplicate catch-all check is literal; --probe-host not mandatory.
 - VERIFY AT DEPLOY: through the catch-all on an e2e test label, /_FASTDOG/metrics and //_fastdog/metrics must be denied by (fdctl).
+
+## E2E test-label follow-ups
+- DONE: operator test labels `e2e-<label>.<attach-domain>` are no longer treated as guardrail hosts by the attach domain's own denylist entry (claims create/verify and TLS ask); exact guardrail names and subdomains of every other entry stay refused.
+- OPEN: the portal API-keys page has no "copy prompt for your AI assistant" for the key flow; only the post-verify connect-token prompt exists.
+- OPEN: the v9 edge tarball shipped without `scripts/onboard.js`, so the deployed operator CLI lacks `test-tenant` and `tls-reset`. Include `scripts/onboard.js` in the next edge build.
+- OPEN: ns2 (2.29.58.90) is not reachable by ssh from server3, the edge or the operator PC, so zone changes cannot follow `docs/runbooks/dns-changes.md` from operator boxes.
+- ACCEPTED (MEDIUM, review E2EFIX): docs now describe automatic certificates; correct for production since v9 enabled TLS ask. AGENTS.md updated to record that.
+- OPEN (LOW): the guardrail exemption is derived from ATTACH_TARGET; a misconfigured target under a customer guardrail domain would exempt e2e-<label> names there. Follow-up: refuse at startup if attachDomain() equals any ENFORCE_DENYLIST entry other than the operator attach domain, or pin it in config.
+- OPEN (LOW): test-label certificates count against the attach domain's Let's Encrypt per-registered-domain weekly limit (50); add a cross-tenant weekly cap for test labels (e.g. 20).
+- OPEN (LOW): claims.verify checks the guardrail after the already-active early return; move it above (defence in depth; ask re-checks the guardrail anyway).
+- OPEN (LOW): make attachTarget required for isGuardrailHost callers (or test that every call site passes it).
+- OPEN (LOW): attachDomain() uses the last two labels; reject at startup if it is a public suffix (e.g. co.uk).
+- OPEN (LOW): Verdict enforce uses exact names, so e2e labels under a guardrail apex are not enforce-guarded; confirm they stay out of enforce/forward_auth.

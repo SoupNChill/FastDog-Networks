@@ -169,7 +169,7 @@ export function createClaims(opts, changed) {
     get(tid, host) { return present(find(claims(), tid, host)); },
     create(tid, body) {
       const host = normalizeHostname(body.hostname);
-      if (isGuardrailHost(host)) throw fail(400, 'reserved_hostname');
+      if (isGuardrailHost(host, attachTarget, altAttachTarget)) throw fail(400, 'reserved_hostname');
       if (!mayClaimTestLabel(tid, host, attachTarget, altAttachTarget, directory)
         && (isReserved(host, reserved) || [attachTarget, altAttachTarget].filter(Boolean).some((target) => host === target.toLowerCase().replace(/\.$/, '')))) throw fail(400, 'reserved_hostname');
       if (!Number.isInteger(body.hostname_limit) || body.hostname_limit < 1 || body.hostname_limit > 1000) throw fail(400, 'invalid_limit');
@@ -192,6 +192,7 @@ export function createClaims(opts, changed) {
       const activeResult = (c) => ({ hostname: host, status: 'active', verified: true, verified_at: c.verified_at, method: c.method });
       if (initial.status === 'active') return activeResult(initial);
       if (unavailable(claims(), tid, host)) throw fail(409, 'hostname_unavailable');
+      if (isGuardrailHost(host, attachTarget, altAttachTarget)) throw fail(400, 'reserved_hostname');
       // Unmarking a test tenant refuses further verification of its test labels; active claims are untouched.
       if (isTestLabelHost(host, attachTarget, altAttachTarget) && !mayClaimTestLabel(tid, host, attachTarget, altAttachTarget, directory)) throw fail(400, 'reserved_hostname');
       const { routing, ownership } = await checkClaimProof(host, initial.txt_value,
