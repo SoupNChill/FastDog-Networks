@@ -114,3 +114,9 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE (Docker connect follow-up): failure cleanup preserves the calling shell; Docker responses expose the exact token-free env_file for cleanup; noclobber rejects planted paths. Covered by shell, API and builder parity regressions.
 
 - DONE (TLS ask sixth adversarial review): candidate adapted-route preflight, soft weekly host warning, persisted daily tenant reserve and hourly new-account reserve limits, stale PID lock recovery, proxy-free probes and test-label revision invalidation; offline regressions added.
+
+## TLS ask: accepted residuals (final adversarial pass, no HIGH)
+- ACCEPTED (MEDIUM, budget): a few invited tenants at the per-tenant cap can fill the non-reserve 40/h global budget; others then rely on the 20-slot reserve. Follow-up: per-invite or account-age global sub-cap and an alert on approval_cap_global.
+- ACCEPTED (MEDIUM, availability): first issuance requires the _fastdog-challenge TXT and routing to still resolve; a single-resolver NXDOMAIN/ENODATA is treated as not found (60 s cache). Follow-up: map SERVFAIL/NXDOMAIN-from-one-resolver to inconclusive (503); keep the "keep the TXT" note prominent in tenant docs.
+- OPEN (LOW): per-host day cap counts approvals not issuances (operator reset: onboard.js tls-reset); stale-lock recovery race (use rename or flock); history rescans on capped hosts; revision-change reparse not throttled; 421 SNI check only in the catch-all; duplicate catch-all check is literal; --probe-host not mandatory.
+- VERIFY AT DEPLOY: through the catch-all on an e2e test label, /_FASTDOG/metrics and //_fastdog/metrics must be denied by (fdctl).
