@@ -145,3 +145,17 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE: Docker connect review clarifies initial header setup/curl approval, user-provided PORT, fresh env filenames, API Docker metadata and immediate user-run key-file cleanup with restart guidance.
 
 - DONE: homepage AI onboarding hero and assistant setup section reuse existing styles; regression coverage pins the copy, links and unchanged pricing markup.
+
+- DONE: homepage review clarifies connect-token versus agent-key lifetime and the docs link; pricing is pinned by SHA-256 without a duplicate fixture or exemption.
+
+## Homepage claim sources (Oct 17 production E2E)
+
+Operator-reported evidence for the homepage claim; logs live on the operator host, not in git.
+
+- Test hostname pattern: `e2e-*` on an operator test tenant.
+- First prompt: 17:35:17Z; first HTTPS 200: 17:37:17Z; status `live:true`: 17:38:05.8Z. Total: 2:48.8, including 63.4 s operator DNS and 29.3 s approval wait.
+- Permission prompts: 1 (the `docker run`), with curl/WebFetch pre-allowed.
+- AI usage: Claude Code reported `total_cost_usd` 0.1719446 (list-price estimate, cumulative session total).
+- DNS: 2 records (CNAME + TXT) on our own authoritative nameservers.
+- Single run, not a typical-outcome guarantee.
+- Code facts: `CONNECT_TOKEN_TTL_MS=3600000` in [connect-tokens.js](../portal/src/connect-tokens.js); the [agent](../agent/index.js) opens only outbound connections and has no listening server, so no inbound ports are needed on the customer's server.

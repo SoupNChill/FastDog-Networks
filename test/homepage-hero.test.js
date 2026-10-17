@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
@@ -24,18 +25,19 @@ test('AI setup section sits between hero and products with scoped guidance', () 
   assert.ok(ai.includes('<div class="section-marker">For AI coding assistants</div>'));
   assert.ok(ai.includes('<h2 id="for-ai-assistants">Let your coding assistant do the setup.</h2>'));
   assert.equal((ai.match(/<li>/g) || []).length, 4);
-  for (const lead of ['Copy a prompt.', 'Scoped, short-lived keys.', 'Docs your AI can read.', 'What you still do.']) {
+  for (const lead of ['Copy a prompt.', 'Scoped, short-lived connect token.', 'Docs your AI can read.', 'What you still do.']) {
     assert.ok(ai.includes(`<strong>${lead}</strong>`));
   }
   assert.match(ai, /href="\/llms\.txt"/);
-  assert.match(ai, /href="\/docs\/"/);
+  assert.ok(ai.includes('<a href="/docs/">the docs</a>'));
+  assert.ok(ai.includes('<strong>Scoped, short-lived connect token.</strong> The prompt carries a connect token that only covers that one hostname, expires after an hour, and can be revoked any time from the same page. The agent key it sets up is long-lived and stays on your server. Your password and sudo prompts stay with you.'));
   assert.match(ai, /Questions\? Email <a href="mailto:support@fastdognetworks\.com">support@fastdognetworks\.com<\/a>\./);
   assert.ok(!ai.includes('First reply the same business day'));
   assert.doesNotMatch(ai, /same[- ]business[- ]day/i);
 });
 
-test('pricing markup remains byte-identical to the pre-edit HEAD fixture', () => {
-  // Captured from site/index.html and checked against HEAD before the hero edit.
-  const baseline = readFileSync(new URL('./fixtures/pricing-section.html', import.meta.url));
-  assert.deepEqual(Buffer.from(section('pricing')), baseline);
+test('pricing markup remains byte-identical to the pre-review homepage', () => {
+  // SHA-256 of the unchanged pricing section before this review (also identical to origin/master).
+  const baseline = '5b80f3aea1d01280000283ad4690b2c3ff1b5e3c239ff922a8e7e34af786203d';
+  assert.equal(createHash('sha256').update(section('pricing'), 'utf8').digest('hex'), baseline);
 });

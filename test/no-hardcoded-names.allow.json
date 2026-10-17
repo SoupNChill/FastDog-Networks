@@ -392,7 +392,7 @@
     }
   },
   "site/index.html": {
-    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "reason": "Reviewed legacy homepage lines plus the replacement hero and assistant-section support link; the two new hashes retain existing brand/support references, each once.",
     "lines": {
       "d1a05adc45df6264c75edc77562e36ee9dec560081aff863333a84d3950c170f": 1,
       "17d677cec6a85b721f163d776a90c7f1b810413854d0f32477405da7a90eb61d": 1,
@@ -488,12 +488,6 @@
     "lines": {
       "ab1e49f9c201d385062ff17562e60e146322039bb12f6193fc6f1a2dd5990c48": 1,
       "8e7e618055b6172280f724e11644b2e93924e395c48dca430ce16f1d3be7c738": 1
-    }
-  },
-  "test/fixtures/pricing-section.html": {
-    "reason": "Exact pre-edit homepage pricing fixture; preserves the existing FastDog support mail link required by the pricing regression test.",
-    "lines": {
-      "5068d42325589a11aa0ca0a0ed33e70bdd7ddd24401900d527fecf7dce353ecc": 1
     }
   },
   "test/no-hardcoded-names.allow.json": {

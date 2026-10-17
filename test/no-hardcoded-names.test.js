@@ -37,14 +37,14 @@ test('deny-list is lowercase data and exemptions are explicitly reviewed', () =>
   }
 });
 
-// Homepage onboarding: replace the old hero hash; add the required support link
-// and byte-identical pricing fixture (one file, two hashes, two occurrences).
+// Master baseline: 61 files, 350 hashes, 398 occurrences. Remove one old hero
+// hash/occurrence; add its replacement and the assistant support link (one each).
 test('allowlist stays grouped by directory and at exact reviewed baseline counts', () => {
   assert.deepEqual(Object.keys(allow), Object.keys(allow).sort());
-  assert.equal(Object.keys(allow).length, 62, 'review required to change exempt files');
+  assert.equal(Object.keys(allow).length, 61, 'review required to change exempt files');
   const lines = Object.values(allow).flatMap((rule) => Object.values(rule.lines || {}));
-  assert.equal(lines.length, 352, 'review required to change line-hash entries');
-  assert.equal(lines.reduce((sum, count) => sum + count, 0), 400, 'review required to change exempt occurrences');
+  assert.equal(lines.length, 351, 'review required to change line-hash entries');
+  assert.equal(lines.reduce((sum, count) => sum + count, 0), 399, 'review required to change exempt occurrences');
 });
 
 test('whole-file flags cannot exempt documentation or arbitrary source files', () => {
