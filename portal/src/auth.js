@@ -5,10 +5,17 @@ import { hashPassword, verifyPassword, validPassword, dummyPassword } from './pa
 import { findInvite } from './invites.js';
 import { fail } from './errors.js';
 import { sessionCookie } from './sessions.js';
+import { createSignupGuard } from './signup-guard.js';
 
 export function createAuth({ store, sessions, limits, now, mailer, config }) {
   const read = () => store.read('accounts', emptyAccounts());
   const generic = { ok: true };
+  const guard = createSignupGuard({ limits, config });
+  // Open sign-up outcomes: a reason code only, never the email or its domain.
+  const log = (outcome, reason) => {
+    try { config.logger?.({ event: 'signup', source: 'open', outcome, ...(reason ? { reason } : {}) }); }
+    catch { /* Logging cannot affect a response. */ }
+  };
   function link(data, user, kind) {
     const raw = token();
     data.links = data.links.filter((item) => item.expires_at > now() && !(item.user_id === user.id && item.kind === kind));
@@ -30,22 +37,36 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
       const { ip, session, send } = context;
       const email = normalizeEmail(body.email);
       if (path === '/api/signup') {
-        limits.take(`signup:${ip}`, 3, 3600000);
+        limits.take(`signup:${ip}`, config.signupIpPerHour, 3600000, true);
         if (!email || !validPassword(body.password)) return send(200, generic);
         // Derive before checking the invite to keep invalid invites and existing accounts indistinguishable.
         const password_hash = await hashPassword(body.password);
+        // Open sign-up applies only when no invite is offered; an invite always takes the invite path.
+        const open = config.openSignup && (body.invite_code === undefined || body.invite_code === null || body.invite_code === '');
+        if (open) {
+          const reason = guard.check(email);
+          if (reason) { log('refused', reason); return send(200, generic); }
+        }
         const data = read();
-        const invite = findInvite(data, body.invite_code, email, now());
-        if (!invite || data.users.some((u) => u.email === email)) return send(200, generic);
-        const tenant = { id: tenantId(), name: '', plan: invite.plan ?? config.defaultPlan,
-          hostname_limit: invite.hostname_limit ?? config.defaultHostnameLimit, status: 'active' };
+        const invite = open ? null : findInvite(data, body.invite_code, email, now());
+        if ((!open && !invite) || data.users.some((u) => u.email === email)) {
+          if (open) log('refused', 'exists');
+          return send(200, generic);
+        }
+        const tenant = open
+          ? { id: tenantId(), name: '', plan: config.openSignupPlan, hostname_limit: config.openSignupHostnameLimit, status: 'active', source: 'open' }
+          : { id: tenantId(), name: '', plan: invite.plan ?? config.defaultPlan,
+            hostname_limit: invite.hostname_limit ?? config.defaultHostnameLimit, status: 'active' };
         const user = { id: randomUUID(), tenant_id: tenant.id, email, password_hash, email_verified_at: null, auth_version: 1 };
         data.tenants.push(tenant);
         data.users.push(user);
-        invite.redeemed_at = now();
-        invite.tenant_id = tenant.id;
+        if (invite) {
+          invite.redeemed_at = now();
+          invite.tenant_id = tenant.id;
+        }
         const url = link(data, user, 'verify-email');
         store.write('accounts', data);
+        if (open) log('created', null);
         await mailer.send({ to: email, kind: 'verify-email', link: url });
         return send(200, generic);
       }
