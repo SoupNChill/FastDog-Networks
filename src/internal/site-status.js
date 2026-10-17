@@ -33,12 +33,15 @@ async function tailLines(file) {
   finally { await handle?.close().catch(() => {}); }
 }
 
-// Claim activation time as epoch ms; null when missing or unparseable (callers then fail closed).
+// Claim activation time as epoch ms. Accepts only a finite number or a strict ISO-8601 UTC string;
+// anything else (missing, "1", loose date strings) is null and callers then fail closed.
 // A hostname can be released and re-claimed by another tenant, and the logs and counts are keyed by
 // hostname only, so nothing from before the current claim may be shown.
+const ISO_UTC_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 function sinceMs(since) {
-  if (since === null || since === undefined || since === '') return null;
-  const ms = typeof since === 'number' ? since : Date.parse(since);
+  if (typeof since === 'number') return Number.isFinite(since) ? since : null;
+  if (typeof since !== 'string' || !ISO_UTC_RE.test(since)) return null;
+  const ms = Date.parse(since);
   return Number.isFinite(ms) ? ms : null;
 }
 

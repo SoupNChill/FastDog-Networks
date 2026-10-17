@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import net from 'node:net';
 import { tempDir } from './helpers/temp-dir.js';
@@ -162,7 +162,7 @@ test('a re-claimed hostname never shows the previous owner\'s traffic or shadow 
   // A claim on an exact hour boundary includes that bucket.
   assert.equal((await shadowStats('app.example.test', { countsFile: counts, since: (hour - 1) * 3600000, now: () => NOW })).scored, 5);
   // Missing or unparseable claim time fails closed.
-  for (const bad of [undefined, null, '', 'not a date']) {
+  for (const bad of [undefined, null, '', 'not a date', '1', 'Oct 16 2026', NaN]) {
     assert.deepEqual(await shadowStats('app.example.test', { countsFile: counts, shadowFile: rows, since: bad, now: () => NOW }), { available: false, shadow: true });
     assert.deepEqual(await trafficStats('app.example.test', { logDir: dir, since: bad, now: () => NOW }), { available: false });
   }
@@ -185,4 +185,17 @@ test('status service passes the current claim time to the probes and fails close
   const out = await svc.status(tid, 'app.example.test');
   assert.deepEqual(out.traffic, { available: false });
   assert.deepEqual(out.verdict, { available: false, shadow: true });
+});
+
+test('an active claim record without verified_at reports traffic and verdict as not available', async (t) => {
+  const h = await internalHarness(t, { statusTlsAddr: '127.0.0.1:443', siteProbes: { certInfo: async () => null } });
+  await h.activate(tid, 'app.example.test');
+  const file = join(h.dataDir, 'tenant_hostnames.json');
+  const records = JSON.parse(readFileSync(file, 'utf8'));
+  for (const record of records) delete record.verified_at;
+  writeFileSync(file, JSON.stringify(records));
+  const res = await h.request(hostPath(tid, 'app.example.test', '/status'));
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.traffic, { available: false });
+  assert.deepEqual(res.body.verdict, { available: false, shadow: true });
 });
