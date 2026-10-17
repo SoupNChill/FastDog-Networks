@@ -6,7 +6,7 @@ import { normalizeHostname, isReserved } from '../onboard/hostname.js';
 import { checkDnsVerification, attachTarget as defaultTarget, altAttachTarget as defaultAltTarget } from '../onboard/attach.js';
 import { edgeIp } from '../onboard/store.js';
 import { reservedSuffixes as defaultSuffixes } from '../lib/config.js';
-import { mayClaimTestLabel, isTestLabelHost } from './test-labels.js';
+import { mayClaimTestLabel, isTestLabelHost, isGuardrailHost } from './test-labels.js';
 
 export const fail = (status, code, extra = {}) => Object.assign(new Error(code), { status, code, ...extra });
 const DAY = 86400000;
@@ -169,6 +169,7 @@ export function createClaims(opts, changed) {
     get(tid, host) { return present(find(claims(), tid, host)); },
     create(tid, body) {
       const host = normalizeHostname(body.hostname);
+      if (isGuardrailHost(host)) throw fail(400, 'reserved_hostname');
       if (!mayClaimTestLabel(tid, host, attachTarget, altAttachTarget, directory)
         && (isReserved(host, reserved) || [attachTarget, altAttachTarget].filter(Boolean).some((target) => host === target.toLowerCase().replace(/\.$/, '')))) throw fail(400, 'reserved_hostname');
       if (!Number.isInteger(body.hostname_limit) || body.hostname_limit < 1 || body.hostname_limit > 1000) throw fail(400, 'invalid_limit');

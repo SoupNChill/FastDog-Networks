@@ -172,3 +172,34 @@ test('TLS ask: a verified test-label claim is approved, counts against its tenan
   assert.equal(ask(`static.${domain}`).status, 200);
   assert.equal(ask(`other.${domain}`).status, 404);
 });
+
+test('TLS ask requires the owner of an e2e name to still be a marked test tenant', async (t) => {
+  const h = setup(t);
+  h.mark([tester]);
+  const make = (extra = {}) => createTlsAsk({ tlsAskEnabled: true, liveVerify: false, dataDir: h.dataDir, attachTarget: target,
+    altAttachTarget: alt, now: () => Date.UTC(2026, 0, 1), ...extra });
+  await h.activate(tester, label);
+  assert.equal(make()(label).status, 200);
+  // The active claim stays routed, but no certificate is issued once the marking is gone.
+  h.mark([]);
+  assert.equal(make()(label).status, 404);
+  // Even with no reserved suffix covering the attach domain, an unmarked owner is refused.
+  assert.equal(make({ reservedSuffixes: [] })(label).status, 404);
+});
+
+test('guardrail hosts and their subdomains are refused when claiming and never approved by TLS ask', (t) => {
+  const h = setup(t);
+  const now = new Date().toISOString();
+  const records = [];
+  for (const guardrail of ENFORCE_DENYLIST) {
+    for (const host of [guardrail, `child.${guardrail}`]) {
+      assert.equal(code(() => h.claims.create(normal, { hostname: host, hostname_limit: 5 })), 'reserved_hostname', host);
+      records.push({ tenant_id: normal, hostname: host, status: 'active', verified_at: now });
+    }
+  }
+  writeJson('tenant_hostnames.json', records, 0o600, h.dataDir);
+  writeJson('attached_hosts.json', ENFORCE_DENYLIST.map((hostname) => ({ hostname, status: 'active' })), 0o600, h.dataDir);
+  const ask = createTlsAsk({ tlsAskEnabled: true, liveVerify: false, dataDir: h.dataDir, attachTarget: target, altAttachTarget: alt,
+    reservedSuffixes: [], staticHosts: ENFORCE_DENYLIST, now: () => Date.UTC(2026, 0, 1) });
+  for (const { hostname } of records) assert.equal(ask(hostname).status, 404, hostname);
+});

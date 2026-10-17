@@ -18,6 +18,12 @@ export const attachDomain = (attachTarget) => clean(attachTarget).split('.').sli
 // Hosts that are never claimable by anyone, whatever their shape.
 const neverClaimable = (host, targets) => ENFORCE_DENYLIST.includes(host) || targets.some((target) => host === clean(target));
 
+// Guardrail hosts (and their subdomains) are never claimed or approved for on-demand certificates.
+export const isGuardrailHost = (host) => {
+  const name = clean(host);
+  return ENFORCE_DENYLIST.some((guard) => name === guard || name.endsWith(`.${guard}`));
+};
+
 export function isTestLabelHost(host, attachTarget, ...otherTargets) {
   const domain = attachDomain(attachTarget);
   const name = clean(host);

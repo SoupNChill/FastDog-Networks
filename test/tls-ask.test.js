@@ -10,6 +10,7 @@ import { tempDir } from './helpers/temp-dir.js';
 
 const TENANT_A = 't_aaaaaaaaaaaaaaaaaaaa';
 const TENANT_B = 't_bbbbbbbbbbbbbbbbbbbb';
+const HOUR_MS = 3600000;
 
 function setup(t, overrides = {}) {
   let time = Date.UTC(2026, 0, 1);
@@ -273,13 +274,17 @@ test('TLS ask live verify re-confirms DNS proof before a first approval, with ca
   state.proof = true;
   assert.deepEqual(await decide('c.example.test'), [200, 'approved_new']);
 
-  // Resolver errors fail closed with 503 and are not cached.
+  // Resolver errors fail closed with 503 and are remembered for only 10 seconds.
   const e = build();
   e.save([e.claim(host, TENANT_A, { txt_value: txt })]);
   state.fail = Object.assign(new Error('boom'), { code: 'ESERVFAIL' });
   assert.deepEqual([(await e.ask(host)).status, (await e.ask(host)).reason], [503, 'live_verify_unavailable']);
+  const afterOutage = state.calls;
   state.fail = null;
-  assert.equal((await e.ask(host)).status, 200, 'an outage is not remembered');
+  assert.equal((await e.ask(host)).status, 503, 'a recent outage is cached briefly');
+  assert.equal(state.calls, afterOutage, 'no lookup while the outage is cached');
+  e.advance(10001);
+  assert.equal((await e.ask(host)).status, 200, 'an outage is forgotten after 10 seconds');
 
   // A hung resolver is cut off at the timeout.
   const slow = direct(t, { liveVerify: true, liveVerifyTimeoutMs: 20, edgePublicIp: '192.0.2.1',
@@ -567,4 +572,90 @@ test('TLS ask requires one active owner and denies legacy/tenant coexistence', a
   assert.equal((await h.ask()).statusCode, 404);
   h.save([{ hostname: host, status: 'active' }], 'attached_hosts.json');
   assert.equal((await h.ask()).statusCode, 200);
+});
+
+test('TLS ask caps approvals per registered domain over 7 days (default 40, env override)', (t) => {
+  const h = direct(t, { domainMaxPerHour: 1000, tenantMaxPerHour: 1000, globalMaxPerHour: 1000 });
+  const hosts = Array.from({ length: 41 }, (_, i) => `h${i}.week.example.test`);
+  h.save([...hosts.map((host) => h.claim(host)), h.claim('other.example.org')]);
+  for (const host of hosts.slice(0, 40)) {
+    assert.equal(h.ask(host).status, 200, host);
+    h.advance(2 * HOUR_MS); // Spread out so only the weekly window can refuse.
+  }
+  // 80 hours have passed, so the first approvals are still inside the 7-day window.
+  const refused = h.ask(hosts[40]);
+  assert.deepEqual([refused.status, refused.reason], [429, 'approval_cap_domain_week']);
+  assert.ok(refused.retry_after > 0);
+  // Other registered domains are unaffected, and the window rolls after 7 days.
+  assert.equal(h.ask('other.example.org').status, 200);
+  h.advance(7 * 24 * HOUR_MS);
+  assert.equal(h.ask(hosts[40]).status, 200);
+
+  const tight = direct(t, { domainMaxPerHour: 1000, domainMaxPerWeek: 2 });
+  tight.save(['a', 'b', 'c'].map((n) => tight.claim(`${n}.tight.example.test`)));
+  assert.deepEqual(['a', 'b', 'c'].map((n) => tight.ask(`${n}.tight.example.test`).status), [200, 200, 429]);
+
+  const previous = process.env.TLS_ASK_DOMAIN_WEEK_MAX;
+  t.after(() => { if (previous === undefined) delete process.env.TLS_ASK_DOMAIN_WEEK_MAX; else process.env.TLS_ASK_DOMAIN_WEEK_MAX = previous; });
+  process.env.TLS_ASK_DOMAIN_WEEK_MAX = '1';
+  const envCap = direct(t, { domainMaxPerHour: 1000 });
+  envCap.save(['a', 'b'].map((n) => envCap.claim(`${n}.env.example.test`)));
+  assert.deepEqual(['a', 'b'].map((n) => envCap.ask(`${n}.env.example.test`).status), [200, 429]);
+});
+
+const restart = (directory, time, extra = {}) => createTlsAsk({ dataDir: directory, tlsAskEnabled: true, liveVerify: false,
+  now: () => time, attachTarget: 'attach.example.test', altAttachTarget: 'edge.example.test',
+  reservedSuffixes: ['reserved.example.test'], ...extra });
+
+test('TLS ask approval budgets persist across restarts, atomically, pruned to 7 days', (t) => {
+  const first = direct(t, { tenantMaxPerHour: 1 });
+  first.save(['a', 'b'].map((n) => first.claim(`${n}.persist.example.test`)));
+  assert.equal(first.ask('a.persist.example.test').status, 200);
+  const file = `${first.directory}/tls_ask_approvals.json`;
+  const stored = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual(stored.map(({ host, tenant, domain }) => [host, tenant, domain]), [['a.persist.example.test', TENANT_A, 'example.test']]);
+  assert.ok(Number.isFinite(stored[0].at));
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.deepEqual(fs.readdirSync(first.directory).filter((name) => name.endsWith('.tmp')), []);
+
+  // A restart (new instance, same directory and clock) still sees the spent budgets.
+  const time = Date.UTC(2026, 0, 1);
+  const again = restart(first.directory, time, { tenantMaxPerHour: 1 });
+  assert.equal(again('a.persist.example.test').reason, 'approved_repeat');
+  assert.equal(again('b.persist.example.test').reason, 'approval_cap_tenant');
+  const weekly = restart(first.directory, time + 2 * HOUR_MS, { domainMaxPerWeek: 1 });
+  assert.equal(weekly('b.persist.example.test').reason, 'approval_cap_domain_week');
+
+  // Entries older than 7 days are pruned on load; a missing file starts empty.
+  fs.writeFileSync(file, JSON.stringify([{ host: 'old.persist.example.test', tenant: TENANT_A, domain: 'example.test', at: time - 8 * 24 * HOUR_MS }]));
+  const pruned = restart(first.directory, time, { domainMaxPerWeek: 1 });
+  assert.equal(pruned('b.persist.example.test').reason, 'approved_new');
+  assert.ok(!JSON.parse(readFileSync(file, 'utf8')).some((entry) => entry.host.startsWith('old.')));
+  const empty = direct(t);
+  empty.save([empty.claim('z.persist.example.test')]);
+  assert.equal(empty.ask('z.persist.example.test').reason, 'approved_new');
+});
+
+test('TLS ask treats a corrupt state file as full windows for 10 minutes without crashing', (t) => {
+  const seed = direct(t);
+  seed.save([seed.claim('a.corrupt.example.test')]);
+  for (const raw of ['{not json', '{"a":1}', JSON.stringify([{ host: 1 }])]) {
+    fs.writeFileSync(`${seed.directory}/tls_ask_approvals.json`, raw);
+    const errors = [];
+    const original = console.error;
+    console.error = (...args) => errors.push(args.join(' '));
+    let time = Date.UTC(2026, 0, 1);
+    let ask;
+    try { ask = restart(seed.directory, undefined, { now: () => time }); } finally { console.error = original; }
+    assert.equal(errors.length, 1, raw);
+    assert.doesNotMatch(errors[0], /corrupt\.example/);
+    const blocked = ask('a.corrupt.example.test');
+    assert.deepEqual([blocked.status, blocked.reason], [429, 'approval_state_unavailable']);
+    assert.ok(blocked.retry_after > 0 && blocked.retry_after <= 600);
+    time += 9 * 60000;
+    assert.equal(ask('a.corrupt.example.test').status, 429, 'still paused');
+    time += 61000;
+    assert.equal(ask('a.corrupt.example.test').status, 200, 'resumes after 10 minutes');
+    assert.ok(Array.isArray(JSON.parse(readFileSync(`${seed.directory}/tls_ask_approvals.json`, 'utf8'))), 'unreadable file is replaced');
+  }
 });

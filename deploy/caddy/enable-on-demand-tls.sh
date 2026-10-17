@@ -5,25 +5,29 @@ set -euo pipefail
 export LC_ALL=C
 usage() {
   echo 'Usage: enable-on-demand-tls.sh [--dry-run] [Caddyfile]' >&2
-  echo '       enable-on-demand-tls.sh --rollback <backup> [Caddyfile]' >&2
+  echo '       enable-on-demand-tls.sh --rollback <backup> [--force] [Caddyfile]' >&2
   exit 1
 }
 dry_run=false
 rollback=
+force=false
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run) dry_run=true; shift ;;
     --rollback) [[ $# -ge 2 ]] || usage; rollback=$2; shift 2 ;;
+    --force) force=true; shift ;;
     -*) usage ;;
     *) break ;;
   esac
 done
 [[ $# -le 1 ]] || usage
 [[ -z $rollback ]] || ! $dry_run || usage
+[[ -n $rollback ]] || ! $force || usage
 caddyfile=${1:-/etc/caddy/Caddyfile}
-# BIN is a directory containing caddy and systemctl; only override it for fixtures.
+# BIN is a directory containing caddy, curl and systemctl; only override it for fixtures.
 caddy=${BIN:+$BIN/}caddy
 systemctl=${BIN:+$BIN/}systemctl
+curl=${BIN:+$BIN/}curl
 # INTERNAL_PORT is the edge internal listener (see TLS ask docs); UPSTREAM_PORT is the edge proxy port.
 ask_port=${INTERNAL_PORT:-8789}
 upstream_port=${UPSTREAM_PORT:-8787}
@@ -44,7 +48,9 @@ fi
 stamp=$(date -u +%Y%m%dT%H%M%S%N)
 work=
 candidate=
+tmp=
 cleanup() {
+  [[ -z $tmp ]] || rm -f -- "$tmp"
   [[ -z $work ]] || rm -rf -- "$work"
   [[ -z $candidate ]] || rm -f -- "$candidate"
 }
@@ -52,9 +58,10 @@ trap cleanup EXIT
 
 # Install a file over the Caddyfile atomically (same directory rename), keeping mode and owner.
 install_over() {
-  local tmp="${caddyfile}.tmp-ondemand-$stamp"
-  cp -p -- "$1" "$tmp"
-  mv -f -- "$tmp" "$caddyfile"
+  tmp="${caddyfile}.tmp-ondemand-$stamp"
+  # Explicit chain: errexit is suspended when callers test this function in an if.
+  cp -p -- "$1" "$tmp" && mv -f -- "$tmp" "$caddyfile" || return 1
+  tmp=
 }
 # Reinstall a known-good file, validate it, reload; fall back to a restart. Returns 0 only when
 # Caddy is active, 1 when the file could not be restored but Caddy is running, 3 when Caddy is down.
@@ -80,9 +87,33 @@ reload_and_check() {
   # Explicit chain: errexit is suspended when callers test this function in an if.
   "$systemctl" reload caddy && "$systemctl" is-active --quiet caddy
 }
+# The edge internal listener must answer after a reload; the ask route depends on it.
+ask_healthy() {
+  local try
+  for try in 1 2 3; do
+    "$curl" -fsS --max-time 3 -o /dev/null "http://127.0.0.1:${ask_port}/health" 2>/dev/null && return 0
+    (( try == 3 )) || sleep "${HEALTH_DELAY:-1}"
+  done
+  echo "Ask endpoint http://127.0.0.1:${ask_port}/health is not healthy." >&2
+  return 1
+}
 
 if [[ -n $rollback ]]; then
   [[ -f $rollback && ! -L $rollback ]] || { echo 'Backup must be a regular, non-symlink file.' >&2; exit 1; }
+  # Refuse to discard edits made since enabling (for example hosts added with add-customer-host.sh).
+  enabled="${rollback/.bak-ondemand-/.enabled-ondemand-}"
+  if ! $force; then
+    if [[ $enabled == "$rollback" || ! -f $enabled ]]; then
+      echo 'No record of the post-enable Caddyfile for this backup; use --force to roll back anyway.' >&2
+      exit 1
+    fi
+    if ! cmp -s -- "$enabled" "$caddyfile"; then
+      echo 'The Caddyfile has changed since on-demand TLS was enabled; rolling back would discard those changes.' >&2
+      echo "Review: diff -u $(printf '%q %q' "$enabled" "$caddyfile")" >&2
+      echo 'Re-run with --force to roll back anyway.' >&2
+      exit 1
+    fi
+  fi
   safety="${caddyfile}.bak-ondemand-prerollback-$stamp"
   cp -p -- "$caddyfile" "$safety"
   candidate="${caddyfile}.candidate-ondemand-$stamp"
@@ -188,11 +219,13 @@ restore() {
   return $code
 }
 trap 'code=0; restore || code=$?; exit $(( code == 0 ? 1 : code ))' HUP INT TERM
-if ! { install_over "$candidate" && installed=true && reload_and_check; }; then
+if ! { install_over "$candidate" && installed=true && reload_and_check && ask_healthy; }; then
   installed=true # A partial install is restored too; the backup is a complete copy.
   code=0
   restore || code=$?
   exit $(( code == 0 ? 1 : code ))
 fi
 trap - HUP INT TERM
+# Record the installed file so a later rollback can tell whether the Caddyfile changed since.
+cp -p -- "$caddyfile" "${backup/.bak-ondemand-/.enabled-ondemand-}"
 printf 'Enabled on-demand TLS. Backup: %s\n' "$backup"

@@ -36,11 +36,15 @@ case "$1" in
   is-active) if [ -e '${dir}/restarted' ]; then exit "\${ACTIVE_AFTER_RESTART:-\${ACTIVE_STATUS:-0}}"; fi; exit "\${ACTIVE_STATUS:-0}" ;;
 esac
 `, { mode: 0o755 });
+  writeFileSync(join(bin, 'curl'), `#!/bin/sh
+printf 'curl %s\\n' "$*" >> '${calls}'
+exit "\${CURL_STATUS:-0}"
+`, { mode: 0o755 });
   // Only the fixture copy's UID check changes; the original's root refusal is tested separately.
   const fixtureScript = join(dir, 'enable.sh');
   writeFileSync(fixtureScript, readFileSync(script, 'utf8').replace('[[ $EUID == 0 ]]', '[[ 0 == 0 ]]'));
   const run = (args = [], extra = {}) => spawnSync('bash', [fixtureScript, ...args],
-    { encoding: 'utf8', env: { ...process.env, BIN: bin, ...extra } });
+    { encoding: 'utf8', env: { ...process.env, BIN: bin, HEALTH_DELAY: '0', ...extra } });
   const callLog = () => (existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n') : []);
   const backups = () => readdirSync(etc).filter((name) => name.startsWith('Caddyfile.bak-ondemand-') && !name.includes('prerollback'));
   return { dir, etc, file, run, callLog, backups, read: () => readFileSync(file, 'utf8') };
@@ -74,8 +78,33 @@ test('enable prepends the global block, appends the catch-all and leaves existin
   assert.equal(readFileSync(join(f.dir, 'validated'), 'utf8'), f.read());
   const calls = f.callLog();
   assert.match(calls[0], /^caddy validate --adapter caddyfile --config .*Caddyfile\.candidate-ondemand-/);
-  assert.deepEqual(calls.slice(1), ['systemctl reload caddy', 'systemctl is-active --quiet caddy']);
+  assert.deepEqual(calls.slice(1), ['systemctl reload caddy', 'systemctl is-active --quiet caddy',
+    'curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:8789/health']);
   assert.deepEqual(readdirSync(f.etc).filter((name) => name.includes('candidate') || name.includes('tmp')), []);
+});
+
+test('an unhealthy ask endpoint after reload restores the backup and reloads again', (t) => {
+  const f = fixture(t);
+  const result = f.run([f.file], { CURL_STATUS: '7' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /not healthy/);
+  assert.match(result.stderr, /Restored/);
+  assert.equal(f.read(), initial);
+  assert.equal(f.callLog().filter((line) => line.startsWith('curl')).length, 3, 'retried before giving up');
+  assert.equal(f.callLog().filter((line) => line === 'systemctl reload caddy').length, 2);
+  assert.deepEqual(readdirSync(f.etc).filter((name) => name.includes('enabled-ondemand')), []);
+});
+
+test('the temporary install file is removed when the script is interrupted mid-install', (t) => {
+  const f = fixture(t);
+  // The script keeps the tmp path in its cleanup trap; a failing mv leaves nothing behind.
+  const source = readFileSync(script, 'utf8');
+  assert.match(source, /\[\[ -z \$tmp \]\] \|\| rm -f -- "\$tmp"/);
+  writeFileSync(join(f.dir, 'bin', 'mv'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const result = f.run([f.file], { PATH: `${join(f.dir, 'bin')}:${process.env.PATH}` });
+  assert.notEqual(result.status, 0);
+  assert.equal(f.read(), initial);
+  assert.deepEqual(readdirSync(f.etc).filter((name) => name.includes('tmp') || name.includes('candidate')), []);
 });
 
 test('enable honours INTERNAL_PORT and UPSTREAM_PORT and rejects non-numeric ports', (t) => {
@@ -162,6 +191,33 @@ test('rollback restores a backup after validating it, keeping a pre-rollback cop
   const calls = f.callLog().filter(Boolean);
   assert.match(calls[0], /^caddy validate --adapter caddyfile --config /);
   assert.deepEqual(calls.slice(1), ['systemctl reload caddy', 'systemctl is-active --quiet caddy']);
+});
+
+test('rollback refuses when the Caddyfile changed since enabling unless --force', (t) => {
+  const f = fixture(t);
+  assert.equal(f.run([f.file]).status, 0);
+  const backup = join(f.etc, f.backups()[0]);
+  const edited = `${f.read()}\nadded.example.test {\n    reverse_proxy 127.0.0.1:8787\n}\n`;
+  writeFileSync(f.file, edited);
+  const refused = f.run(['--rollback', backup, f.file]);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /changed since/);
+  assert.match(refused.stderr, /diff -u .*enabled-ondemand-.*Caddyfile/);
+  assert.match(refused.stderr, /--force/);
+  assert.equal(f.read(), edited);
+  assert.deepEqual(readdirSync(f.etc).filter((name) => name.includes('prerollback')), []);
+  const forced = f.run(['--rollback', backup, '--force', f.file]);
+  assert.equal(forced.status, 0, forced.stderr);
+  assert.equal(f.read(), initial);
+  const safety = readdirSync(f.etc).find((name) => name.includes('prerollback'));
+  assert.equal(readFileSync(join(f.etc, safety), 'utf8'), edited);
+  // --force is only meaningful with --rollback, and a backup with no enable record needs it too.
+  assert.notEqual(f.run(['--force', f.file]).status, 0);
+  const g = fixture(t);
+  writeFileSync(join(g.etc, 'Caddyfile.bak-ondemand-manual'), initial);
+  const missing = g.run(['--rollback', join(g.etc, 'Caddyfile.bak-ondemand-manual'), g.file]);
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /No record/);
 });
 
 test('rollback with a failing validate or reload does not leave a broken file', (t) => {

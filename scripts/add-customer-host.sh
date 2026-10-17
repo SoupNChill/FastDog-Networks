@@ -26,8 +26,9 @@ systemctl=${BIN:+$BIN/}systemctl
 [[ -f $caddyfile && ! -L $caddyfile ]] || { echo 'Caddyfile must be a regular, non-symlink file.' >&2; exit 1; }
 if ! $dry_run; then
   [[ $EUID == 0 ]] || { echo 'Run as root on the edge.' >&2; exit 1; }
-  # Lock the file itself so a dry run creates no files.
-  exec 9<"$caddyfile"
+  # Same sidecar lock as deploy/caddy/enable-on-demand-tls.sh (installs replace the Caddyfile inode);
+  # taken only for real writes so a dry run creates no files.
+  exec 9>"${caddyfile}.lock"
   flock -x 9
 fi
 # Conservative token match also catches URL-style site addresses and fdlog imports.

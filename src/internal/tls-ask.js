@@ -4,13 +4,15 @@ import path from 'node:path';
 import { readJson, dataDir, jsonRevision } from '../onboard/json.js';
 import { reservedSuffixes } from '../lib/config.js';
 import { attachTarget, altAttachTarget } from '../onboard/attach.js';
-import { isTestLabelHost } from './test-labels.js';
+import { isTestLabelHost, isGuardrailHost, testTenants } from './test-labels.js';
 import { checkClaimProof } from './claims.js';
 import { edgeIp } from '../onboard/store.js';
 import dns from 'node:dns/promises';
 
 const HOUR = 3600000;
 const MINUTE = 60000;
+const WEEK = 7 * 24 * HOUR;
+const STATE_FILE = 'tls_ask_approvals.json';
 const positive = (value, fallback) => {
   const number = Number(value);
   return value !== undefined && value !== '' && Number.isSafeInteger(number) && number > 0 ? number : fallback;
@@ -39,11 +41,14 @@ export function createTlsAsk(opts = {}) {
   const tenantMax = positive(opts.tenantMaxPerHour ?? env.TLS_ASK_TENANT_MAX_PER_HOUR, 10);
   const globalMax = positive(opts.globalMaxPerHour ?? env.TLS_ASK_GLOBAL_MAX_PER_HOUR, 100);
   const domainMax = positive(opts.domainMaxPerHour ?? env.TLS_ASK_DOMAIN_MAX_PER_HOUR, 5);
+  // Let's Encrypt allows 50 certificates per registered domain per week; stay below it.
+  const domainWeekMax = positive(opts.domainMaxPerWeek ?? env.TLS_ASK_DOMAIN_WEEK_MAX, 40);
   const liveVerify = opts.liveVerify ?? (env.TLS_ASK_LIVE_VERIFY !== '0');
   const resolver = opts.resolver ?? dns;
   const liveTimeout = positive(opts.liveVerifyTimeoutMs, 3000);
   const livePositiveTtl = positive(opts.liveVerifyPositiveTtlMs, 10 * MINUTE);
   const liveNegativeTtl = positive(opts.liveVerifyNegativeTtlMs, 60000);
+  const liveUnavailableTtl = positive(opts.liveVerifyUnavailableTtlMs, 10000);
   const checksMax = positive(opts.checksPerMinute ?? env.TLS_ASK_CHECKS_PER_MINUTE, 600);
   const denyTtl = positive(opts.denyTtlMs, MINUTE);
   const denyMax = positive(opts.denyCacheMax, 10000);
@@ -63,10 +68,47 @@ export function createTlsAsk(opts = {}) {
   let nextCheck = 0;
   let failedUntil = 0;
   const approvals = new Map(); // host -> { tenant, at }; insertion order is chronological
+  let history = []; // { host, tenant, domain, at } for the last 7 days; persisted across restarts
+  let stateFullUntil = 0; // an unreadable state file counts every window as full for a while
+  const stateFile = path.join(directory, STATE_FILE);
   const denies = new Map(); // host -> expiry; insertion order is chronological
   let checkUntil = 0;
   let checkCount = 0;
   const counts = {};
+
+  const validEntry = (e) => e && typeof e === 'object' && typeof e.host === 'string' && typeof e.domain === 'string'
+    && (e.tenant === null || typeof e.tenant === 'string') && Number.isFinite(e.at);
+  function loadState() {
+    if (!enabled) return;
+    const time = now();
+    try {
+      const list = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      if (!Array.isArray(list) || !list.every(validEntry)) throw new Error('malformed');
+      history = list.filter((e) => time - e.at < WEEK).map(({ host, tenant, domain, at }) => ({ host, tenant, domain, at }))
+        .sort((a, b) => a.at - b.at);
+      for (const entry of history) {
+        if (time - entry.at >= HOUR) continue;
+        approvals.delete(entry.host);
+        approvals.set(entry.host, { tenant: entry.tenant, domain: entry.domain, at: entry.at });
+      }
+    } catch (error) {
+      if (error.code === 'ENOENT') return;
+      console.error('tls ask: approval state unreadable; approvals paused for 10 minutes');
+      stateFullUntil = time + 10 * MINUTE;
+    }
+  }
+  function saveState() {
+    const temp = `${stateFile}.${process.pid}.tmp`;
+    try {
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(temp, `${JSON.stringify(history)}\n`, { mode: 0o600 });
+      fs.renameSync(temp, stateFile);
+    } catch {
+      console.error('tls ask: could not persist approval state');
+      try { fs.rmSync(temp, { force: true }); } catch { /* Best effort. */ }
+    }
+  }
+  loadState();
 
   function refresh(time) {
     const current = files.map((file) => jsonRevision(file, directory)).join(':');
@@ -126,6 +168,8 @@ export function createTlsAsk(opts = {}) {
     // Re-approvals within the window are free, even when a cap has since been reached.
     if (prior && prior.tenant === tenant) return decide(200, 'approved_repeat');
     if (prior) approvals.delete(host);
+    if (time < stateFullUntil) return decide(429, 'approval_state_unavailable', { retry_after: seconds(stateFullUntil - time) });
+    history = history.filter((entry) => time - entry.at < WEEK);
     if (approvals.size >= globalMax) {
       return decide(429, 'approval_cap_global', { retry_after: seconds(approvals.values().next().value.at + HOUR - time) });
     }
@@ -136,7 +180,11 @@ export function createTlsAsk(opts = {}) {
     const domain = registeredDomain(host);
     const same = [...approvals.values()].filter((entry) => entry.domain === domain);
     if (same.length >= domainMax) return decide(429, 'approval_cap_domain', { retry_after: seconds(same[0].at + HOUR - time) });
+    const week = history.filter((entry) => entry.domain === domain);
+    if (week.length >= domainWeekMax) return decide(429, 'approval_cap_domain_week', { retry_after: seconds(week[0].at + WEEK - time) });
     approvals.set(host, { tenant, domain, at: time });
+    history.push({ host, tenant, domain, at: time });
+    saveState();
     return decide(200, 'approved_new');
   }
 
@@ -153,11 +201,10 @@ export function createTlsAsk(opts = {}) {
         return routing.ok && ownership.ok;
       }, () => null).then((ok) => {
         inflight.delete(key);
-        if (ok !== null) {
-          live.delete(host);
-          if (live.size >= denyMax) live.delete(live.keys().next().value);
-          live.set(host, { proof, ok, until: now() + (ok ? livePositiveTtl : liveNegativeTtl) });
-        }
+        live.delete(host);
+        if (live.size >= denyMax) live.delete(live.keys().next().value);
+        // Failed lookups are cached briefly too, so a DNS outage is not hammered by every Caddy retry.
+        live.set(host, { proof, ok, until: now() + (ok === null ? liveUnavailableTtl : ok ? livePositiveTtl : liveNegativeTtl) });
         return ok;
       }));
     }
@@ -207,12 +254,13 @@ export function createTlsAsk(opts = {}) {
       try { host = normalizeHostname(input); } catch { /* Invalid names share the check budget. */ }
       let tenant = null;
       let approvable = false;
-      if (host) {
+      if (host && !isGuardrailHost(host)) {
         if (statics.has(host)) approvable = true;
         else if (owners.has(host)) {
           const open = !isReserved(host, reserved) && !targetNames.includes(host);
-          // Under the reserved attach domain only a verified tenant claim on an e2e test label is approvable.
-          if (open || (owners.get(host) && primary && isTestLabelHost(host, primary, alt))) {
+          // Under the reserved attach domain only a verified claim by a marked test tenant on an e2e label is approvable.
+          const label = primary && isTestLabelHost(host, primary, alt);
+          if (label ? testTenants(directory).has(owners.get(host)) : open) {
             approvable = true;
             tenant = owners.get(host);
           }
