@@ -27,6 +27,14 @@ test('connect tokens need an active owned hostname, CSRF and a verified session'
   assert.ok(issued.data.prompt.includes(issued.data.token));
   assert.ok(issued.data.prompt.includes('app.example.test'));
   assert.ok(issued.data.prompt.includes('https://docs.example.test/llms.txt'));
+  assert.ok(issued.data.prompt.includes('-H @/absolute/path/auth.header'), 'permission-friendly header file');
+  assert.ok(issued.data.prompt.includes(`(umask 077; printf 'Authorization: Bearer %s\\n' '${issued.data.token}' > ~/.config/fastdog/auth.header)`), 'one-time user-run key setup');
+  assert.ok(issued.data.prompt.includes('ask me to run this one-time command') && issued.data.prompt.includes('do not write the header file yourself'));
+  assert.ok(issued.data.prompt.includes('HOME may differ') && issued.data.prompt.includes('only ask which port'));
+  assert.ok(issued.data.prompt.includes('curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json') && issued.data.prompt.includes('delete the file'));
+  assert.ok(!/curl -o|chmod/.test(issued.data.prompt), 'no umask/chmod reliance for the connect response');
+  assert.ok(issued.data.prompt.includes('Do not run the command'));
+  assert.ok(issued.data.prompt.includes('every 15 seconds') && issued.data.prompt.includes('3 a day'));
   const stored = JSON.stringify(f.store.read('connect_tokens', []));
   assert.equal(stored.includes(issued.data.token), false, 'only a digest is stored');
   const list = await a.client.call('/api/hostnames/app.example.test/connect-token');

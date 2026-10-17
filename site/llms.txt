@@ -2,14 +2,64 @@
 
 > FastDog puts a website that runs on your own server on the public internet over HTTPS, without opening ports. You add your address, add two DNS records, run a small agent on your server, and check a live status page. Human docs: /docs/ on this site.
 
+## Start here (assistant holding an API key)
+
+Use the API key (fdak_) for the whole flow from zero. The connect token (fdct_) from the portal's "Copy prompt for your AI assistant" only exists after the hostname is verified and only covers the connect step (section "Connect token API").
+
+0. One-time key setup (the user runs this, or approves it once). Assistants with a command allowlist refuse commands that expand a secret variable, so ask the user for this step at the start; do not retry variations. Reference the file by absolute path, because your HOME may differ from the user's (see "Using a credential"):
+
+       mkdir -p ~/.config/fastdog && (umask 077; printf 'Authorization: Bearer %s\n' '<paste key>' > ~/.config/fastdog/auth.header)
+
+1. POST /api/v1/hostnames {"hostname": "app.example.com"} -> note dns.cname and dns.txt.
+2. Show the user the two DNS records as a table (type, name, value, and "DNS only" / grey cloud on Cloudflare). You normally cannot add DNS records yourself; the user adds them at their DNS provider and tells you when done.
+3. Poll POST /api/v1/hostnames/<hostname>/verify every 30 seconds (limit: 6 a minute) until verified is true / status is active. Failures before the records exist are normal: checks.routing.ok and checks.ownership.ok are false, with errors such as txt_not_found, txt_mismatch or dns_timeout. DNS can take minutes to hours; stop and ask the user after about 30 minutes.
+4. Use the port or origin the user already gave you (origin like http://127.0.0.1:3000); only ask if they have not.
+5. POST /api/v1/hostnames/<hostname>/connect -> command. The user runs it (see "Connect command").
+6. Poll GET /api/v1/hostnames/<hostname>/status every 15 seconds (results are cached for 30 s) until live is true (see "Status fields").
+7. Open https://<hostname>/ and confirm the app loads.
+
+A pending hostname is reserved for 24 hours (expires_at in the response). After that it is released; create it again, which gives a new TXT value, so update the record.
+
+## Using a credential without a rejected shell command
+
+Many assistants (Claude Code in default permission mode, Codex, etc.) refuse commands that expand a secret variable such as "$FASTDOG_API_KEY", including the command that writes the header file. So the user saves the key once with the step 0 command (or approves it once); do not try to write it yourself or retry variations. Never echo or cat the key or the file. Then pass the file to curl:
+
+    curl -sS -H @/home/USER/.config/fastdog/auth.header https://<portal>/api/v1/hostnames/app.example.com/status
+
+Use an absolute path in -H @file (no ~ or variables, so the command matches an allowlist; your HOME may differ from the user's, so use the path the user's command created). The same applies to an fdct_ token. Send credentials only as headers; tokens in URLs or bodies are rejected.
+
+## Connect command
+
+The Linux command uses sudo and contains the agent's private token. The assistant must not run it and must not read the token inside it. Instead save the response with `curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json` (curl 7.75+; creates the file private, so no umask or chmod is needed):
+
+    curl -sS --create-file-mode 0600 -X POST -H @/home/USER/.config/fastdog/auth.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:3000","platform":"linux"}' -o /home/USER/fastdog-connect.json https://<portal>/api/v1/hostnames/app.example.com/connect
+
+Then tell the user the one-line way to run it, for example: `sh -c "$(python3 -c 'import json;print(json.load(open("/home/USER/fastdog-connect.json"))["command"])')"; rm /home/USER/fastdog-connect.json` (or open the file and copy the "command" field), and delete the file afterwards. The user types their own sudo password. platform "docker" writes fastdog-agent.env; delete it after the container starts.
+
+Limits: 3 commands per hostname per day with a key (5 per day overall, shared with the portal); a connect-token command is single use. Each new command replaces the old key and drops the current connection until it runs, so do not request one again just to retry; first check status.
+
+## Status fields
+
+GET /api/v1/hostnames/<hostname>/status -> {live, reasons, checked_at, agent, cert, traffic, verdict}
+
+- live: true only when the agent is connected, its origin is not failing and a valid certificate is served. This is the stop condition: live true, then open https://<hostname>/.
+- reasons (empty when live): agent_disconnected (the command has not been run, or the agent stopped), origin_unreachable (agent is up, app is not answering at the origin: start the app or fix the port), certificate_missing, certificate_invalid, certificate_expired.
+- agent.connected, agent.last_seen, agent.origin_reachable (false = app not answering; absent/null on old agents = unknown), agent.agent_version.
+- cert: null when no certificate is served, else {valid, expires_at, issuer}.
+- traffic and verdict are informational (verdict counts are shadow only; nothing is blocked).
+
+The status page's "Test it" makes a real HTTPS request to the hostname through FastDog, so it shows exactly what a visitor gets.
+
+Certificates: they are not guaranteed to appear on the first visit. Automatic on-demand issuance depends on how FastDog's edge is set up and is off by default, so a new hostname's certificate may only appear once FastDog finishes setup. If reasons is only certificate_missing after the agent is connected and DNS is verified, wait about 10 minutes, tell the user HTTPS is not ready yet, and if it is still certificate_missing after 30 minutes, ask them to contact FastDog support with the hostname. Do not loop forever: stop polling after 30 minutes and report the last reasons.
+
 ## Concepts
 
-- Edge: FastDog's public server. It answers for your address, serves HTTPS with an automatic certificate, and forwards each request to your server.
+- Edge: FastDog's public server. It answers for your address, serves HTTPS and forwards each request to your server.
 - Agent: a small program on your server. It opens one outbound connection to the edge and keeps it open, so no inbound ports or firewall changes are needed and your server's IP stays private.
 - Origin: where your app listens on that server, for example http://127.0.0.1:3000.
 - Portal: the signed-in customer site where setup happens.
 
-## Setup
+## Setup without an assistant
 
 1. Add the website address in the portal (a subdomain such as app.example.com; root domains need ALIAS/ANAME/CNAME flattening).
 2. Add two DNS records at the domain's DNS provider:
@@ -19,38 +69,43 @@
 3. Connect the server: the portal returns a one-time connect command for Linux (recommended) or Docker. It contains a private key: never print it to logs, commits or chats. A new command replaces the old key.
 4. Check the Status page: Live / Not live, last checked, certificate expiry, agent connected, origin answering, 24h requests, p50 latency, bot-check counts (shadow mode, nothing blocked), and a Test it button.
 
-## Connect token API (for AI assistants)
+## Connect token API (fdct_, connect step only)
 
-The user creates a prompt on the portal's Server page. It contains a connect token (prefix fdct_) that works for one hostname, can only read that hostname's connection status and get its connect command once, expires after one hour, and is revocable. Send it only as a header: `Authorization: Bearer <token>`. Tokens in URLs are rejected.
+The user creates a prompt on the portal's Server page (only possible once the hostname is verified). It contains a connect token that works for one hostname, can only read that hostname's connection status and get its connect command once, expires after one hour, and is revocable. Send it only as `Authorization: Bearer <token>`.
 
 - GET {portal}/api/connect/v1/hostname -> {hostname, scope, expires_at, command_issued, agent: {connected, last_seen, origin_reachable, origin_checked_at}}
 - POST {portal}/api/connect/v1/command with JSON {"origin": "http://127.0.0.1:<port>", "platform": "linux" | "docker"} -> {hostname, platform, origin, command}. Single use per token (409 token_used after). Origins must be local or private addresses with a port (400 invalid_origin otherwise).
-- Errors: 401 unauthorized (missing, expired or revoked token), 429 rate_limited (honour Retry-After).
+- Errors: 401 unauthorized (missing, expired or revoked token), 409 not_active (hostname not verified), 429 rate_limited (honour Retry-After).
 
-Suggested flow: ask the user which port the app uses; call the command endpoint once; have the user run the command on the server (it uses sudo; the user types their own password); poll the hostname endpoint every 10 seconds until agent.connected is true; then open https://<hostname>/ to confirm.
+Poll the hostname endpoint every 15 seconds until agent.connected is true and agent.origin_reachable is not false; it has no certificate data, so open https://<hostname>/ to confirm.
 
-## API keys (scripts and assistants)
+## API keys (fdak_)
 
-Signed-in users with any paid plan create API keys on the portal's API keys page. A key (prefix fdak_) is shown once, stored only as a hash, belongs to one account, can be limited to exact hostnames, expires after 30 days by default (90 at most), and can be revoked at any time. A password change or a suspended account ends every key. Send it only as `Authorization: Bearer <key>`; keys in URLs, bodies or cookies are rejected. A key can never create another key.
+Signed-in users with any paid plan create API keys on the portal's API keys page. A key is shown once, stored only as a hash, belongs to one account, can be limited to exact hostnames, expires after 30 days by default (90 at most), and can be revoked at any time. A password change or a suspended account ends every key. A key can never create another key.
 
 Scopes (a key holds one or more):
-- `hostnames:create`: add a hostname and check its DNS. Counts against the plan's hostname limit.
-- `status:read`: read live status.
-- `connect`: get a connect command (replaces the current server connection; at most 3 per hostname per day with keys).
+- `hostnames:create`: add a hostname, read it, and check its DNS (verify). Counts against the plan's hostname limit.
+- `status:read`: read a hostname and its live status.
+- `connect`: get a connect command.
 Removing a hostname is not possible with a key; it is done in the portal.
 
-- POST {portal}/api/v1/hostnames with JSON {"hostname": "app.example.com"} -> 201 {hostname, status, dns: {cname, txt}} (`hostnames:create`)
+There is no endpoint that lists a key's scopes. 403 forbidden means the key lacks the scope for that call or the hostname is not on the key's hostname list; ask the user to create a key with the missing scope. Needed scope per call:
+
+- POST {portal}/api/v1/hostnames {"hostname": "app.example.com"} -> 201 {hostname, status, dns: {cname, txt}, expires_at} (`hostnames:create`)
 - GET {portal}/api/v1/hostnames/<hostname> -> {hostname, status, dns?, agent?} (`status:read` or `hostnames:create`)
 - POST {portal}/api/v1/hostnames/<hostname>/verify -> {hostname, status, verified, checks} (`hostnames:create`)
-- GET {portal}/api/v1/hostnames/<hostname>/status -> {live, reasons, checked_at, agent, cert, traffic, verdict} (`status:read`; verdict counts are shadow only)
+- GET {portal}/api/v1/hostnames/<hostname>/status -> see Status fields (`status:read`)
 - POST {portal}/api/v1/hostnames/<hostname>/connect with JSON {"origin": "http://127.0.0.1:<port>", "platform": "linux" | "docker"} -> {command} (`connect`)
-- Errors: 401 unauthorized (missing, expired or revoked key), 403 forbidden (scope or hostname not allowed by this key), 404 hostname_not_found, 409 hostname_limit_reached / not_active, 429 rate_limited (60 requests a minute per key; honour Retry-After).
+
+Errors: 401 unauthorized (missing, expired or revoked key), 403 forbidden, 404 hostname_not_found, 400 invalid_origin, 409 hostname_limit_reached, 409 hostname_unavailable, 409 not_active, 429 rate_limited (60 requests a minute per key; honour Retry-After).
+
+These return 409 not_active until the hostname is verified (status still pending): /connect, /status, the portal's connect-token creation, and both connect token API calls. Run verify first. Only create, GET <hostname> and verify work while pending.
 
 ## Troubleshooting
 
 - Records not seen: wait a few minutes; check the TXT name starts with _fastdog-challenge. and the provider did not append the domain twice.
 - Agent connected but origin not answering: start the app or fix the origin address. Inside Docker, 127.0.0.1 is the container; use host.docker.internal on Docker Desktop.
-- No certificate yet: it is issued on the first visit once DNS points at FastDog.
+- certificate_missing: see Status fields.
 
 ## Optional
 
