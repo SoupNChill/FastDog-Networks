@@ -99,9 +99,9 @@ export function connectionCommand(agentEnv, platform, portalOrigin = window.loca
   if (platform === 'windows') {
     return `Set-Content -LiteralPath fastdog-agent.env -Encoding ASCII -Value @(${entries.map(([key, value]) => powershellQuote(`${key}=${value}`)).join(', ')}) -ErrorAction Stop; ${run}`;
   }
-  const write = `printf '%s\\n' ${entries.map(([key, value]) => shellQuote(`${key}=${value}`)).join(' ')} > ${envFile} && chmod 600 ${envFile}`;
+  const write = `${platform === 'docker' ? '(set -C; ' : ''}printf '%s\\n' ${entries.map(([key, value]) => shellQuote(`${key}=${value}`)).join(' ')} > ${envFile}${platform === 'docker' ? ')' : ''} && chmod 600 ${envFile}`;
   // Docker pulls first so a failed pull never leaves the token file on disk.
-  return platform === 'docker' ? `umask 077; docker pull ${AGENT_IMAGE} && rm -f ${envFile} && ${write} && ${hostRun} || { rm -f ${envFile}; exit 1; }` : `umask 077; ${write} && ${run}`;
+  return platform === 'docker' ? `umask 077; docker pull ${AGENT_IMAGE} && rm -f ${envFile} && ${write} && ${hostRun} || { rm -f ${envFile}; false; }` : `umask 077; ${write} && ${run}`;
 }
 const CHOICES = [['docker', 'Docker (recommended)'], ['linux', 'Linux installer (sudo)'], ['macos', 'macOS'], ['windows', 'Windows (Untested)']];
 // Docker (host networking) is Linux-only; Mac and Windows visitors start on their Docker Desktop tab.

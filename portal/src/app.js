@@ -12,7 +12,7 @@ import { normalizeHostname } from './hostname.js';
 import { safePath, serveStatic, pages } from './static.js';
 import { createFileMailer } from './mailer-file.js';
 import { createConnectTokens, assistantPrompt } from './connect-tokens.js';
-import { buildCommand, validOrigin, originError } from './connect-command.js';
+import { dockerEnvFile, buildCommand, validOrigin, originError } from './connect-command.js';
 import { verifyPassword } from './passwords.js';
 import { createApiKeys, planAllowsKeys, API_KEY_SCOPES, DEFAULT_DAYS, MAX_DAYS } from './api-keys.js';
 
@@ -190,6 +190,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
         if (!command) throw fail('internal_error');
         return send(200, { hostname, platform, origin: upstream, command,
+          ...(platform === 'docker' ? { env_file: dockerEnvFile(rotated.credential.agent_env.AGENT_HOSTNAME) } : {}),
           note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it.' });
       }
       if (path.startsWith('/api/connect/v1/')) {
@@ -245,7 +246,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
         if (!command) throw fail('internal_error');
         return send(200, { hostname: record.hostname, platform, origin: upstream, command,
-          note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it. Delete fastdog-agent.env (Docker) after the container starts if you keep no copy.' });
+          ...(platform === 'docker' ? { env_file: dockerEnvFile(rotated.credential.agent_env.AGENT_HOSTNAME) } : {}),
+          note: 'Run this once on the server where the app runs. It replaces any earlier connection for this website and contains a private key; do not log or share it. For Docker, delete the file named by env_file after success or failure; never a glob or a copied example.' });
       }
       const match = path.match(/^\/api\/hostnames\/([^/]+)(?:\/(verify|rotate|agent|status|test|connect-token))?$/);
       const keyMatch = path.match(/^\/api\/keys\/([0-9a-f-]{36})$/);

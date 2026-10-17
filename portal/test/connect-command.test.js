@@ -98,17 +98,29 @@ test('Docker shell replaces stale env symlinks and cleans up failures without ex
     writeFileSync(join(dir, 'docker'), `#!/bin/sh\ncase "$1" in ${failure}) exit 1;; esac\nexit 0\n`, { mode: 0o700 });
     const result = spawnSync('sh', ['-c', command], { cwd: dir, env: { ...process.env, PATH: `${dir}:${process.env.PATH}` } });
     assert.equal(result.status, failure === 'none' ? 0 : 1);
+    const continued = spawnSync('sh', ['-c', command + '; printf "continued:%s" "$?"'], { cwd: dir, env: { ...process.env, PATH: `${dir}:${process.env.PATH}` } });
+    assert.equal(continued.stdout.toString(), `continued:${failure === 'none' ? 0 : 1}`);
     assert.equal(readFileSync(target, 'utf8'), 'unchanged');
     assert.equal(existsSync(envPath), failure === 'none');
     if (failure === 'none') assert.equal(statSync(envPath).mode & 0o777, 0o600);
   }
+  // Intercept removal to plant a symlink between rm and the write.
+  writeFileSync(join(dir, 'docker'), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  writeFileSync(join(dir, 'rm'), `#!/bin/sh
+/bin/rm "$@"
+ln -s '${target}' '${envPath}'
+`, { mode: 0o700 });
+  const planted = spawnSync('sh', ['-c', command], { cwd: dir, env: { ...process.env, PATH: `${dir}:${process.env.PATH}` } });
+  assert.equal(planted.status, 1);
+  assert.equal(readFileSync(target, 'utf8'), 'unchanged');
 });
 
-test('assistant cleanup examples use a concrete env filename and require exact substitution', () => {
+test('assistant cleanup uses response metadata instead of copied filenames', () => {
   for (const path of ['../../site/llms.txt', '../src/connect-tokens.js']) {
     const text = readFileSync(new URL(path, import.meta.url), 'utf8');
-    assert.match(text, /fastdog-agent-app-example-test-0123456789\.env/);
-    assert.match(text, /substitute the exact name from the command/);
+    assert.match(text, /env_file/);
+    assert.match(text, /never a glob, never a copied example/);
+    assert.doesNotMatch(text, /fastdog-agent-app-example-test-0123456789\.env/);
     assert.doesNotMatch(text, /fastdog-agent-<[^\n]*?\.env/);
   }
 });

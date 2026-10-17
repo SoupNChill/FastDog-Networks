@@ -58,6 +58,8 @@ export function validOrigin(input) {
   return local ? `${url.protocol}//${url.host}` : null;
 }
 
+export const dockerEnvFile = (hostname) => `fastdog-agent-${agentSuffix(hostname)}.env`;
+
 export function buildCommand(agentEnv, { platform = 'linux', portalOrigin, origin }) {
   const upstream = validOrigin(origin);
   if (!agentEnv?.AGENT_TOKEN || !agentEnv.AGENT_HOSTNAME || !agentEnv.EDGE_HTTP_URL || !upstream) return null;
@@ -71,9 +73,9 @@ export function buildCommand(agentEnv, { platform = 'linux', portalOrigin, origi
   if (platform === 'docker') {
     // Identical to the browser's Docker tab: host networking reaches an app on 127.0.0.1; the stable name lets a re-run replace the agent.
     const name = `fastdog-agent-${agentSuffix(env.AGENT_HOSTNAME)}`;
-    const envFile = `${name}.env`;
+    const envFile = dockerEnvFile(env.AGENT_HOSTNAME);
     // Pull first so a failed pull never leaves the token file on disk.
-    return `umask 077; docker pull ${AGENT_IMAGE} && rm -f ${envFile} && printf '%s\\n' ${Object.entries(env).map(([k, v]) => shellQuote(`${k}=${v}`)).join(' ')} > ${envFile} && chmod 600 ${envFile} && { docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ${envFile} ${AGENT_IMAGE} || { rm -f ${envFile}; exit 1; }`;
+    return `umask 077; docker pull ${AGENT_IMAGE} && rm -f ${envFile} && (set -C; printf '%s\\n' ${Object.entries(env).map(([k, v]) => shellQuote(`${k}=${v}`)).join(' ')} > ${envFile}) && chmod 600 ${envFile} && { docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ${envFile} ${AGENT_IMAGE} || { rm -f ${envFile}; false; }`;
   }
   return null;
 }

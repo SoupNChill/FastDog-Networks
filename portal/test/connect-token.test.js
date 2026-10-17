@@ -70,6 +70,7 @@ test('a connect token reads one hostname and issues its command exactly once', a
   assert.equal((await post({ origin: 'http://127.0.0.1:3000', platform: 'windows' })).status, 400);
   const command = await post({ origin: '127.0.0.1:4007' });
   assert.equal(command.status, 200);
+  assert.equal(Object.hasOwn(command.data, 'env_file'), false);
   assert.match(command.data.command, /install\/agent\.sh/);
   assert.match(command.data.command, /--hostname 'app\.example\.test'/);
   assert.match(command.data.command, /--origin 'http:\/\/127\.0\.0\.1:4007'/);
@@ -115,7 +116,7 @@ test('server-side command builder matches the browser rules', async () => {
   const env = { AGENT_TOKEN: 'fake', AGENT_HOSTNAME: 'app.example.test', EDGE_HTTP_URL: 'https://edge.example-edge.test' };
   assert.equal(buildCommand(env, { platform: 'windows', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' }), null);
   const docker = buildCommand(env, { platform: 'docker', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' });
-  assert.match(docker, /^umask 077; docker pull \S+ && rm -f \S+ && printf .* && chmod 600 \S+ && \{ docker rm -f fastdog-agent-app-example-test-[0-9a-f]{10} .*docker run -d --name fastdog-agent-app-example-test-[0-9a-f]{10} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file fastdog-agent-app-example-test-[0-9a-f]{10}\.env /);
+  assert.match(docker, /^umask 077; docker pull \S+ && rm -f \S+ && \(set -C; printf .*\) && chmod 600 \S+ && \{ docker rm -f fastdog-agent-app-example-test-[0-9a-f]{10} .*docker run -d --name fastdog-agent-app-example-test-[0-9a-f]{10} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file fastdog-agent-app-example-test-[0-9a-f]{10}\.env /);
   assert.ok(docker.indexOf('docker pull') < docker.indexOf('printf') && docker.indexOf('printf') < docker.indexOf('docker rm -f') && docker.indexOf('docker rm -f') < docker.indexOf('docker run'), 'pull before the token file is written');
   const nameOf = (hostname) => buildCommand({ ...env, AGENT_HOSTNAME: hostname }, { platform: 'docker', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' }).match(/--name (\S+)/)[1];
   assert.notEqual(nameOf('a-b.example.test'), nameOf('a.b-example.test'));
@@ -183,4 +184,16 @@ test('failed rotations spend budget without burning the token, and re-added host
   const old = (await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).data.token;
   f.records.get(`${tids[0]}:app.example.test`).created_at = new Date(1000).toISOString();
   assert.equal((await request(f.port, '/api/connect/v1/hostname', { headers: bearer(old) })).status, 401);
+});
+
+test('Docker command response names its exact token-free env file', async (t) => {
+  const { f, a } = await ready(t);
+  await a.client.call('/api/hostnames/app.example.test/verify', 'POST');
+  const { token } = (await a.client.call('/api/hostnames/app.example.test/connect-token', 'POST')).data;
+  const response = await request(f.port, '/api/connect/v1/command', { method: 'POST',
+    headers: { ...bearer(token), 'content-type': 'application/json' },
+    body: JSON.stringify({ origin: '127.0.0.1:5000', platform: 'docker' }) });
+  assert.equal(response.status, 200);
+  assert.match(response.data.env_file, /^fastdog-agent-app-example-test-[0-9a-f]{10}\.env$/);
+  assert.equal(response.data.env_file, response.data.command.match(/--env-file (\S+)/)[1]);
 });
