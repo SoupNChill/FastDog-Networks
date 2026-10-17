@@ -164,3 +164,7 @@ nav a[aria-current]{color:var(--accent)}
 .docs .section h2{margin-top:0}
 .docs dl dt{font-weight:600;color:var(--ink);margin-top:12px}
 .docs dl dd{margin:4px 0 0;color:var(--sub)}
+
+/* Longer homepage onboarding headline and existing action styles. */
+.hero-copy #hero-title{font-size:clamp(40px,5vw,72px);line-height:1.05;letter-spacing:-.05em}
+.hero-actions{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 28px}
