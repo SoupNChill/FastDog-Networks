@@ -12,6 +12,7 @@ const HOUR = 3600000;
 const KEEP_HOURS = 25;
 const MAX_HOSTS = 2000;
 const MAX_READ = 4 * 1024 * 1024;
+const ROLLED_RE = /-\d{4}-\d{2}-\d{2}t\d{2}-\d{2}-\d{2}(?:\.\d+)?$/;
 export const HOST_RE = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 
 // Hosts the first-party scorer already handles from the unscrubbed logs; never double counted here.
@@ -83,7 +84,8 @@ export function createCustomerTail({ logDir, store, hosting, exclude = new Set()
     let names;
     try { names = await readdir(logDir); } catch { return []; }
     return names.filter((n) => n.endsWith('.log')).map((n) => n.slice(0, -4).toLowerCase())
-      .filter((h) => HOST_RE.test(h) && !exclude.has(h)).slice(0, MAX_HOSTS);
+      // Caddy's rolled copies (<host>-YYYY-MM-DDTHH-MM-SS.mmm.log) are skipped; only the live file is tailed.
+      .filter((h) => HOST_RE.test(h) && !ROLLED_RE.test(h) && !exclude.has(h)).slice(0, MAX_HOSTS);
   }
   async function consume(host) {
     const file = join(logDir, `${host}.log`);

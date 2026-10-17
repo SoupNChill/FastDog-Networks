@@ -51,11 +51,13 @@ test('tail: new files start at the end, rotation restarts, partial lines wait, e
   writeFileSync(join(logs, 'app.example.test.log'), line('/old') + '\n');
   writeFileSync(join(logs, 'first.example.test.log'), '');
   writeFileSync(join(logs, 'notes.txt'), 'x');
+  writeFileSync(join(logs, 'app.example.test-2026-10-16T10-00-00.000.log'), '');
   writeFileSync(join(logs, 'bad..name.log'), line('/'));
   const tail = createCustomerTail({ logDir: logs, store, exclude: excludedHosts({ VERDICT_SHADOW_CUSTOMER_EXCLUDE: 'First.example.test' }), now: () => NOW });
   assert.equal(await tail.poll(), 0, 'existing lines are not backfilled');
   appendFileSync(join(logs, 'app.example.test.log'), line('/') + '\n' + line('/.env') + '\n' + line('/partial'));
   appendFileSync(join(logs, 'first.example.test.log'), line('/') + '\n');
+  appendFileSync(join(logs, 'app.example.test-2026-10-16T10-00-00.000.log'), line('/') + '\n');
   assert.equal(await tail.poll(), 2);
   appendFileSync(join(logs, 'app.example.test.log'), '\n');
   assert.equal(await tail.poll(), 1, 'the partial line is scored once complete');
