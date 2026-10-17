@@ -96,6 +96,11 @@ test('scopes gate each route; delete is never available over the API', async (t)
   const cmd = await api(f, connect, '/api/v1/hostnames/app.example.test/connect', 'POST', { origin: 'http://127.0.0.1:3000' });
   assert.equal(cmd.status, 200);
   assert.match(cmd.data.command, /--hostname 'app\.example\.test'/);
+  assert.equal(Object.hasOwn(cmd.data, 'env_file'), false);
+  const docker = await api(f, connect, '/api/v1/hostnames/app.example.test/connect', 'POST', { origin: 'http://127.0.0.1:3000', platform: 'docker' });
+  assert.equal(docker.status, 200);
+  assert.match(docker.data.env_file, /^fastdog-agent-app-example-test-[0-9a-f]{10}\.env$/);
+  assert.equal(docker.data.env_file, docker.data.command.match(/--env-file (\S+)/)[1]);
   assert.deepEqual(f.calls.at(-1), ['rotate', tids[0], 'app.example.test']);
   for (const method of ['DELETE', 'PUT']) {
     assert.equal((await api(f, creator, '/api/v1/hostnames/app.example.test', method)).status, 405);

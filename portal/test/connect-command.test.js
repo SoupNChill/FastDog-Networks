@@ -48,3 +48,79 @@ test('Connect page asks where the app runs, has one primary action and an inline
   const css = readFileSync(new URL('../public/css/connect.css', import.meta.url), 'utf8');
   assert.match(css, /prefers-reduced-motion: reduce/);
 });
+
+test('restricted origins and allowed local origins agree across builders', async () => {
+  const server = await import('../src/connect-command.js');
+  const browser = await import('../public/js/agent-view.js');
+  const blocked = ['169.254.0.0', '169.254.255.255', '[fe80::1]', '[febf:ffff::1]', '[fd00:ec2::1]',
+    '[64:ff9b::]', '[64:ff9b::ffff:ffff]', '[0064:ff9b:0:0:0:0:a9fe:a9fe]',
+    '100.64.0.0', '100.100.100.200', '100.127.255.255', '0.0.0.0', '0', '0x64400000',
+    '[::ffff:100.100.100.200]', '[::ffff:0.0.0.0]', '[::ffff:169.254.1.1]'];
+  for (const host of blocked) {
+    const origin = `http://${host}:5000`;
+    assert.equal(server.validOrigin(origin), null, origin);
+    assert.equal(server.originError(origin), server.LINK_LOCAL_ERROR, origin);
+    assert.equal(browser.validateOrigin(origin).error, server.LINK_LOCAL_ERROR, origin);
+  }
+  for (const host of ['metadata', 'app', 'localhost.', '100.63.255.255', '100.128.0.0', '[64:ff9a::1]', '[64:ff9b:0:0:0:1::]']) {
+    const origin = `http://${host}:5000`;
+    assert.equal(server.validOrigin(origin), null, origin);
+    assert.ok(browser.validateOrigin(origin).error, origin);
+    assert.equal(server.originError(origin), null, 'outside restricted ranges');
+  }
+  for (const host of ['localhost', 'host.docker.internal', '127.0.0.1', '10.0.0.1', '172.16.0.1', '192.168.1.1', '[::1]', '[fd00:ec3::1]']) {
+    const origin = `http://${host}:5000`;
+    assert.equal(server.validOrigin(origin), origin);
+    assert.equal(browser.validateOrigin(origin).value, origin);
+    const env = { AGENT_TOKEN: 'synthetic-token', AGENT_HOSTNAME: 'app.example.test', EDGE_HTTP_URL: 'https://edge.example.test' };
+    assert.equal(server.buildCommand(env, { platform: 'docker', origin }), browser.connectionCommand(env, 'docker', 'https://portal.example.test', origin));
+  }
+  assert.equal(browser.LINK_LOCAL_ERROR, server.LINK_LOCAL_ERROR);
+});
+
+test('Docker shell replaces stale env symlinks and cleans up failures without expansion', async (t) => {
+  const { mkdtempSync, writeFileSync, symlinkSync, existsSync, statSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const { buildCommand, agentSuffix } = await import('../src/connect-command.js');
+  const dir = mkdtempSync(join(tmpdir(), 'connect-shell-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const env = { AGENT_TOKEN: 'synthetic-token', AGENT_HOSTNAME: 'app.example.test', EDGE_HTTP_URL: 'https://edge.example.test' };
+  const command = buildCommand(env, { platform: 'docker', origin: '127.0.0.1:5000' });
+  assert.doesNotMatch(command, /\$/);
+  const envPath = join(dir, `fastdog-agent-${agentSuffix(env.AGENT_HOSTNAME)}.env`);
+  const target = join(dir, 'untouched');
+  writeFileSync(target, 'unchanged');
+  for (const failure of ['none', 'pull', 'run']) {
+    rmSync(envPath, { force: true });
+    symlinkSync(target, envPath);
+    writeFileSync(join(dir, 'docker'), `#!/bin/sh\ncase "$1" in ${failure}) exit 1;; esac\nexit 0\n`, { mode: 0o700 });
+    const result = spawnSync('sh', ['-c', command], { cwd: dir, env: { ...process.env, PATH: `${dir}:${process.env.PATH}` } });
+    assert.equal(result.status, failure === 'none' ? 0 : 1);
+    const continued = spawnSync('sh', ['-c', command + '; printf "continued:%s" "$?"'], { cwd: dir, env: { ...process.env, PATH: `${dir}:${process.env.PATH}` } });
+    assert.equal(continued.stdout.toString(), `continued:${failure === 'none' ? 0 : 1}`);
+    assert.equal(readFileSync(target, 'utf8'), 'unchanged');
+    assert.equal(existsSync(envPath), failure === 'none');
+    if (failure === 'none') assert.equal(statSync(envPath).mode & 0o777, 0o600);
+  }
+  // Intercept removal to plant a symlink between rm and the write.
+  writeFileSync(join(dir, 'docker'), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  writeFileSync(join(dir, 'rm'), `#!/bin/sh
+/bin/rm "$@"
+ln -s '${target}' '${envPath}'
+`, { mode: 0o700 });
+  const planted = spawnSync('sh', ['-c', command], { cwd: dir, env: { ...process.env, PATH: `${dir}:${process.env.PATH}` } });
+  assert.equal(planted.status, 1);
+  assert.equal(readFileSync(target, 'utf8'), 'unchanged');
+});
+
+test('assistant cleanup uses response metadata instead of copied filenames', () => {
+  for (const path of ['../../site/llms.txt', '../src/connect-tokens.js']) {
+    const text = readFileSync(new URL(path, import.meta.url), 'utf8');
+    assert.match(text, /env_file/);
+    assert.match(text, /never a glob, never a copied example/);
+    assert.doesNotMatch(text, /fastdog-agent-app-example-test-0123456789\.env/);
+    assert.doesNotMatch(text, /fastdog-agent-<[^\n]*?\.env/);
+  }
+});

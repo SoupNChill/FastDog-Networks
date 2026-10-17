@@ -109,3 +109,6 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE (TLS ask fourth adversarial review): catch-all SNI/Host 421 and adapted-route check; global newcomer/static reserve and throttled warnings; persisted weekly host cap; malformed-proof rejection; test-tenant metadata cache; attach-domain reservation under overrides; signal-safe enable/rollback and explicit static-host health probe. Offline regressions added; RECHECK and Verdict enforce remain off.
 
 - DONE (TLS ask fifth adversarial review): locked atomic per-host operator reset with ten-second state reload; fail-closed persistence and throttled hostname-free warnings; normalized native Caddy Host/SNI matching and adapted control-route 4xx handler checks. Offline regressions added; flags remain off.
+- DONE (Docker connect review): paste-safe cleanup examples, numeric restricted-origin checks and single-label rejection in both builders, complete range errors, env-file replacement and failure cleanup with browser/server parity and offline regressions.
+
+- DONE (Docker connect follow-up): failure cleanup preserves the calling shell; Docker responses expose the exact token-free env_file for cleanup; noclobber rejects planted paths. Covered by shell, API and builder parity regressions.
