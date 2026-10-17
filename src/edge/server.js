@@ -214,6 +214,7 @@ if (internalEnabled && (!Number.isInteger(internalPort) || internalPort < 1 || i
 const internalServer = internalEnabled ? createInternalServer({
   portalKey: env('PORTAL_KEY', ''), agentToken: AGENT_TOKEN, dataDir: dataDir(),
   registry: { getAgentByHost, closeHost }, recheckEnabled: env('RECHECK_ENABLED', '0') === '1',
+  timeoutCodes: env('INTERNAL_TIMEOUT_CODES', '0') === '1', claimCreateRateLimit: env('CLAIM_CREATE_RATE_LIMIT', '0'),
 }) : null;
 internalServer?.on('routesChanged', reloadRoutes);
 
