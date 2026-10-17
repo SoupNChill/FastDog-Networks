@@ -231,6 +231,17 @@ if ! grep -Eq '^[[:space:]]*\(fdctl\)' "$caddyfile"; then
   exit 1
 fi
 
+# The catch-all check adapts a copy in a temp directory, where a relative import path or glob would
+# silently match nothing. Snippet imports (no '/', '*' or '?') and absolute paths are fine.
+while IFS= read -r line; do
+  arg=${line#"${line%%[![:space:]]*}"}; arg=${arg#import}; arg=${arg#"${arg%%[![:space:]]*}"}
+  arg=${arg%%[[:space:]]*}; arg=${arg#[\"\'\`]}; arg=${arg%[\"\'\`]}
+  if [[ $arg == *[/*?]* && $arg != /* ]]; then
+    echo "Caddyfile has a relative import path or glob ($arg); use an absolute path so the catch-all check sees the full config." >&2
+    exit 1
+  fi
+done < <(grep -E '^[[:space:]]*import[[:space:]]+' "$caddyfile" || true)
+
 global_block=$(cat <<BLOCK
 {
     on_demand_tls {
@@ -308,6 +319,12 @@ cp -p -- "$caddyfile" "$candidate"
 cat -- "$build" > "$candidate"
 validate "$candidate"
 catch_all_protected "$candidate" || { echo "Candidate catch-all protection check failed; refusing install." >&2; exit 1; }
+# Install only what was checked: the root-owned copy adapted above must match the candidate byte for byte.
+checked="$work/adapt-${candidate##*/}"
+if [[ ! -f $checked ]] || [[ $(sha256sum < "$checked") != $(sha256sum < "$candidate") ]]; then
+  echo 'Candidate changed after the catch-all check; refusing install.' >&2
+  exit 1
+fi
 
 # (e)-(f) Install, reload, verify; restore the backup if anything fails from here on.
 trap 'code=0; restore || code=$?; exit $(( code == 0 ? 1 : code ))' HUP INT TERM

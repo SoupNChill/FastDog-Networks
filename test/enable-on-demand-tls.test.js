@@ -507,3 +507,24 @@ test('--check-only validates a copy anywhere without touching or writing beside 
   assert.deepEqual(readdirSync(copyDir), ['Caddyfile']);
   assert.notEqual(f.run(['--check-only', '--dry-run', copy]).status, 0);
 });
+
+for (const mode of [[], ['--check-only']]) {
+  const label = mode.length ? 'check-only' : 'enable';
+  test(`${label} refuses a relative import path or glob before any caddy call or install`, (t) => {
+    for (const line of ['import sites/*', 'import ./extra.caddy', 'import "conf.d/?.caddy" arg']) {
+      const f = fixture(t, `${initial}${line}\n`);
+      const result = f.run([...mode, f.file]);
+      assert.equal(result.status, 1, line);
+      assert.match(result.stderr, /relative import/);
+      assert.deepEqual(f.callLog(), []);
+      assert.deepEqual(f.backups(), []);
+      assert.equal(f.read(), `${initial}${line}\n`);
+    }
+  });
+
+  test(`${label} allows absolute import paths and snippet imports`, (t) => {
+    const f = fixture(t, `${initial}import /etc/caddy/sites/*\nimport fdlog arg\nimport fdctl\n`);
+    const result = f.run([...mode, f.file]);
+    assert.equal(result.status, 0, result.stderr);
+  });
+}
