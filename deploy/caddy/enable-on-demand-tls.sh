@@ -6,16 +6,19 @@ export LC_ALL=C
 umask 077
 usage() {
   echo 'Usage: enable-on-demand-tls.sh [--dry-run] [--probe-host HOST] [Caddyfile]' >&2
+  echo '       enable-on-demand-tls.sh --check-only [Caddyfile]' >&2
   echo '       enable-on-demand-tls.sh --rollback <backup> [--force] [Caddyfile]' >&2
   exit 1
 }
 dry_run=false
+check_only=false
 rollback=
 force=false
 probe_host=
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run) dry_run=true; shift ;;
+    --check-only) check_only=true; shift ;;
     --rollback) [[ $# -ge 2 ]] || usage; rollback=$2; shift 2 ;;
     --probe-host) [[ $# -ge 2 ]] || usage; probe_host=$2; shift 2 ;;
     --force) force=true; shift ;;
@@ -25,6 +28,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ $# -le 1 ]] || usage
 [[ -z $rollback ]] || ! $dry_run || usage
+! $check_only || [[ -z $rollback && -z $probe_host && $dry_run == false && $force == false ]] || usage
 [[ -n $rollback ]] || ! $force || usage
 [[ -z $probe_host || $probe_host =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || usage
 caddyfile=${1:-/etc/caddy/Caddyfile}
@@ -42,7 +46,7 @@ upstream_port=${UPSTREAM_PORT:-8787}
 if (( EUID == 0 )); then as_caddy=(runuser -u caddy --); else as_caddy=(); fi
 validate() { "${as_caddy[@]}" "$caddy" validate --adapter caddyfile --config "$1"; }
 
-if ! $dry_run; then
+if ! $dry_run && ! $check_only; then
   [[ $EUID == 0 ]] || { echo 'Run as root on the edge.' >&2; exit 1; }
   # Lock a sidecar file: the Caddyfile inode is replaced by every install.
   exec 9>"${caddyfile}.lock"
@@ -106,24 +110,37 @@ ask_healthy() {
 # Inspect adapted routes: a matcher in a named site does not protect the catch-all.
 catch_all_protected() {
   "$caddy" adapt --adapter caddyfile --config "${1:-$caddyfile}" > "$work/adapted.json" || return 1
-  node --input-type=module - "$work/adapted.json" <<'JS'
+  node --input-type=module - "$work/adapted.json" "$upstream_port" <<'JS'
 import fs from 'node:fs';
 const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-function protectedRoutes(routes, predicate) {
-  return (routes ?? []).some(route => {
-    if (route.match?.some(match => match.host)) return false;
-    if (predicate(route)) return true;
-    return (route.handle ?? []).some(handler => protectedRoutes(handler.routes, predicate));
-  });
+const upstream = `127.0.0.1:${process.argv[3]}`;
+// Host-less routes in request order, descending into the subroutes of host-less routes.
+function flatten(routes) {
+  const out = [];
+  for (const route of routes ?? []) {
+    if (route.match?.some(match => match.host)) continue;
+    out.push(route);
+    for (const handler of route.handle ?? []) if (handler.handler === 'subroute') out.push(...flatten(handler.routes));
+  }
+  return out;
 }
+const refusal = handler => ['static_response', 'error'].includes(handler?.handler) && /^4[0-9]{2}$/.test(String(handler.status_code));
 const control = route => route.match?.some(match => match.path?.includes('/_fastdog/*')) &&
-  route.handle?.some(handler => ['static_response', 'error'].includes(handler.handler) && /^4[0-9]{2}$/.test(String(handler.status_code)));
+  route.handle?.some(handler => refusal(handler) || (handler.handler === 'subroute' &&
+    refusal((handler.routes ?? []).find(inner => !inner.match)?.handle?.at(-1))));
+const proxy = route => route.handle?.some(handler => handler.handler === 'reverse_proxy' &&
+  handler.upstreams?.some(entry => entry.dial === upstream));
 const mismatch = route => route.match?.some(match =>
   match.not?.some(negated => negated.host?.length === 1 && negated.host[0] === '{http.request.tls.server_name}')) &&
   route.handle?.some(handler => handler.handler === 'static_response' && String(handler.status_code) === '421');
 const servers = Object.values(config.apps?.http?.servers ?? {});
-process.exit(servers.some(server => server.listen?.some(address => address.endsWith(':443')) && server.routes?.some(route =>
-  protectedRoutes([route], control) && protectedRoutes([route], mismatch))) ? 0 : 1);
+process.exit(servers.some(server => {
+  if (!server.listen?.some(address => address.endsWith(':443'))) return false;
+  const routes = flatten(server.routes);
+  const first = routes.findIndex(proxy);
+  const before = routes.slice(0, first < 0 ? routes.length : first);
+  return before.some(control) && before.some(mismatch);
+}) ? 0 : 1);
 JS
 }
 
@@ -236,6 +253,16 @@ fi
 [[ -z $(tail -c1 "$build") ]] || printf '\n' >> "$build"
 printf '\n%s\n' "$site_block" >> "$build"
 
+if $check_only; then
+  # Root validates as caddy, so the private directory and candidate must belong to caddy.
+  if (( EUID == 0 )); then chown caddy -- "$work" "$build" || exit 1; fi
+  if validate "$build" >/dev/null && catch_all_protected "$build"; then
+    echo 'CHECK OK'
+    exit 0
+  fi
+  echo 'CHECK FAILED: candidate did not validate or lacks the catch-all protections.' >&2
+  exit 1
+fi
 if $dry_run; then
   diff -u -- "$caddyfile" "$build" || true
   exit 0

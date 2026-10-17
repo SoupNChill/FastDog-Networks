@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+const liveHttp = JSON.parse(readFileSync(resolve('test/fixtures/caddy-adapted-live-fdctl.json'), 'utf8'));
 const script = resolve('deploy/caddy/enable-on-demand-tls.sh');
 const initial = '(fdlog) {}\n(fdctl) {\n    @ctl path /_fastdog/*\n}\nexisting.example.test {\n    import fdlog existing.example.test\n    reverse_proxy 127.0.0.1:8787\n}\n';
 const globalBlock = '{\n    on_demand_tls {\n        ask http://127.0.0.1:8789/tls/ask\n    }\n}\n';
@@ -51,9 +52,7 @@ exit "\${CURL_STATUS:-0}"
   writeFileSync(fixtureScript, readFileSync(script, 'utf8').replace('[[ $EUID == 0 ]]', '[[ 0 == 0 ]]'));
   const run = (args = [], extra = {}) => spawnSync('bash', [fixtureScript, ...args],
     { encoding: 'utf8', env: { ...process.env, BIN: bin, HEALTH_DELAY: '0',
-      ADAPT_JSON: JSON.stringify({ apps: { http: { servers: { srv0: { listen: [':443'], routes: [
-        { handle: [{ handler: 'subroute', routes: [{ match: [{ not: [{ host: ['{http.request.tls.server_name}'] }] }], handle: [{ handler: 'static_response', status_code: 421 }] }, { match: [{ path: ['/_fastdog/*'] }], handle: [{ handler: 'static_response', status_code: 404 }] }] }] }
-      ] } } } } }), ...extra } });
+      ADAPT_JSON: JSON.stringify({ apps: { http: liveHttp } }), ...extra } });
   const callLog = () => (existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n') : []);
   const backups = () => readdirSync(etc).filter((name) => name.startsWith('Caddyfile.bak-ondemand-') && !name.includes('prerollback'));
   return { dir, etc, file, run, callLog, backups, read: () => readFileSync(file, 'utf8') };
@@ -429,4 +428,47 @@ test('post-reload adaptation remains a second pass with rollback', (t) => {
   assert.equal(f.read(), initial);
   assert.match(result.stderr, /Restored/);
   assert.equal(f.callLog().filter(line => line.startsWith('caddy adapt')).length, 2);
+});
+
+const adaptedWith = (routes) => JSON.stringify({ apps: { http: { servers: { srv0: { listen: [':443'], routes } } } } });
+const [liveControl, liveMismatch, liveProxy] = liveHttp.servers.srv0.routes;
+
+test('the real adapted live fdctl form is accepted; missing, weak or misordered protections are rejected', (t) => {
+  const proxy = { handler: 'reverse_proxy', upstreams: [{ dial: '127.0.0.1:8787' }] };
+  const cases = [
+    [[liveControl, liveMismatch, liveProxy], true],
+    [[liveMismatch, liveProxy], false],
+    [[{ match: liveControl.match, handle: [proxy] }, liveMismatch, liveProxy], false],
+    [[{ match: liveControl.match, handle: [{ handler: 'static_response', status_code: 200 }] }, liveMismatch, liveProxy], false],
+    [[{ match: liveControl.match, handle: [{ handler: 'subroute', routes: [{ handle: [{ handler: 'static_response', status_code: 200 }] }] }] }, liveMismatch, liveProxy], false],
+    [[liveControl, liveProxy], false],
+    [[liveProxy, liveControl, liveMismatch], false],
+    [[liveControl, { handle: [proxy] }, liveMismatch], false]
+  ];
+  for (const [routes, accepted] of cases) {
+    const f = fixture(t);
+    const result = f.run([f.file], { ADAPT_JSON: adaptedWith(routes) });
+    assert.equal(result.status === 0, accepted, result.stderr);
+    if (!accepted) assert.equal(f.read(), initial);
+  }
+});
+
+test('--check-only validates a copy anywhere without touching or writing beside it', (t) => {
+  const f = fixture(t);
+  const copyDir = join(f.dir, 'copy');
+  mkdirSync(copyDir);
+  const copy = join(copyDir, 'Caddyfile');
+  writeFileSync(copy, initial);
+  const result = f.run(['--check-only', copy]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /CHECK OK/);
+  assert.equal(readFileSync(copy, 'utf8'), initial);
+  assert.deepEqual(readdirSync(copyDir), ['Caddyfile']);
+  assert.ok(f.callLog().some(line => line.startsWith('caddy validate')));
+  assert.ok(!f.callLog().some(line => /^(systemctl|curl)/.test(line)));
+  const bad = f.run(['--check-only', copy], { ADAPT_JSON: adaptedWith([liveProxy]) });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /CHECK FAILED/);
+  assert.deepEqual(readdirSync(copyDir), ['Caddyfile']);
+  assert.notEqual(f.run(['--check-only', '--dry-run', copy]).status, 0);
 });

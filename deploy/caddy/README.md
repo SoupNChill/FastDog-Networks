@@ -31,6 +31,16 @@ deploy/caddy/enable-on-demand-tls.sh /etc/caddy/Caddyfile
 
 The script refuses a Caddyfile that already has an `on_demand_tls` block or a catch-all `https://` site, writes `Caddyfile.bak-ondemand-<timestamp>` next to it, builds a candidate (global block inserted at the very top, or merged into an existing multi-line global block; catch-all appended; existing site blocks are never edited), runs `caddy validate --adapter caddyfile --config <candidate>` (as the `caddy` user when root, so validation cannot leave root-owned log files), adapts and checks the candidate catch-all protections before installing it by atomic rename, runs `systemctl reload caddy` and checks the unit is active, then probes `http://127.0.0.1:${INTERNAL_PORT:-8789}/tls/ask?domain=probe.invalid` and requires a 4xx denial (3 tries; redirects, success, 5xx and transport failures fail). It also runs `caddy adapt` and uses Node to verify that the catch-all HTTPS route contains the fdctl `/_fastdog/*` path matcher; a matcher only inside a named site does not qualify. Both checks must pass or the script rolls back. A TLS request to an unapproved name cannot check the path without a certificate. It refuses a Caddyfile without a `(fdctl)` snippet definition and locks the sidecar `Caddyfile.lock` (not the Caddyfile itself); `scripts/add-customer-host.sh` takes the same lock, so the two never edit the Caddyfile concurrently. After success it records the installed file as `Caddyfile.enabled-ondemand-<timestamp>`. Any failure, including an unhealthy ask endpoint,  restores the backup: the restored file is validated, then reloaded; if the reload fails or the unit is not active the script runs `systemctl restart caddy` and re-checks. "Restored" is only printed when Caddy is active. If Caddy is still down it prints `CADDY IS DOWN` and exits 3 (exit 1 means the change failed but Caddy is running). Set `BIN` to a directory containing `caddy`, `curl` and `systemctl` only for fixtures.
 
+### Check only
+
+```
+deploy/caddy/enable-on-demand-tls.sh --check-only /path/to/Caddyfile-copy
+```
+
+Builds the candidate in a private temp directory, runs `caddy validate` (as `caddy` when root; the temp directory and candidate are then owned by `caddy`) and the catch-all protection check, prints `CHECK OK` (exit 0) or `CHECK FAILED` (exit 1). It takes no lock and never installs, reloads, probes or writes beside the Caddyfile, so it works on a copy in any directory, as root or not. It cannot be combined with `--dry-run`, `--rollback`, `--force` or `--probe-host`.
+
+The protection check reads the adapted JSON of the `:443` server. Among routes without a host matcher (descending into the subroutes of such routes, Caddy flattens `import fdctl` and the catch-all into separate top-level routes), it requires a control route matching path `/_fastdog/*` whose handler is a 4xx `static_response`/`error`, or a subroute whose unconditional route ends in one (`handle @fdctl { respond 404 }` adapts to the latter), and a 421 `static_response` route matched by `not host {http.request.tls.server_name}`. Both must precede the first host-less `reverse_proxy` to `127.0.0.1:$UPSTREAM_PORT`.
+
 ### Rollback
 
 ```
