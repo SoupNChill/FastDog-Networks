@@ -35,7 +35,9 @@ export function buildCommand(agentEnv, { platform = 'linux', portalOrigin, origi
     return `curl -fsSL ${shellQuote(new URL('/install/agent.sh', portalOrigin).href)} -o /tmp/fastdog-agent-install.sh && sudo FASTDOG_AGENT_TOKEN=${shellQuote(env.AGENT_TOKEN)} bash /tmp/fastdog-agent-install.sh --edge ${shellQuote(env.EDGE_HTTP_URL)} --hostname ${shellQuote(env.AGENT_HOSTNAME)} --origin ${shellQuote(env.AGENT_LOCAL_UPSTREAM)}`;
   }
   if (platform === 'docker') {
-    return `umask 077; printf '%s\\n' ${Object.entries(env).map(([k, v]) => shellQuote(`${k}=${v}`)).join(' ')} > fastdog-agent.env && chmod 600 fastdog-agent.env && docker run -d --restart unless-stopped --env-file fastdog-agent.env ${AGENT_IMAGE}`;
+    // Identical to the browser's Docker tab: host networking reaches an app on 127.0.0.1; the stable name lets a re-run replace the agent.
+    const name = `fastdog-agent-${String(env.AGENT_HOSTNAME).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`;
+    return `umask 077; printf '%s\\n' ${Object.entries(env).map(([k, v]) => shellQuote(`${k}=${v}`)).join(' ')} > fastdog-agent.env && chmod 600 fastdog-agent.env && { docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --restart unless-stopped --env-file fastdog-agent.env ${AGENT_IMAGE}`;
   }
   return null;
 }

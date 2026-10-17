@@ -18,10 +18,13 @@ test('llms.txt gives assistants a start-here flow with the key facts', () => {
   assert.doesNotMatch(text, /auth\.header/, 'header file is named per hostname');
   for (const needle of ["mkdir -p ~/.config/fastdog && (umask 077; printf 'Authorization: Bearer %s\\n' '<paste key>' > ~/.config/fastdog/<hostname>.header)",
     '<hostname>.token.header', 'HISTCONTROL=ignorespace', 'delete the file, and to revoke the key', 'right after connecting',
-    'curl 7.75+', 'run `umask 077` first', 'Never use curl -v or --trace',
+    'curl 7.75+', 'run `umask 077` first', 'docker info', 'docker group membership', '--network host', 'host.docker.internal', 'docker ps --filter name=fastdog-agent', 'fastdog-agent-<hostname-slug>', '"platform":"docker"', 'Never use curl -v or --trace',
     '--create-file-mode 0600 -o /absolute/path/fastdog-connect.json', 'do not retry variations', 'HOME may differ', 'Use the port or origin the user already gave you']) {
     assert.ok(text.includes(needle), `llms.txt mentions ${needle}`);
   }
+  const connect = text.slice(text.indexOf('## Connect command'));
+  assert.ok(connect.indexOf('Docker is the default') < connect.indexOf('systemd installer command'), 'Docker before systemd');
+  assert.ok(text.indexOf('-d \'{"origin":"http://127.0.0.1:3000","platform":"docker"}\'') > 0);
   assert.doesNotMatch(text, /"\$KEY"/, 'no command that expands a secret variable');
   assert.doesNotMatch(text, /If the user pastes the key, write it/);
 });
@@ -29,7 +32,7 @@ test('llms.txt gives assistants a start-here flow with the key facts', () => {
 test('human docs have an AI assistant section with the same guidance', () => {
   const html = read('site/docs/index.html');
   const section = html.slice(html.indexOf('id="ai-assistant"'), html.indexOf('id="api-keys"'));
-  for (const needle of ['curl -H @/absolute/path/&lt;hostname&gt;.header', 'per hostname', 'HISTCONTROL=ignorespace', 'revoke the key', 'right after connecting', 'curl 7.75 or newer', 'umask 077</code> first', '<code>--trace</code>', 'you save the', 'approve the assistant running it once', 'umask 077', '--create-file-mode 0600 -o /absolute/path/fastdog-connect.json', '24 hours', '3 new commands a day', 'DNS only', '/llms.txt']) {
+  for (const needle of ['curl -H @/absolute/path/&lt;hostname&gt;.header', 'per hostname', 'HISTCONTROL=ignorespace', 'revoke the key', 'right after connecting', 'curl 7.75 or newer', 'umask 077</code> first', '<code>--trace</code>', 'you save the', 'approve the assistant running it once', 'umask 077', '--create-file-mode 0600 -o /absolute/path/fastdog-connect.json', 'docker info', '--network host', 'docker ps --filter name=fastdog-agent', '24 hours', '3 new commands a day', 'DNS only', '/llms.txt']) {
     assert.ok(section.includes(needle), `docs section mentions ${needle}`);
   }
   assert.doesNotMatch(html, /issued on the first visit/);

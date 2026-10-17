@@ -39,7 +39,11 @@ test('connect tokens need an active owned hostname, CSRF and a verified session'
   assert.ok(issued.data.prompt.includes('HOME may differ') && issued.data.prompt.includes('only ask which port'));
   assert.ok(issued.data.prompt.includes('curl --create-file-mode 0600 -o /absolute/path/fastdog-connect.json') && issued.data.prompt.includes('delete the file'));
   assert.ok(!/curl -o |chmod [0-7]{3}/.test(issued.data.prompt), 'no umask/chmod reliance for the connect response');
-  assert.ok(issued.data.prompt.includes('Do not run the command'));
+  const prompt = issued.data.prompt;
+  assert.ok(prompt.includes('"platform": "docker"') && prompt.includes('docker info works without sudo') && prompt.includes('docker ps --filter name=fastdog-agent'));
+  assert.ok(prompt.includes('do not print, echo or cat the command') && prompt.includes('sh -c "$(python3 -c'));
+  assert.ok(prompt.indexOf('docker info') < prompt.indexOf('systemd installer'), 'Docker before systemd');
+  assert.ok(prompt.indexOf('"docker"') < prompt.indexOf('(use "linux" only'));
   assert.ok(issued.data.prompt.includes('every 15 seconds') && issued.data.prompt.includes('3 a day'));
   const stored = JSON.stringify(f.store.read('connect_tokens', []));
   assert.equal(stored.includes(issued.data.token), false, 'only a digest is stored');
@@ -102,14 +106,22 @@ test('issuing is rate limited and keeps at most three live tokens per hostname',
   assert.deepEqual(live, [401, 401, 200, 200, 200]);
 });
 
-test('server-side command builder matches the browser rules', () => {
+test('server-side command builder matches the browser rules', async () => {
   assert.equal(validOrigin('127.0.0.1:5000'), 'http://127.0.0.1:5000');
   assert.equal(validOrigin('http://example.com:80'), null);
   assert.equal(validOrigin('http://127.0.0.1'), null);
   assert.equal(validOrigin("http://127.0.0.1:5000/'x"), null);
   const env = { AGENT_TOKEN: 'fake', AGENT_HOSTNAME: 'app.example.test', EDGE_HTTP_URL: 'https://edge.example-edge.test' };
   assert.equal(buildCommand(env, { platform: 'windows', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' }), null);
-  assert.match(buildCommand(env, { platform: 'docker', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' }), /docker run -d/);
+  const docker = buildCommand(env, { platform: 'docker', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' });
+  assert.match(docker, /docker rm -f fastdog-agent-app-example-test .*docker run -d --name fastdog-agent-app-example-test --network host --restart unless-stopped --env-file/);
+  assert.match(docker, /^umask 077; printf/);
+  assert.doesNotMatch(docker, /\$/);
+  // Server twin and browser builder produce identical Docker output.
+  const full = { ...env, AGENT_LOCAL_UPSTREAM: 'http://127.0.0.1:1' };
+  const { connectionCommand } = await import('../public/js/agent-view.js');
+  const browser = connectionCommand(full, 'docker', 'https://portal.example.test');
+  assert.equal(docker, browser);
 });
 
 test('tokens end when the hostname leaves the account or the issuer resets their password, and a failed rotate does not burn them', async (t) => {

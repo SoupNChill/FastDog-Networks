@@ -14,10 +14,17 @@ test('Linux installer receives quoted token, edge, hostname and origin', () => {
   assert.ok(command.includes("FASTDOG_AGENT_TOKEN='private'\\''fixture'"));
   for (const [flag, value] of [['edge', env.EDGE_HTTP_URL], ['hostname', env.AGENT_HOSTNAME], ['origin', env.AGENT_LOCAL_UPSTREAM]]) assert.ok(command.includes(`--${flag} '${value}'`));
 });
+test('Docker command uses host networking, a stable name and replaces the old agent; macOS keeps the Desktop form', () => {
+  const docker = connectionCommand(env, 'docker');
+  assert.match(docker, /^umask 077; printf/);
+  assert.match(docker, /\{ docker rm -f fastdog-agent-app-example-test >\/dev\/null 2>&1; true; \} && docker run -d --name fastdog-agent-app-example-test --network host --restart unless-stopped --env-file fastdog-agent.env /);
+  assert.ok(docker.indexOf('docker rm -f') < docker.indexOf('docker run'));
+  assert.doesNotMatch(connectionCommand(env, 'macos'), /--network host|docker rm/);
+  assert.doesNotMatch(docker, /\$/, 'no shell expansion of secrets');
+  assert.ok(docker.includes("'AGENT_TOKEN=private'\\''fixture'"));
+});
 test('Docker and macOS share a pinned command; Windows uses PowerShell quoting', () => {
   const docker = connectionCommand(env, 'docker');
-  assert.equal(docker, connectionCommand(env, 'macos'));
-  assert.match(docker, /^umask 077; printf/);
   for (const platform of ['docker', 'macos', 'windows']) {
     const command = connectionCommand(env, platform);
     assert.match(command, /docker run .*--env-file fastdog-agent.env/);
@@ -29,7 +36,7 @@ test('Docker and macOS share a pinned command; Windows uses PowerShell quoting',
   assert.match(connectionCommand(env, 'windows'), /^Set-Content /);
   assert.equal(connectionCommand({ AGENT_TOKEN: 'fixture', AGENT_HOSTNAME: 'app.example.test' }, 'linux'), null);
 });
-test('install tabs start with Linux and support keyboard navigation and credential clearing', () => {
+test('install tabs start with Docker and support keyboard navigation and credential clearing', () => {
   const previous = { document: globalThis.document, window: globalThis.window };
   const element = () => ({ children: [], attrs: {}, handlers: {}, setAttribute(k,v) { this.attrs[k]=v; }, addEventListener(k,v) { this.handlers[k]=v; }, replaceChildren(...items) { this.children=items; }, append(item) { this.children.push(item); }, focus() { this.focused=true; } });
   const elements = new Map(); let clear;
@@ -38,8 +45,10 @@ test('install tabs start with Linux and support keyboard navigation and credenti
   try {
     showCredential({ agent_env: env });
     const tabs = elements.get('#command-tabs').children;
-    assert.equal(tabs[0].textContent, 'Linux (recommended)');
+    assert.equal(tabs[0].textContent, 'Docker (recommended)');
+    assert.equal(tabs[1].textContent, 'Linux installer (sudo)');
     assert.equal(tabs[0].attrs['aria-selected'], 'true');
+    assert.match(elements.get('#command').textContent, /--network host/);
     assert.equal(tabs[1].tabIndex, -1);
     tabs[0].handlers.keydown({ key: 'End', preventDefault() {} });
     assert.equal(tabs[3].attrs['aria-selected'], 'true');
@@ -85,7 +94,7 @@ test('rendered commands never contain angle-bracket placeholders on any tab', ()
       const command = buildCommand({ ...env, AGENT_LOCAL_UPSTREAM: undefined }, platform, 'https://portal.example.test', origin);
       assert.ok(command, `${platform} ${origin}`);
       assert.doesNotMatch(command, /</);
-      assert.doesNotMatch(command.replace(/ > fastdog-agent\.env /, ' '), />/);
+      assert.doesNotMatch(command.replace(/ > fastdog-agent\.env /, ' ').replace(' >/dev/null 2>&1;', ';'), />/);
       assert.ok(command.includes('https://edge.example.test'));
       assert.ok(command.includes(origin));
     }

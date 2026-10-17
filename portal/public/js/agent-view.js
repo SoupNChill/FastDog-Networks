@@ -26,6 +26,7 @@ export function connectionCommand(agentEnv, platform, portalOrigin = window.loca
   if (!agentEnv.AGENT_TOKEN || !agentEnv.AGENT_HOSTNAME || !agentEnv.EDGE_HTTP_URL || !upstream) return null;
   const env = Object.fromEntries(['AGENT_TOKEN', 'AGENT_HOSTNAME', 'AGENT_NAME']
     .filter((key) => typeof agentEnv[key] === 'string').map((key) => [key, agentEnv[key]]));
+  env.AGENT_NAME ||= env.AGENT_HOSTNAME; // same default as the server-side twin
   Object.assign(env, {
     EDGE_HTTP_URL: agentEnv.EDGE_HTTP_URL,
     EDGE_WS_URL: agentEnv.EDGE_WS_URL || `${agentEnv.EDGE_HTTP_URL.replace(/^http/, 'ws').replace(/\/$/, '')}/_fastdog/tunnel`,
@@ -34,11 +35,15 @@ export function connectionCommand(agentEnv, platform, portalOrigin = window.loca
   const entries = Object.entries(env);
   if (platform === 'linux') return `curl -fsSL ${shellQuote(new URL('/install/agent.sh', portalOrigin).href)} -o /tmp/fastdog-agent-install.sh && sudo FASTDOG_AGENT_TOKEN=${shellQuote(env.AGENT_TOKEN)} bash /tmp/fastdog-agent-install.sh --edge ${shellQuote(env.EDGE_HTTP_URL)} --hostname ${shellQuote(env.AGENT_HOSTNAME)} --origin ${shellQuote(env.AGENT_LOCAL_UPSTREAM)}`;
   const run = `docker run -d --restart unless-stopped --env-file fastdog-agent.env ${AGENT_IMAGE}`;
+  // Plain Linux Docker: host networking reaches an app on 127.0.0.1; the stable name lets a re-run replace the agent.
+  const name = `fastdog-agent-${String(env.AGENT_HOSTNAME).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`;
+  const hostRun = `{ docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --restart unless-stopped --env-file fastdog-agent.env ${AGENT_IMAGE}`;
   if (platform === 'windows') {
     return `Set-Content -LiteralPath fastdog-agent.env -Encoding ASCII -Value @(${entries.map(([key, value]) => powershellQuote(`${key}=${value}`)).join(', ')}) -ErrorAction Stop; ${run}`;
   }
-  return `umask 077; printf '%s\\n' ${entries.map(([key, value]) => shellQuote(`${key}=${value}`)).join(' ')} > fastdog-agent.env && chmod 600 fastdog-agent.env && ${run}`;
+  return `umask 077; printf '%s\\n' ${entries.map(([key, value]) => shellQuote(`${key}=${value}`)).join(' ')} > fastdog-agent.env && chmod 600 fastdog-agent.env && ${platform === 'docker' ? hostRun : run}`;
 }
+const CHOICES = [['docker', 'Docker (recommended)'], ['linux', 'Linux installer (sudo)'], ['macos', 'macOS'], ['windows', 'Windows (Untested)']];
 const originInput = () => document.querySelector('#origin');
 export function showCredential(credential) {
   const output = document.querySelector('#command');
@@ -55,12 +60,14 @@ export function showCredential(credential) {
     }
     copyButton.textContent = 'Copy command';
     if (help) help.textContent = platform === 'linux'
-      ? 'Linux (recommended): run this command in your server’s terminal. It installs the connection software with administrator permission.'
-      : `${platform === 'windows' ? 'Untested. Install Docker Desktop and use PowerShell.' : platform === 'macos' ? 'Install Docker Desktop and use Terminal.' : 'Install Docker and use a Linux or macOS terminal.'} Keep fastdog-agent.env private. It contains your connection token. Your website’s local address must be reachable from inside Docker. In Docker Desktop, use host.docker.internal to reach a website on the same computer; 127.0.0.1 refers to the container itself.`;
+      ? 'Alternative for Linux: this installer needs sudo (administrator permission) and sets up a system service. Docker needs no sudo.'
+      : platform === 'docker'
+        ? 'Recommended: run this in a Linux terminal where your user can run docker without sudo (check with docker info). It uses host networking, so 127.0.0.1 reaches your app, and running it again replaces the old agent. Keep fastdog-agent.env private. It contains your connection token. On Docker Desktop (macOS or Windows) use those tabs instead, and use host.docker.internal for your app’s address.'
+        : `${platform === 'windows' ? 'Untested. Install Docker Desktop and use PowerShell.' : 'Install Docker Desktop and use Terminal.'} Keep fastdog-agent.env private. It contains your connection token. In Docker Desktop, use host.docker.internal to reach a website on the same computer; 127.0.0.1 refers to the container itself.`;
   };
   if (tabs) {
     tabs.replaceChildren();
-    const choices = [['linux', 'Linux (recommended)'], ['docker', 'Docker'], ['macos', 'macOS'], ['windows', 'Windows (Untested)']];
+    const choices = CHOICES;
     const activate = (index, focus = false) => {
       [...tabs.children].forEach((tab, i) => {
         tab.setAttribute('aria-selected', String(i === index));
@@ -85,10 +92,10 @@ export function showCredential(credential) {
       tabs.append(tab);
     });
     activate(0);
-  } else render('linux'); // The hostname page also displays newly issued commands.
+  } else render('docker'); // The hostname page also displays newly issued commands.
   document.querySelector('#credential').hidden = false;
   const input = originInput();
-  if (input) input.oninput = () => { const selected = [...(tabs?.children ?? [])].findIndex((tab) => tab.attrs?.['aria-selected'] === 'true' || tab.getAttribute?.('aria-selected') === 'true'); render(['linux', 'docker', 'macos', 'windows'][Math.max(selected, 0)]); };
+  if (input) input.oninput = () => { const selected = [...(tabs?.children ?? [])].findIndex((tab) => tab.attrs?.['aria-selected'] === 'true' || tab.getAttribute?.('aria-selected') === 'true'); render(CHOICES[Math.max(selected, 0)][0]); };
   copyButton.onclick = async () => {
     try { await copy(output.textContent); copyButton.textContent = 'Copied'; }
     catch { message('Copy was unavailable. Select the command to copy it.'); }
