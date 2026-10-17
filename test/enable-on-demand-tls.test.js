@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+const liveHttp = JSON.parse(readFileSync(resolve('test/fixtures/caddy-adapted-live-fdctl.json'), 'utf8'));
 const script = resolve('deploy/caddy/enable-on-demand-tls.sh');
 const initial = '(fdlog) {}\n(fdctl) {\n    @ctl path /_fastdog/*\n}\nexisting.example.test {\n    import fdlog existing.example.test\n    reverse_proxy 127.0.0.1:8787\n}\n';
 const globalBlock = '{\n    on_demand_tls {\n        ask http://127.0.0.1:8789/tls/ask\n    }\n}\n';
@@ -51,9 +52,7 @@ exit "\${CURL_STATUS:-0}"
   writeFileSync(fixtureScript, readFileSync(script, 'utf8').replace('[[ $EUID == 0 ]]', '[[ 0 == 0 ]]'));
   const run = (args = [], extra = {}) => spawnSync('bash', [fixtureScript, ...args],
     { encoding: 'utf8', env: { ...process.env, BIN: bin, HEALTH_DELAY: '0',
-      ADAPT_JSON: JSON.stringify({ apps: { http: { servers: { srv0: { listen: [':443'], routes: [
-        { handle: [{ handler: 'subroute', routes: [{ match: [{ not: [{ host: ['{http.request.tls.server_name}'] }] }], handle: [{ handler: 'static_response', status_code: 421 }] }, { match: [{ path: ['/_fastdog/*'] }], handle: [{ handler: 'static_response', status_code: 404 }] }] }] }
-      ] } } } } }), ...extra } });
+      ADAPT_JSON: JSON.stringify({ apps: { http: liveHttp } }), ...extra } });
   const callLog = () => (existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n') : []);
   const backups = () => readdirSync(etc).filter((name) => name.startsWith('Caddyfile.bak-ondemand-') && !name.includes('prerollback'));
   return { dir, etc, file, run, callLog, backups, read: () => readFileSync(file, 'utf8') };
@@ -414,6 +413,7 @@ test('catch-all control route must actually refuse requests with a 4xx handler',
         { match: [{ not: [{ host: ['{http.request.tls.server_name}'] }] }], handle: [{ handler: 'static_response', status_code: 421 }] },
         { match: [{ path: ['/_fastdog/*'] }], handle: [handler] },
       ] }] },
+      { handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: '127.0.0.1:8787' }] }] },
     ] } } } } };
     const accepted = ['error', 'static_response'].includes(handler.handler) && /^4[0-9]{2}$/.test(String(handler.status_code));
     const result = f.run([f.file], { ADAPT_JSON: JSON.stringify(config) });
@@ -430,3 +430,101 @@ test('post-reload adaptation remains a second pass with rollback', (t) => {
   assert.match(result.stderr, /Restored/);
   assert.equal(f.callLog().filter(line => line.startsWith('caddy adapt')).length, 2);
 });
+
+const adaptedWith = (routes) => JSON.stringify({ apps: { http: { servers: { srv0: { listen: [':443'], routes } } } } });
+const [liveControl, liveMismatch, liveProxy] = liveHttp.servers.srv0.routes;
+
+test('the real adapted live fdctl form is accepted; missing, weak or misordered protections are rejected', (t) => {
+  const proxy = { handler: 'reverse_proxy', upstreams: [{ dial: '127.0.0.1:8787' }] };
+  const cases = [
+    [[liveControl, liveMismatch, liveProxy], true],
+    [[liveMismatch, liveProxy], false],
+    [[{ match: liveControl.match, handle: [proxy] }, liveMismatch, liveProxy], false],
+    [[{ match: liveControl.match, handle: [{ handler: 'static_response', status_code: 200 }] }, liveMismatch, liveProxy], false],
+    [[{ match: liveControl.match, handle: [{ handler: 'subroute', routes: [{ handle: [{ handler: 'static_response', status_code: 200 }] }] }] }, liveMismatch, liveProxy], false],
+    [[liveControl, liveProxy], false],
+    [[liveProxy, liveControl, liveMismatch], false],
+    [[liveControl, { handle: [proxy] }, liveMismatch], false],
+    // Protection nested under a matcher-bearing parent is conditional.
+    [[{ match: [{ method: ['GET'] }], handle: [{ handler: 'subroute', routes: [liveControl, liveMismatch] }] }, liveProxy], false],
+    [[{ handle: [{ handler: 'subroute', routes: [liveControl, liveMismatch] }] }, liveProxy], true],
+    // Any host-less reverse_proxy is the boundary, whatever its upstream form.
+    [[{ handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'localhost:8787' }] }] }, liveControl, liveMismatch], false],
+    [[liveControl, liveMismatch, { handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'localhost:8787' }] }] }], true],
+    // No proxy at all fails closed.
+    [[liveControl, liveMismatch], false],
+    // Control match must be path-only; a proxy before the terminal inner route is rejected.
+    [[{ ...liveControl, match: [{ ...liveControl.match[0], method: ['GET'] }] }, liveMismatch, liveProxy], false],
+    [[{ ...liveControl, match: [{ path: ['/_fastdog/*'], remote_ip: { ranges: ['10.0.0.0/8'] } }] }, liveMismatch, liveProxy], false],
+    [[{ match: liveControl.match, handle: [{ handler: 'subroute', routes: [{ match: [{ method: ['GET'] }], handle: [proxy] }, { handle: [{ handler: 'static_response', status_code: 404 }] }] }] }, liveMismatch, liveProxy], false],
+    [[{ match: liveControl.match, handle: [{ handler: 'subroute', routes: [{ match: [{ method: ['GET'] }], handle: [{ handler: 'static_response', status_code: 404 }] }] }] }, liveMismatch, liveProxy], false],
+    // A not-path may only list exact /_fastdog/ paths: never a wildcard or anything covering /_fastdog/*.
+    ...[['/_fastdog/*'], ['/_fastdog/'], ['/*'], ['/_fastdog/tunnel', '/_fastdog/agents/*'], ['/other']].map(not =>
+      [[{ ...liveControl, match: [{ path: ['/_fastdog/*'], not: [{ path: not }] }] }, liveMismatch, liveProxy], false]),
+    // The 421 route must match only the negated SNI host.
+    [[liveControl, { ...liveMismatch, match: [{ not: liveMismatch.match[0].not, method: ['GET'] }] }, liveProxy], false],
+    [[liveControl, { ...liveMismatch, match: [...liveMismatch.match, { method: ['GET'] }] }, liveProxy], false],
+    [[liveControl, { ...liveMismatch, match: [{ not: [{ host: ['{http.request.tls.server_name}'], method: ['GET'] }] }] }, liveProxy], false]
+  ];
+  for (const [routes, accepted] of cases) {
+    const f = fixture(t);
+    const result = f.run([f.file], { ADAPT_JSON: adaptedWith(routes) });
+    assert.equal(result.status === 0, accepted, result.stderr);
+    if (!accepted) assert.equal(f.read(), initial);
+  }
+});
+
+test('the full live adapted form with a flattened catch-all wrapper is accepted; proxy-first inside it is rejected', (t) => {
+  const full = JSON.parse(readFileSync(resolve('test/fixtures/caddy-adapted-live-full.json'), 'utf8'));
+  const [hostRoute, wrapper] = full.servers.srv0.routes;
+  const [control, mismatch, proxy] = wrapper.handle[0].routes;
+  const withInner = inner => ({ servers: { srv0: { listen: [':443'], routes: [hostRoute,
+    { handle: [{ handler: 'subroute', routes: inner }], terminal: true }] } } });
+  for (const [http, accepted] of [[full, true], [withInner([proxy, control, mismatch]), false], [withInner([control, proxy, mismatch]), false]]) {
+    const f = fixture(t);
+    const result = f.run([f.file], { ADAPT_JSON: JSON.stringify({ apps: { http } }) });
+    assert.equal(result.status === 0, accepted, result.stderr);
+    if (!accepted) assert.equal(f.read(), initial);
+  }
+});
+
+test('--check-only validates a copy anywhere without touching or writing beside it', (t) => {
+  const f = fixture(t);
+  const copyDir = join(f.dir, 'copy');
+  mkdirSync(copyDir);
+  const copy = join(copyDir, 'Caddyfile');
+  writeFileSync(copy, initial);
+  const result = f.run(['--check-only', copy]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /CHECK OK/);
+  assert.equal(readFileSync(copy, 'utf8'), initial);
+  assert.deepEqual(readdirSync(copyDir), ['Caddyfile']);
+  assert.ok(f.callLog().some(line => line.startsWith('caddy validate')));
+  assert.ok(!f.callLog().some(line => /^(systemctl|curl)/.test(line)));
+  const bad = f.run(['--check-only', copy], { ADAPT_JSON: adaptedWith([liveProxy]) });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /CHECK FAILED/);
+  assert.deepEqual(readdirSync(copyDir), ['Caddyfile']);
+  assert.notEqual(f.run(['--check-only', '--dry-run', copy]).status, 0);
+});
+
+for (const mode of [[], ['--check-only']]) {
+  const label = mode.length ? 'check-only' : 'enable';
+  test(`${label} refuses a relative import path or glob before any caddy call or install`, (t) => {
+    for (const line of ['import sites/*', 'import ./extra.caddy', 'import "conf.d/?.caddy" arg']) {
+      const f = fixture(t, `${initial}${line}\n`);
+      const result = f.run([...mode, f.file]);
+      assert.equal(result.status, 1, line);
+      assert.match(result.stderr, /relative import/);
+      assert.deepEqual(f.callLog(), []);
+      assert.deepEqual(f.backups(), []);
+      assert.equal(f.read(), `${initial}${line}\n`);
+    }
+  });
+
+  test(`${label} allows absolute import paths and snippet imports`, (t) => {
+    const f = fixture(t, `${initial}import /etc/caddy/sites/*\nimport fdlog arg\nimport fdctl\n`);
+    const result = f.run([...mode, f.file]);
+    assert.equal(result.status, 0, result.stderr);
+  });
+}

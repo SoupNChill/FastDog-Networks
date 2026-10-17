@@ -6,16 +6,19 @@ export LC_ALL=C
 umask 077
 usage() {
   echo 'Usage: enable-on-demand-tls.sh [--dry-run] [--probe-host HOST] [Caddyfile]' >&2
+  echo '       enable-on-demand-tls.sh --check-only [Caddyfile]' >&2
   echo '       enable-on-demand-tls.sh --rollback <backup> [--force] [Caddyfile]' >&2
   exit 1
 }
 dry_run=false
+check_only=false
 rollback=
 force=false
 probe_host=
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run) dry_run=true; shift ;;
+    --check-only) check_only=true; shift ;;
     --rollback) [[ $# -ge 2 ]] || usage; rollback=$2; shift 2 ;;
     --probe-host) [[ $# -ge 2 ]] || usage; probe_host=$2; shift 2 ;;
     --force) force=true; shift ;;
@@ -25,6 +28,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ $# -le 1 ]] || usage
 [[ -z $rollback ]] || ! $dry_run || usage
+! $check_only || [[ -z $rollback && -z $probe_host && $dry_run == false && $force == false ]] || usage
 [[ -n $rollback ]] || ! $force || usage
 [[ -z $probe_host || $probe_host =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || usage
 caddyfile=${1:-/etc/caddy/Caddyfile}
@@ -42,7 +46,7 @@ upstream_port=${UPSTREAM_PORT:-8787}
 if (( EUID == 0 )); then as_caddy=(runuser -u caddy --); else as_caddy=(); fi
 validate() { "${as_caddy[@]}" "$caddy" validate --adapter caddyfile --config "$1"; }
 
-if ! $dry_run; then
+if ! $dry_run && ! $check_only; then
   [[ $EUID == 0 ]] || { echo 'Run as root on the edge.' >&2; exit 1; }
   # Lock a sidecar file: the Caddyfile inode is replaced by every install.
   exec 9>"${caddyfile}.lock"
@@ -105,25 +109,63 @@ ask_healthy() {
 
 # Inspect adapted routes: a matcher in a named site does not protect the catch-all.
 catch_all_protected() {
-  "$caddy" adapt --adapter caddyfile --config "${1:-$caddyfile}" > "$work/adapted.json" || return 1
-  node --input-type=module - "$work/adapted.json" <<'JS'
+  local adapted="$work/adapted.json"
+  local source="${1:-$caddyfile}" copy
+  copy="$work/adapt-${source##*/}"
+  # Adapt a root-owned private copy made now, not the caddy-owned file that could change underneath us.
+  # The adapted JSON stays in the root-owned work directory; never write through a pre-existing file.
+  rm -f -- "$adapted" "$copy"
+  install -m600 -- "$source" "$copy" || return 1
+  ( set -o noclobber; "$caddy" adapt --adapter caddyfile --config "$copy" > "$adapted" ) || return 1
+  node --input-type=module - "$adapted" <<'JS'
 import fs from 'node:fs';
 const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-function protectedRoutes(routes, predicate) {
-  return (routes ?? []).some(route => {
-    if (route.match?.some(match => match.host)) return false;
-    if (predicate(route)) return true;
-    return (route.handle ?? []).some(handler => protectedRoutes(handler.routes, predicate));
-  });
+// Host-less routes in request order. Only parents with no matcher at all are descended into:
+// children of a route with any matcher (method, remote_ip, header, path...) are conditional.
+function flatten(routes) {
+  const out = [];
+  for (const route of routes ?? []) {
+    if (route.match?.some(match => match.host)) continue;
+    out.push(route);
+    if (route.match?.length) continue;
+    for (const handler of route.handle ?? []) if (handler.handler === 'subroute') out.push(...flatten(handler.routes));
+  }
+  return out;
 }
-const control = route => route.match?.some(match => match.path?.includes('/_fastdog/*')) &&
-  route.handle?.some(handler => ['static_response', 'error'].includes(handler.handler) && /^4[0-9]{2}$/.test(String(handler.status_code)));
-const mismatch = route => route.match?.some(match =>
-  match.not?.some(negated => negated.host?.length === 1 && negated.host[0] === '{http.request.tls.server_name}')) &&
+const refusal = handler => ['static_response', 'error'].includes(handler?.handler) && /^4[0-9]{2}$/.test(String(handler.status_code));
+// Any reverse_proxy inside the route, whatever its upstream form.
+const hasProxy = route => (route.handle ?? []).some(handler => handler.handler === 'reverse_proxy' ||
+  (handler.handler === 'subroute' && (handler.routes ?? []).some(hasProxy)));
+// A control exclusion may only list exact /_fastdog/ paths; a wildcard or a path covering /_fastdog/* would unprotect the prefix.
+const exactExclusion = negated => Object.keys(negated).every(key => key === 'path') &&
+  Array.isArray(negated.path) && negated.path.length > 0 &&
+  negated.path.every(path => typeof path === 'string' && path.startsWith('/_fastdog/') &&
+    !path.includes('*') && path !== '/_fastdog/');
+const controlMatch = match => Object.keys(match).every(key => key === 'path' || key === 'not') &&
+  (match.not === undefined || (Array.isArray(match.not) && match.not.every(exactExclusion)));
+const control = route => route.match?.length > 0 && route.match.every(controlMatch) &&
+  route.match.some(match => match.path?.includes('/_fastdog/*')) && !hasProxy(route) &&
+  route.handle?.some(handler => refusal(handler) || (handler.handler === 'subroute' && (() => {
+    const end = (handler.routes ?? []).findIndex(inner => !inner.match?.length);
+    return end >= 0 && refusal(handler.routes[end].handle?.at(-1));
+  })()));
+// Exactly one match entry holding only the negated SNI host, so no extra matcher narrows the 421.
+const mismatch = route => route.match?.length === 1 && Object.keys(route.match[0]).join() === 'not' &&
+  route.match[0].not.length === 1 && Object.keys(route.match[0].not[0]).join() === 'host' &&
+  route.match[0].not[0].host.length === 1 && route.match[0].not[0].host[0] === '{http.request.tls.server_name}' &&
   route.handle?.some(handler => handler.handler === 'static_response' && String(handler.status_code) === '421');
 const servers = Object.values(config.apps?.http?.servers ?? {});
-process.exit(servers.some(server => server.listen?.some(address => address.endsWith(':443')) && server.routes?.some(route =>
-  protectedRoutes([route], control) && protectedRoutes([route], mismatch))) ? 0 : 1);
+process.exit(servers.some(server => {
+  if (!server.listen?.some(address => address.endsWith(':443'))) return false;
+  const routes = flatten(server.routes);
+  // The first flattened route that itself proxies is the ordering boundary; without one, fail closed.
+  // Routes with a matcher are not descended into, so a proxy nested inside one counts as its own.
+  const first = routes.findIndex(route => route.match?.length ? hasProxy(route) :
+    (route.handle ?? []).some(handler => handler.handler === 'reverse_proxy'));
+  if (first < 0) return false;
+  const before = routes.slice(0, first);
+  return before.some(control) && before.some(mismatch);
+}) ? 0 : 1);
 JS
 }
 
@@ -189,6 +231,17 @@ if ! grep -Eq '^[[:space:]]*\(fdctl\)' "$caddyfile"; then
   exit 1
 fi
 
+# The catch-all check adapts a copy in a temp directory, where a relative import path or glob would
+# silently match nothing. Snippet imports (no '/', '*' or '?') and absolute paths are fine.
+while IFS= read -r line; do
+  arg=${line#"${line%%[![:space:]]*}"}; arg=${arg#import}; arg=${arg#"${arg%%[![:space:]]*}"}
+  arg=${arg%%[[:space:]]*}; arg=${arg#[\"\'\`]}; arg=${arg%[\"\'\`]}
+  if [[ $arg == *[/*?]* && $arg != /* ]]; then
+    echo "Caddyfile has a relative import path or glob ($arg); use an absolute path so the catch-all check sees the full config." >&2
+    exit 1
+  fi
+done < <(grep -E '^[[:space:]]*import[[:space:]]+' "$caddyfile" || true)
+
 global_block=$(cat <<BLOCK
 {
     on_demand_tls {
@@ -223,7 +276,11 @@ else
 fi
 
 work=$(mktemp -d)
-build="$work/Caddyfile.candidate"
+# Only this subdirectory is ever handed to caddy; the work directory itself stays root-owned.
+mkdir -- "$work/cand"
+# mktemp -d yields 0700 and umask 077 keeps every file made here private; 711 only lets caddy traverse to cand/.
+chmod 711 -- "$work"
+build="$work/cand/Caddyfile.candidate"
 if $has_global; then
   # Insert the ask configuration right after the opening brace of the existing global block.
   ASK=$(printf '    on_demand_tls {\n        ask http://127.0.0.1:%s/tls/ask\n    }' "$ask_port") awk '
@@ -236,6 +293,16 @@ fi
 [[ -z $(tail -c1 "$build") ]] || printf '\n' >> "$build"
 printf '\n%s\n' "$site_block" >> "$build"
 
+if $check_only; then
+  # Root validates as caddy, so only the candidate subdirectory and file belong to caddy.
+  if (( EUID == 0 )); then chown caddy -- "$work/cand" "$build" || exit 1; fi
+  if validate "$build" >/dev/null && catch_all_protected "$build"; then
+    echo 'CHECK OK'
+    exit 0
+  fi
+  echo 'CHECK FAILED: candidate did not validate or lacks the catch-all protections.' >&2
+  exit 1
+fi
 if $dry_run; then
   diff -u -- "$caddyfile" "$build" || true
   exit 0
@@ -252,6 +319,12 @@ cp -p -- "$caddyfile" "$candidate"
 cat -- "$build" > "$candidate"
 validate "$candidate"
 catch_all_protected "$candidate" || { echo "Candidate catch-all protection check failed; refusing install." >&2; exit 1; }
+# Install only what was checked: the root-owned copy adapted above must match the candidate byte for byte.
+checked="$work/adapt-${candidate##*/}"
+if [[ ! -f $checked ]] || [[ $(sha256sum < "$checked") != $(sha256sum < "$candidate") ]]; then
+  echo 'Candidate changed after the catch-all check; refusing install.' >&2
+  exit 1
+fi
 
 # (e)-(f) Install, reload, verify; restore the backup if anything fails from here on.
 trap 'code=0; restore || code=$?; exit $(( code == 0 ? 1 : code ))' HUP INT TERM
