@@ -164,7 +164,8 @@ test('tls ask exposes no data and accepts only active claims', { skip }, async (
   }
   h.prove(claim.body);
   assert.equal((await h.request(hostPath(tenants[0], 'app.example.com', '/verify'), { method: 'POST' })).body.verified, true);
-  const active = await ask('APP.EXAMPLE.COM.');
+  assert.equal((await ask('APP.EXAMPLE.COM.')).status, 404, 'non-canonical spelling is not approved');
+  const active = await ask('app.example.com');
   assert.equal(active.status, 200);
   assert.equal(active.text, '');
   assert.equal((await h.request(hostPath(tenants[0], 'app.example.com'), { method: 'DELETE' })).status, 200);

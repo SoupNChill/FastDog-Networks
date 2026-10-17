@@ -1,15 +1,19 @@
-# NOT APPLIED. Merge into the candidate Caddyfile's existing global block.
-# Replace 8789 with INTERNAL_PORT. Requires TLS_ASK_ENABLED=1 on the edge.
+# Go-live form of on-demand TLS. Apply with enable-on-demand-tls.sh (backup, validate, reload).
+# Replace 8789 with INTERNAL_PORT. Requires INTERNAL_ENABLED=1 and TLS_ASK_ENABLED=1 on the edge.
+# The global block must be the first block in the Caddyfile; merge into an existing one if present.
 {
     on_demand_tls {
         ask http://127.0.0.1:8789/tls/ask
     }
 }
 
-# Example catch-all site; review exposure and upstream before enabling.
-# https:// {
-#     tls {
-#         on_demand
-#     }
-#     reverse_proxy 127.0.0.1:8787
-# }
+# Catch-all site. fdctl hides /_fastdog/* except tunnel/register. Explicit site blocks win.
+https:// {
+    tls {
+        on_demand
+    }
+    @sni_mismatch not host {http.request.tls.server_name}
+    respond @sni_mismatch 421
+    import fdctl
+    reverse_proxy 127.0.0.1:8787
+}

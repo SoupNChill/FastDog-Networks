@@ -77,7 +77,7 @@ Certificates: they are not guaranteed to appear on the first visit. Automatic on
 1. Add the website address in the portal (a subdomain such as app.example.com; root domains need ALIAS/ANAME/CNAME flattening).
 2. Add two DNS records at the domain's DNS provider:
    - CNAME on the address, pointing at the attach target the portal shows. It routes visitors to FastDog.
-   - TXT on _fastdog-challenge.<address> with the value the portal shows. It proves ownership.
+   - TXT on _fastdog-challenge.<address> with the value the portal shows. It proves ownership. Keep it in place after verifying: it is checked again before a certificate is issued.
    - On Cloudflare set Proxy status to "DNS only" (grey cloud). Orange cloud hides the record from the check and blocks the certificate.
 3. Connect the server: the portal returns a one-time connect command for Docker (recommended) or the Linux systemd installer. It contains a private key: never print it to logs, commits or chats. A new command replaces the old key.
 4. Check the Status page: Live / Not live, last checked, certificate expiry, agent connected, origin answering, 24h requests, p50 latency, bot-check counts (shadow mode, nothing blocked), and a Test it button.

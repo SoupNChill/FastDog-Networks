@@ -68,6 +68,17 @@ test('successful writes back up, validate, reload and print rollback', t => {
   assert.match(readFileSync(f.file, 'utf8'), /import fdlog app.example.test/);
   assert.equal(readFileSync(join(f.dir, 'calls'), 'utf8'), `validate --config ${f.file} --adapter caddyfile\nreload caddy\n`);
 });
+test('writes hold the same Caddyfile.lock sidecar lock as the on-demand TLS script', t => {
+  const f = fixture(t);
+  assert.match(readFileSync(script, 'utf8'), /exec 9>"\$\{caddyfile\}\.lock"/);
+  assert.equal(f.run(['app.example.test']).status, 0);
+  assert.ok(existsSync(`${f.file}.lock`));
+  // A held sidecar lock blocks a concurrent writer (flock -n cannot be injected, so use a short timeout).
+  const holder = spawnSync('bash', ['-c', `exec 9>"${f.file}.lock"; flock -x 9; timeout 3 bash ${JSON.stringify(join(f.dir, 'add-host.sh'))} other.example.test`],
+    { encoding: 'utf8', env: { ...process.env, CADDYFILE: f.file, BIN: f.dir, CADDY_LOG_DIR: f.dir } });
+  assert.equal(holder.status, 124, 'the writer waits for the lock');
+  assert.doesNotMatch(readFileSync(f.file, 'utf8'), /other\.example\.test/);
+});
 test('existing empty logs are accepted and set to 0640', t => {
   const f = fixture(t);
   const logfile = join(f.dir, 'app.example.test.log');

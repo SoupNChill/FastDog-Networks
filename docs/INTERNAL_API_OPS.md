@@ -4,13 +4,37 @@ The listener defaults off. To enable during a separately authorized deployment, 
 
 Configure `ATTACH_TARGET`, `ALT_ATTACH_TARGET`, `EDGE_PUBLIC_IP`, `DATA_DIR` and `RESERVED_SUFFIXES` for the installation. `RESERVED_SUFFIXES` is a comma-separated list of names and suffixes. When absent, the final two labels of each configured attach target are reserved, plus localhost, local, lan, internal, test, invalid and example. This is conservative for multi-label public suffixes; explicitly configure the registrable domains in that case. Attach targets themselves remain reserved even when overriding the list.
 
+## Internal test tenants
+
+Operator test tenants may claim `e2e-<label>.<attach-domain>` (one extra label, `<label>` = `[a-z0-9-]{1,40}`, domain = registrable domain of `ATTACH_TARGET`). Marking lives in `DATA_DIR/test_tenants.json`, a JSON array of tenant ids (`^t_[a-z2-7]{20}$`), mode 0600, operator-owned; it is read fresh on every claim/verify. A missing, unparsable or partly invalid file means no tenant is marked. Manage it with `npm run onboard -- test-tenant add|remove <tenant-id>` and `test-tenant list` (atomic write, mode 0600; refuses to overwrite a malformed file). Use synthetic or operator-owned tenant ids only; never record people's names or emails.
+
+Removal is deliberately simple: an unmarked tenant's existing active e2e claims stay active (still routed and approved by TLS ask like any verified claim; delete the claim to remove it), but new claims and any further verification of its e2e names are refused with `reserved_hostname`. Verification still needs the normal DNS CNAME/TXT checks. TLS ask approves an e2e name only for a verified, active tenant claim; unverified claims, operator attachments, deeper names and every other name under the domain stay refused. Guardrail hosts (`ENFORCE_DENYLIST` in `verdict/src/config/hosts.js`), attach targets and legacy attachments are never claimable.
+
 The unauthenticated loopback checks are `GET /health` and `GET /tls/ask?domain=app.example.com`; both also accept the `/internal/v1` prefix. Every tenant operation is under `/internal/v1/tenants/:tid/hostnames` and requires the `x-fastdog-portal-key` header. The operator key cannot call this API. TLS ask defaults off: set `TLS_ASK_ENABLED=1` and restart the edge to enable it (the internal listener must also be enabled). Any other value or an unset flag returns an empty 404 for the ask route, including its prefixed alias. Health and tenant operations are unaffected.
 
 When enabled, TLS ask returns an empty 200 only for a normalized, non-reserved hostname with an active tenant claim and a valid `verified_at` timestamp, or an explicit active operator attachment in `attached_hosts.json` without `tenant_id`. It rejects IPs, wildcards, ports, pending/expired claims and unknown names with an empty 404. It reads current records for each request without DNS calls or lifecycle changes. The combined tunnel lists (`tunnel_hosts.json` and route configuration) do not distinguish operator hosts from tenant mappings or prove that Caddy currently serves them, so list membership alone does not grant approval. Approval requires exactly one active record across both stores. Any legacy operator attachment coexisting with a tenant claim is denied, regardless of status. Pending competing tenant claims alone do not block a unique active tenant owner.
 
-Only direct loopback clients are accepted; any `Forwarded` or `X-Forwarded-*` header, including an empty one, is rejected. Limits are 30 successful approvals per client IP across all hostnames and 300 successful approvals globally in a fixed 60-second window. IPv4-mapped addresses share their IPv4 client bucket. Denied hostname queries return 404 and consume neither budget. A 429 includes `Retry-After` and JSON `rate_limited` / `retry_after`; counters reset on restart. Logs for this route contain only status. Unset `TLS_ASK_ENABLED` and restart to disable ask independently.
+Only direct loopback clients are accepted; any `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, `Via` or `CF-Connecting-IP` header, including an empty one, is rejected before checking the method. Unset `TLS_ASK_ENABLED` and restart to disable ask independently.
 
-The unapplied [Caddy snippet](../deploy/caddy/on-demand-tls.snippet) shows the global `on_demand_tls` configuration and a commented catch-all site. Follow [deployment validation](../deploy/caddy/README.md) before separately applying it; this build does not change running TLS configuration.
+**Approval set.** Requests must exactly equal `normalizeHostname(name)`: canonical ASCII lowercase, without whitespace or a trailing dot. Pending and expired claims do not shadow legacy attachments; only active claims conflict. Only (a) active, DNS-verified tenant claims, (b) active legacy attachments and (c) the optional static allow-list `TLS_ASK_STATIC_HOSTS` (comma-separated hostnames, normalized, default empty, malformed entries ignored) are approved. Reserved names and the attach targets are never approved unless listed there exactly; subdomains of a listed name are not covered. Everything else is an empty 404. Store read or parse errors fail closed with 404 (including for previously approved hosts) and are retried after one second.
+
+**Issuance budget (approvals).** Counted per distinct hostname in a rolling one-hour window; retries within that window are free, but revocation still denies immediately. `TLS_ASK_TENANT_MAX_PER_HOUR` defaults to 10 and `TLS_ASK_GLOBAL_MAX_PER_HOUR` defaults to 60. Static allow-list hosts are exempt from the tenant cap, but consume and are limited by the global cap, including its reserve. `TLS_ASK_DOMAIN_MAX_PER_HOUR` (default 5) and `TLS_ASK_DOMAIN_WEEK_MAX` (default 40) use tenant + registered domain for claims; static and legacy hosts share a separate global domain bucket. Tenant approvals never spend another tenant's domain budget or the static/legacy domain guard. This is an approximate grouping, not a full public suffix list: last two labels, or last three under a two-letter TLD when the second-to-last is one of `co, com, net, org, gov, edu, ac, me, ltd, ne, or, go, id, gob`. These tenant-scoped budgets do not guarantee staying below the CA's aggregate registered-domain limit.
+
+`TLS_ASK_HOST_DAY_MAX` (default 3) caps new approvals for each hostname over a rolling 24 hours, including static and legacy hosts, regardless of tenant. Each new hourly approval counts, even if certificate issuance subsequently fails; repeats within the hour remain free. All approval caps use the persisted history. Over a cap the route returns 429 with `Retry-After` and JSON `{"error":"rate_limited","retry_after":N}`; reasons include `approval_cap_global`, `approval_cap_tenant`, `approval_cap_domain`, `approval_cap_domain_week` `approval_cap_host_day`. Invalid cap settings fall back to defaults.
+
+**Persistence.** Approval timestamps (host, tenant, registered domain, time; never more than 7 days) are written atomically (temp file + rename, mode 0600) to `DATA_DIR/tls_ask_approvals.json` after every new approval and loaded at startup, so a restart does not reset any budget. A missing file starts empty. An unreadable or malformed file never crashes the edge: it is renamed to `tls_ask_approvals.json.corrupt-<timestamp>` and logged with an explicit operator message explaining that history will start empty after a ten-minute pause. Every approval returns 429 `approval_state_unavailable` during that pause; the next approval automatically seeds fresh history without a restart. Inspect the quarantined file before discarding it. If quarantine fails, approvals remain refused until restart. Deleting the file is the operator's explicit way to reset the budgets.
+
+**Refused names.** An `e2e-*` test label under the attach domain is approved only while its owner is still listed in `test_tenants.json`. Guardrail hosts (`ENFORCE_DENYLIST` names and their subdomains) are refused by `claims.create` (`reserved_hostname`) and are never approved, including legacy and static entries.
+
+**Live verify.** `TLS_ASK_LIVE_VERIFY` (default `1`; `0` disables). Before the first approval of a tenant claim in a window (not `approved_repeat`) the edge re-runs the verify-time DNS proof from `claims.js` (`checkClaimProof`: routing to the edge plus the `_fastdog-challenge` TXT value stored on the claim) so a lapsed or transferred domain stops getting certificates even though `RECHECK_ENABLED` is off. It only runs for otherwise approvable claims (unknown names never trigger DNS) and before any cap slot is charged. Present proof is cached 10 minutes per host, missing proof 60 seconds. Missing proof returns 404 `live_verify_failed`; a DNS error or the 3 s timeout returns 503 `live_verify_unavailable` (fail closed, cached for 10 seconds so a DNS outage is not queried by every Caddy retry). The stored claim is never changed by this check. Static hosts (`TLS_ASK_STATIC_HOSTS`) and legacy attachments have no claim proof and are not live-verified.
+
+**Anonymous checks.** Names that are not approvable (unknown, unclaimed, unverified, pending, reserved, malformed) never touch tenant or approval budgets. Their denies are cached for 60 seconds (at most 10,000 entries, oldest evicted first) and answered without further evaluation; the cache is cleared whenever `tenant_hostnames.json` `attached_hosts.json` or `test_tenants.json` changes (immediately for local writes, within one second for external edits), so a claim that has just been verified is approved at once. Uncached evaluations of such names share `TLS_ASK_CHECKS_PER_MINUTE` (default 600, fixed one-minute window); beyond it the route returns 429. Approvable hosts are never subject to this cap, so a flood cannot block issuance for verified hosts. Deny and live-verify caches and the check counter are in memory and reset on restart; approval budgets are persisted (above).
+
+**Logs.** Each ask logs only the status and a reason code (`approved_new`, `approved_repeat`, `denied`, `denied_cached`, `invalid`, `approval_cap_tenant`, `approval_cap_global`, `check_cap`, `store_error`). Requested hostnames are never logged. Count reasons to watch for floods or caps.
+
+The [Caddy snippet](../deploy/caddy/on-demand-tls.snippet) is the go-live form (global `on_demand_tls` ask block plus a catch-all `https://` site); `deploy/caddy/enable-on-demand-tls.sh` applies it with backup, validation, reload and automatic restore, and `--rollback <backup>` reverts. See [the Caddy README](../deploy/caddy/README.md). Applying it is a separately authorized operator step; the repository change does not alter running TLS configuration. Rollback: `enable-on-demand-tls.sh --rollback <backup>`, then unset `TLS_ASK_ENABLED` and restart the edge if ask should also stop.
+
+Known limit: hosts served only by the catch-all have no per-host access log (no `import fdlog` block), so status traffic and shadow counts report not available for them until an explicit site block is added (see `scripts/add-customer-host.sh`).
 
 Claims, credentials and host mappings use the existing atomic JSON writer. Claim and credential files are mode 600; tokens are hashed at rest. Back up the data directory using the existing restricted backup process. Use a single edge writer. Verify and rotate limits are in memory and reset when the edge restarts. Request bodies are limited to 16 KiB; requests time out after five seconds, with an incomplete body reported as `invalid_json` if a response can still be sent. DNS passes have a 3.5-second deadline and return `dns_timeout` checks. Internal logs contain only method, route template, status and duration.
 
@@ -25,3 +49,50 @@ Re-checks default off. Set `RECHECK_ENABLED=1` alongside `INTERNAL_ENABLED=1` an
 The claim stores `recheck_failures` and `last_rechecked_at`. Success resets the consecutive failure count; three authoritative mismatches (including missing records) suspend the claim, revoke its credentials, remove its tunnel mapping and close its tunnel. Resolver errors, including SERVFAIL and timeouts, skip the claim without changing its counter or timestamp. Suspended claims expire 24 hours after suspension and count toward the tenant limit until then. Scheduled runs never restore them. Suspended API records expose no TXT challenge; TLS ask denies them.
 
 Immediate re-activation before expiry: restore routing and the original ownership TXT record, then use the authenticated internal `POST /internal/v1/tenants/:tid/hostnames/:hostname/verify` endpoint through the existing secure operator process (keep the portal key out of command arguments and logs). This checks both proofs, clears the failure count and returns a newly issued credential. Install that credential on the agent; the old token remains revoked. The first tenant to complete both proofs wins, regardless of claim file order. After expiry, create a new claim and publish its new TXT challenge. Do not edit credential files.
+
+**Fourth review hardening.** `TLS_ASK_GLOBAL_MAX_PER_HOUR` defaults to 60, including static hosts. `TLS_ASK_GLOBAL_RESERVE` defaults to 20 (clamped to the total; 0 disables it): once 40 slots are used, only static hosts or tenants with zero approvals in the rolling hour can spend the remainder. Legacy attachments cannot use the reserve. The hard total still applies. An `approval_cap_global` denial emits one warning without hostnames at most every five minutes per process.
+
+`TLS_ASK_HOST_WEEK_MAX` defaults to 5 approvals per host per rolling seven days, in addition to the daily cap; the weekly threshold is soft and emits one hostname-free warning per process without refusing issuance. The daily cap remains hard; `node scripts/onboard.js tls-reset <host>` clears it early. Both survive restarts, and repeats within the hour remain free. Claims with absent, empty, whitespace-only or non-string `txt_value` are excluded even when live verification is disabled. The test-tenant list is cached by file metadata (including mtime); missing or malformed files fail closed. Overriding `RESERVED_SUFFIXES` always retains both attach domains.
+
+The catch-all rejects differing HTTP Host and TLS SNI with 421 using a site-local native host matcher, checked in adapted Caddy JSON. For deployment, use `--probe-host static.example.test` with a configured approved static host to require 200; the fallback 4xx probe warns that it cannot establish route enablement. Enable and rollback restore on interrupted installs; temporary files use umask 077. RECHECK and Verdict enforce remain disabled.
+
+### Resetting TLS approval budgets
+
+After investigating failed issuance that consumed a verified host's budgets, run
+`node scripts/onboard.js tls-reset app.example.test` with `DATA_DIR` pointing to the
+edge's runtime data directory, as the runtime owner. This removes only that host's
+entries from `tls_ask_approvals.json` (including hourly, daily and weekly history),
+using the same locked read/modify/atomic-write path as the edge, mode 0600. Other
+hosts retain their history. The command prints the removed-entry count; lock
+contention or an unreadable state file fails without resetting the file. Retry
+contention after the writer finishes. A crashed writer can leave
+`tls_ask_approvals.json.lock`; remove that lock only after stopping all writers and
+confirming none is active, then restart the edge. Do not remove the history file.
+
+The running edge checks the approval file's mtime at most once per ten seconds on
+ask requests and reloads changed history, so no restart is needed for a normal
+reset. A write before that reload merges with current disk history and cannot
+restore removed entries. Resetting does not verify a claim or bypass DNS proof,
+ownership checks, other hosts' caps, or the CA's own issuance limits.
+
+A failed approval-state save refuses new approvals with HTTP 429
+`approval_state_unavailable` until a later save succeeds. The first failed write
+is also refused; failed candidates never become free repeats. Warnings contain
+no hostnames and occur at most once per five minutes. An existing valid hourly
+repeat approval remains free, including during a write outage.
+
+Sixth-review hardening: before installing the candidate, the enable script runs
+`caddy adapt` and the Node catch-all protection check; failure refuses installation.
+It repeats this check after reload and rolls back on failure. All curl probes use
+`--noproxy '*'`.
+Reserve usage is persisted: each tenant may spend at most one reserve slot per
+rolling 24 hours. Tenants younger than 24 hours collectively have five reserve
+slots per rolling hour. Age comes from `DATA_DIR/tenants.json` records' `id` and
+`created_at` (ISO timestamp or epoch milliseconds); missing or invalid age is new.
+The existing zero-approvals-in-the-hour eligibility and static-host exemptions
+remain. Reserve markers survive restarts.
+The per-host seven-day threshold is warning-only (one hostname-free warning per
+process); the hard three-approval daily default limits host-cap lockouts to 24
+hours. `node scripts/onboard.js tls-reset <host>` clears the history early.
+Approval locks contain the writer PID; a dead PID or mtime older than 60 seconds
+allows recovery, and cleanup unlinks the lock even if closing it fails.

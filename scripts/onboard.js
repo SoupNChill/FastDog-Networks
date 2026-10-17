@@ -1,16 +1,27 @@
 #!/usr/bin/env node
 import { createZone, nsInstructions, issueCredential, mapHost } from '../src/onboard/store.js';
 import { generateInvite, listInvites, redeemInvite } from '../src/onboard/invites.js';
+import { editTestTenants } from '../src/internal/test-labels.js';
 import { attachHost, verifyHost, listAttachedHosts, detachHost } from '../src/onboard/attach.js';
+
+import { resetTlsApprovals } from '../src/internal/tls-approval-state.js';
 
 const [command, ...args] = process.argv.slice(2);
 const usage = `Usage: npm run onboard -- <command>
+
+TLS issuance recovery:
+  tls-reset <hostname>               Reset persisted approval budgets for one host
 
 CNAME/Attach (default onboarding):
   attach-host <hostname>              Attach hostname via CNAME (returns instructions)
   verify-host <hostname>              Verify DNS and activate (issues credential)
   list-attached-hosts                 List all attached hostnames
   detach-host <hostname>              Remove attached hostname
+
+Internal test tenants (may claim e2e-<label>.<attach-domain>):
+  test-tenant add <tenant-id>         Mark tenant (DATA_DIR/test_tenants.json, mode 0600)
+  test-tenant remove <tenant-id>      Unmark tenant (existing claims stay; new claims/verify refused)
+  test-tenant list                    List marked tenants
 
 NS cut (advanced):
   create-zone <zone> [options]        Create authoritative zone
@@ -51,7 +62,9 @@ function warnSync(result) {
 
 async function main() {
   let result;
-  if (command === 'attach-host' && args[0]) {
+  if (command === 'tls-reset' && args.length === 1) {
+    console.log(JSON.stringify(resetTlsApprovals(args[0])));
+  } else if (command === 'attach-host' && args[0]) {
     result = attachHost({ hostname: args[0] });
     console.log(JSON.stringify(result, null, 2));
     console.error('\nNext: Add the CNAME record at your registrar, then run:');
@@ -74,6 +87,9 @@ async function main() {
     result = detachHost({ hostname: args[0] });
     console.log(JSON.stringify(result, null, 2));
     console.error('Reload a running edge with POST /_fastdog/routes/reload.');
+  } else if (command === 'test-tenant' && (args[0] === 'list' || (['add', 'remove'].includes(args[0]) && args[1]))) {
+    result = editTestTenants(args[0], args[1]);
+    console.log(JSON.stringify(result, null, 2));
   } else if (command === 'create-zone' && args[0]) {
     result = createZone({ zone: args[0], edge_ip: option('--edge-ip'), force: args.includes('--force'), invite_code: option('--invite') });
     console.log(JSON.stringify(result, null, 2));
