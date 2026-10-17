@@ -413,6 +413,7 @@ test('catch-all control route must actually refuse requests with a 4xx handler',
         { match: [{ not: [{ host: ['{http.request.tls.server_name}'] }] }], handle: [{ handler: 'static_response', status_code: 421 }] },
         { match: [{ path: ['/_fastdog/*'] }], handle: [handler] },
       ] }] },
+      { handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: '127.0.0.1:8787' }] }] },
     ] } } } } };
     const accepted = ['error', 'static_response'].includes(handler.handler) && /^4[0-9]{2}$/.test(String(handler.status_code));
     const result = f.run([f.file], { ADAPT_JSON: JSON.stringify(config) });
@@ -443,11 +444,38 @@ test('the real adapted live fdctl form is accepted; missing, weak or misordered 
     [[{ match: liveControl.match, handle: [{ handler: 'subroute', routes: [{ handle: [{ handler: 'static_response', status_code: 200 }] }] }] }, liveMismatch, liveProxy], false],
     [[liveControl, liveProxy], false],
     [[liveProxy, liveControl, liveMismatch], false],
-    [[liveControl, { handle: [proxy] }, liveMismatch], false]
+    [[liveControl, { handle: [proxy] }, liveMismatch], false],
+    // Protection nested under a matcher-bearing parent is conditional.
+    [[{ match: [{ method: ['GET'] }], handle: [{ handler: 'subroute', routes: [liveControl, liveMismatch] }] }, liveProxy], false],
+    [[{ handle: [{ handler: 'subroute', routes: [liveControl, liveMismatch] }] }, liveProxy], true],
+    // Any host-less reverse_proxy is the boundary, whatever its upstream form.
+    [[{ handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'localhost:8787' }] }] }, liveControl, liveMismatch], false],
+    [[liveControl, liveMismatch, { handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'localhost:8787' }] }] }], true],
+    // No proxy at all fails closed.
+    [[liveControl, liveMismatch], false],
+    // Control match must be path-only; a proxy before the terminal inner route is rejected.
+    [[{ ...liveControl, match: [{ ...liveControl.match[0], method: ['GET'] }] }, liveMismatch, liveProxy], false],
+    [[{ ...liveControl, match: [{ path: ['/_fastdog/*'], remote_ip: { ranges: ['10.0.0.0/8'] } }] }, liveMismatch, liveProxy], false],
+    [[{ match: liveControl.match, handle: [{ handler: 'subroute', routes: [{ match: [{ method: ['GET'] }], handle: [proxy] }, { handle: [{ handler: 'static_response', status_code: 404 }] }] }] }, liveMismatch, liveProxy], false],
+    [[{ match: liveControl.match, handle: [{ handler: 'subroute', routes: [{ match: [{ method: ['GET'] }], handle: [{ handler: 'static_response', status_code: 404 }] }] }] }, liveMismatch, liveProxy], false]
   ];
   for (const [routes, accepted] of cases) {
     const f = fixture(t);
     const result = f.run([f.file], { ADAPT_JSON: adaptedWith(routes) });
+    assert.equal(result.status === 0, accepted, result.stderr);
+    if (!accepted) assert.equal(f.read(), initial);
+  }
+});
+
+test('the full live adapted form with a flattened catch-all wrapper is accepted; proxy-first inside it is rejected', (t) => {
+  const full = JSON.parse(readFileSync(resolve('test/fixtures/caddy-adapted-live-full.json'), 'utf8'));
+  const [hostRoute, wrapper] = full.servers.srv0.routes;
+  const [control, mismatch, proxy] = wrapper.handle[0].routes;
+  const withInner = inner => ({ servers: { srv0: { listen: [':443'], routes: [hostRoute,
+    { handle: [{ handler: 'subroute', routes: inner }], terminal: true }] } } });
+  for (const [http, accepted] of [[full, true], [withInner([proxy, control, mismatch]), false], [withInner([control, proxy, mismatch]), false]]) {
+    const f = fixture(t);
+    const result = f.run([f.file], { ADAPT_JSON: JSON.stringify({ apps: { http } }) });
     assert.equal(result.status === 0, accepted, result.stderr);
     if (!accepted) assert.equal(f.read(), initial);
   }

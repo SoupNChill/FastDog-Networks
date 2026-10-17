@@ -109,27 +109,38 @@ ask_healthy() {
 
 # Inspect adapted routes: a matcher in a named site does not protect the catch-all.
 catch_all_protected() {
-  "$caddy" adapt --adapter caddyfile --config "${1:-$caddyfile}" > "$work/adapted.json" || return 1
-  node --input-type=module - "$work/adapted.json" "$upstream_port" <<'JS'
+  local adapted="$work/adapted.json"
+  # The adapted JSON stays in the root-owned work directory; never write through a pre-existing file.
+  rm -f -- "$adapted"
+  ( set -o noclobber; "$caddy" adapt --adapter caddyfile --config "${1:-$caddyfile}" > "$adapted" ) || return 1
+  node --input-type=module - "$adapted" <<'JS'
 import fs from 'node:fs';
 const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-const upstream = `127.0.0.1:${process.argv[3]}`;
-// Host-less routes in request order, descending into the subroutes of host-less routes.
+// Host-less routes in request order. Only parents with no matcher at all are descended into:
+// children of a route with any matcher (method, remote_ip, header, path...) are conditional.
 function flatten(routes) {
   const out = [];
   for (const route of routes ?? []) {
     if (route.match?.some(match => match.host)) continue;
     out.push(route);
+    if (route.match?.length) continue;
     for (const handler of route.handle ?? []) if (handler.handler === 'subroute') out.push(...flatten(handler.routes));
   }
   return out;
 }
 const refusal = handler => ['static_response', 'error'].includes(handler?.handler) && /^4[0-9]{2}$/.test(String(handler.status_code));
-const control = route => route.match?.some(match => match.path?.includes('/_fastdog/*')) &&
-  route.handle?.some(handler => refusal(handler) || (handler.handler === 'subroute' &&
-    refusal((handler.routes ?? []).find(inner => !inner.match)?.handle?.at(-1))));
-const proxy = route => route.handle?.some(handler => handler.handler === 'reverse_proxy' &&
-  handler.upstreams?.some(entry => entry.dial === upstream));
+// Any reverse_proxy inside the route, whatever its upstream form.
+const hasProxy = route => (route.handle ?? []).some(handler => handler.handler === 'reverse_proxy' ||
+  (handler.handler === 'subroute' && (handler.routes ?? []).some(hasProxy)));
+const pathOnly = match => Object.keys(match).every(key => key === 'path');
+const controlMatch = match => Object.keys(match).every(key => key === 'path' || key === 'not') &&
+  (match.not === undefined || (Array.isArray(match.not) && match.not.every(pathOnly)));
+const control = route => route.match?.length > 0 && route.match.every(controlMatch) &&
+  route.match.some(match => match.path?.includes('/_fastdog/*')) && !hasProxy(route) &&
+  route.handle?.some(handler => refusal(handler) || (handler.handler === 'subroute' && (() => {
+    const end = (handler.routes ?? []).findIndex(inner => !inner.match?.length);
+    return end >= 0 && refusal(handler.routes[end].handle?.at(-1));
+  })()));
 const mismatch = route => route.match?.some(match =>
   match.not?.some(negated => negated.host?.length === 1 && negated.host[0] === '{http.request.tls.server_name}')) &&
   route.handle?.some(handler => handler.handler === 'static_response' && String(handler.status_code) === '421');
@@ -137,8 +148,12 @@ const servers = Object.values(config.apps?.http?.servers ?? {});
 process.exit(servers.some(server => {
   if (!server.listen?.some(address => address.endsWith(':443'))) return false;
   const routes = flatten(server.routes);
-  const first = routes.findIndex(proxy);
-  const before = routes.slice(0, first < 0 ? routes.length : first);
+  // The first flattened route that itself proxies is the ordering boundary; without one, fail closed.
+  // Routes with a matcher are not descended into, so a proxy nested inside one counts as its own.
+  const first = routes.findIndex(route => route.match?.length ? hasProxy(route) :
+    (route.handle ?? []).some(handler => handler.handler === 'reverse_proxy'));
+  if (first < 0) return false;
+  const before = routes.slice(0, first);
   return before.some(control) && before.some(mismatch);
 }) ? 0 : 1);
 JS
@@ -240,7 +255,10 @@ else
 fi
 
 work=$(mktemp -d)
-build="$work/Caddyfile.candidate"
+# Only this subdirectory is ever handed to caddy; the work directory itself stays root-owned.
+mkdir -- "$work/cand"
+chmod 711 -- "$work"
+build="$work/cand/Caddyfile.candidate"
 if $has_global; then
   # Insert the ask configuration right after the opening brace of the existing global block.
   ASK=$(printf '    on_demand_tls {\n        ask http://127.0.0.1:%s/tls/ask\n    }' "$ask_port") awk '
@@ -254,8 +272,8 @@ fi
 printf '\n%s\n' "$site_block" >> "$build"
 
 if $check_only; then
-  # Root validates as caddy, so the private directory and candidate must belong to caddy.
-  if (( EUID == 0 )); then chown caddy -- "$work" "$build" || exit 1; fi
+  # Root validates as caddy, so only the candidate subdirectory and file belong to caddy.
+  if (( EUID == 0 )); then chown caddy -- "$work/cand" "$build" || exit 1; fi
   if validate "$build" >/dev/null && catch_all_protected "$build"; then
     echo 'CHECK OK'
     exit 0
