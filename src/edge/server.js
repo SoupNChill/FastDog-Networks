@@ -29,6 +29,7 @@ import { onboardRouter } from '../onboard/api.js';
 import { statusService, intervalMs as statusIntervalMs } from '../status/service.js';
 import { renderStatus } from '../status/html.js';
 import { billingRouter, billingWebhook } from '../billing/api.js';
+import { isNonCanonicalControlPath, isControlPath } from './control-path.js';
 import { createOperatorServer, OPERATOR_BIND, OPERATOR_PORT } from '../operator/server.js';
 
 const PORT = Number(env('EDGE_PORT', '8787'));
@@ -64,6 +65,11 @@ function resolveUpstream(hostname) {
 
 const app = express();
 app.disable('x-powered-by');
+// The control namespace is only reachable by its exact raw spelling; never forward variants to a tenant.
+function controlNotFound(res) {
+  res.status(404).type('text/plain').send('Not Found\n');
+}
+app.use((req, res, next) => (isNonCanonicalControlPath(req.url) ? controlNotFound(res) : next()));
 // Marketing preview only. Keep /www separate from the edge APIs and operator listener.
 app.use('/www', express.static(fileURLToPath(new URL('../../site/', import.meta.url)), { index: 'index.html', fallthrough: false }));
 // Never let the default error handler echo filesystem paths for missing marketing files.
@@ -177,6 +183,8 @@ app.use('/_fastdog/onboard', onboardRouter({ reloadRoutes, staticRouteForHost: (
 
 // Catch-all reverse proxy (after control routes)
 app.use((req, res) => {
+  // Unmatched control routes (e.g. /_fastdog/unknown) are not tenant traffic either.
+  if (isControlPath(req.url)) return controlNotFound(res);
   const host = req.headers.host || '';
   const resolved = resolveUpstream(host);
 

@@ -37,9 +37,12 @@ if grep -Eiq "(^|[^a-z0-9_.-])${escaped}([^a-z0-9_.-]|$)" "$caddyfile"; then
   echo 'Hostname already present in Caddyfile.' >&2
   exit 1
 fi
+# Hide /_fastdog/* control paths on the tenant site, but only when the snippet is defined.
+fdctl_line=
+if grep -Eq '^[[:space:]]*\(fdctl\)[[:space:]]*\{' "$caddyfile"; then fdctl_line=$'\n    import fdctl'; fi
 block=$(cat <<BLOCK
 $host {
-    import fdlog $host
+    import fdlog ${host}${fdctl_line}
     reverse_proxy 127.0.0.1:8787
 }
 BLOCK
