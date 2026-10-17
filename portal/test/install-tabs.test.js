@@ -17,14 +17,14 @@ test('Linux installer receives quoted token, edge, hostname and origin', () => {
 });
 test('Docker command uses host networking, a stable name and replaces the old agent; macOS keeps the Desktop form', () => {
   const docker = connectionCommand(env, 'docker');
-  assert.match(docker, /^umask 077; printf/);
+  assert.match(docker, /^umask 077; docker pull \S+ && printf/);
   const suffix = agentSuffix('app.example.test');
-  assert.match(suffix, /^app-example-test-[0-9a-f]{6}$/);
+  assert.match(suffix, /^app-example-test-[0-9a-f]{10}$/);
   assert.equal(suffix, agentSuffixServer('app.example.test'), 'browser and server derive the same name');
   for (const host of ['a-b.example.test', 'a.b-example.test', 'x'.repeat(60) + '.example.test', 'ÄÖ.example.test']) assert.equal(agentSuffix(host), agentSuffixServer(host), host);
   assert.notEqual(agentSuffix('a-b.example.test'), agentSuffix('a.b-example.test'));
   assert.ok(docker.includes(`{ docker rm -f fastdog-agent-${suffix} >/dev/null 2>&1; true; } && docker run -d --name fastdog-agent-${suffix} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file fastdog-agent-${suffix}.env `));
-  assert.ok(docker.indexOf('docker pull') < docker.indexOf('docker rm -f') && docker.indexOf('docker rm -f') < docker.indexOf('docker run'));
+  assert.ok(docker.indexOf('docker pull') < docker.indexOf('printf') && docker.indexOf('printf') < docker.indexOf('docker rm -f') && docker.indexOf('docker rm -f') < docker.indexOf('docker run'), 'pull before the token file is written');
   assert.ok(docker.includes(`> fastdog-agent-${suffix}.env && chmod 600 fastdog-agent-${suffix}.env`));
   assert.doesNotMatch(connectionCommand(env, 'macos'), /--network host|docker rm/);
   assert.doesNotMatch(docker, /\$/, 'no shell expansion of secrets');
@@ -119,7 +119,7 @@ test('default tab is Docker on Linux and the Desktop tab on Mac and Windows', ()
   assert.equal(defaultChoice(undefined), 0);
 });
 test('link-local origins are refused with a clear error', () => {
-  for (const input of ['http://169.254.169.254:80', '169.254.1.1:80', 'http://[fe80::1]:80', 'http://[feb0::1]:80', 'http://[::ffff:169.254.169.254]:80']) {
+  for (const input of ['http://169.254.169.254:80', '169.254.1.1:80', 'http://[fe80::1]:80', 'http://[feb0::1]:80', 'http://[fd00:ec2::254]:80', '[fd00:ec2::254]:80', 'http://[::ffff:169.254.169.254]:80']) {
     assert.match(validateOrigin(input).error, /Link-local/, input);
     assert.equal(buildCommand({ ...env, AGENT_LOCAL_UPSTREAM: undefined }, 'docker', 'https://portal.example.test', input), null);
   }

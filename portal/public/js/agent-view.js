@@ -4,8 +4,8 @@ const powershellQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
 const AGENT_IMAGE = 'ghcr.io/soupnchill/fastdog-agent:0.1.2@sha256:6dcc855e5dcc5c058326d961133186b30cfa158a0173facd50d5e4e00cefd726';
 const LOCAL = (port) => `http:${'//'}127.0.0.1:${port}`;
 const PRIVATE_V4 = /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/;
-// Link-local (cloud metadata 169.254.0.0/16, fe80::/10, and the IPv4-mapped form) is never a valid origin: host networking would expose it to the agent.
-const LINK_LOCAL = /^(?:169\.254\.|fe[89ab][0-9a-f]:|::ffff:(?:169\.254\.|a9fe:))/i;
+// Link-local (cloud metadata 169.254.0.0/16, fe80::/10, AWS IPv6 metadata fd00:ec2::/32, and the IPv4-mapped form) is never a valid origin: host networking would expose it to the agent.
+const LINK_LOCAL = /^(?:169\.254\.|fe[89ab][0-9a-f]:|fd00:0*ec2:|::ffff:(?:169\.254\.|a9fe:))/i;
 // Small synchronous SHA-256 (hex) so the browser derives the same container name as the server twin.
 function sha256Hex(text) {
   const bytes = [...new TextEncoder().encode(text)];
@@ -38,11 +38,11 @@ function sha256Hex(text) {
   }
   return H.map((v) => (v >>> 0).toString(16).padStart(8, '0')).join('');
 }
-// Same suffix as the server twin: sanitised hostname plus 6 hex of sha256(hostname), so lookalike hostnames never share a name.
+// Same suffix as the server twin: sanitised hostname plus 10 hex of sha256(hostname), so lookalike hostnames never share a name.
 export function agentSuffix(hostname) {
   const full = String(hostname).toLowerCase();
   const slug = full.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
-  return `${slug}-${sha256Hex(full).slice(0, 6)}`;
+  return `${slug}-${sha256Hex(full).slice(0, 10)}`;
 }
 // Advisory only (the agent runs on the customer's own server). Returns { value } for a usable local app address or { error } with plain-language advice.
 export function validateOrigin(input) {
@@ -79,11 +79,13 @@ export function connectionCommand(agentEnv, platform, portalOrigin = window.loca
   // Plain Linux Docker: host networking reaches an app on 127.0.0.1; the stable name lets a re-run replace the agent.
   const name = `fastdog-agent-${agentSuffix(env.AGENT_HOSTNAME)}`;
   const envFile = platform === 'docker' ? `${name}.env` : 'fastdog-agent.env';
-  const hostRun = `docker pull ${AGENT_IMAGE} && { docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ${envFile} ${AGENT_IMAGE}`;
+  const hostRun = `{ docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ${envFile} ${AGENT_IMAGE}`;
   if (platform === 'windows') {
     return `Set-Content -LiteralPath fastdog-agent.env -Encoding ASCII -Value @(${entries.map(([key, value]) => powershellQuote(`${key}=${value}`)).join(', ')}) -ErrorAction Stop; ${run}`;
   }
-  return `umask 077; printf '%s\\n' ${entries.map(([key, value]) => shellQuote(`${key}=${value}`)).join(' ')} > ${envFile} && chmod 600 ${envFile} && ${platform === 'docker' ? hostRun : run}`;
+  const write = `printf '%s\\n' ${entries.map(([key, value]) => shellQuote(`${key}=${value}`)).join(' ')} > ${envFile} && chmod 600 ${envFile}`;
+  // Docker pulls first so a failed pull never leaves the token file on disk.
+  return platform === 'docker' ? `umask 077; docker pull ${AGENT_IMAGE} && ${write} && ${hostRun}` : `umask 077; ${write} && ${run}`;
 }
 const CHOICES = [['docker', 'Docker (recommended)'], ['linux', 'Linux installer (sudo)'], ['macos', 'macOS'], ['windows', 'Windows (Untested)']];
 // Docker (host networking) is Linux-only; Mac and Windows visitors start on their Docker Desktop tab.

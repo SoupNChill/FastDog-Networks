@@ -115,16 +115,16 @@ test('server-side command builder matches the browser rules', async () => {
   const env = { AGENT_TOKEN: 'fake', AGENT_HOSTNAME: 'app.example.test', EDGE_HTTP_URL: 'https://edge.example-edge.test' };
   assert.equal(buildCommand(env, { platform: 'windows', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' }), null);
   const docker = buildCommand(env, { platform: 'docker', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' });
-  assert.match(docker, /docker pull .* && \{ docker rm -f fastdog-agent-app-example-test-[0-9a-f]{6} .*docker run -d --name fastdog-agent-app-example-test-[0-9a-f]{6} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file fastdog-agent-app-example-test-[0-9a-f]{6}\.env /);
-  assert.ok(docker.indexOf('docker pull') < docker.indexOf('docker rm -f') && docker.indexOf('docker rm -f') < docker.indexOf('docker run'));
+  assert.match(docker, /^umask 077; docker pull \S+ && printf .* && chmod 600 \S+ && \{ docker rm -f fastdog-agent-app-example-test-[0-9a-f]{10} .*docker run -d --name fastdog-agent-app-example-test-[0-9a-f]{10} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file fastdog-agent-app-example-test-[0-9a-f]{10}\.env /);
+  assert.ok(docker.indexOf('docker pull') < docker.indexOf('printf') && docker.indexOf('printf') < docker.indexOf('docker rm -f') && docker.indexOf('docker rm -f') < docker.indexOf('docker run'), 'pull before the token file is written');
   const nameOf = (hostname) => buildCommand({ ...env, AGENT_HOSTNAME: hostname }, { platform: 'docker', portalOrigin: 'https://portal.example.test', origin: '127.0.0.1:1' }).match(/--name (\S+)/)[1];
   assert.notEqual(nameOf('a-b.example.test'), nameOf('a.b-example.test'));
-  for (const bad of ['http://169.254.169.254:80', '169.254.0.1:80', 'http://[fe80::1]:80', 'http://[febf::1]:80', 'http://[::ffff:169.254.169.254]:80']) {
+  for (const bad of ['http://169.254.169.254:80', '169.254.0.1:80', 'http://[fe80::1]:80', 'http://[febf::1]:80', 'http://[fd00:ec2::254]:80', '[fd00:ec2::254]:80', 'http://[::ffff:169.254.169.254]:80']) {
     assert.equal(validOrigin(bad), null, bad);
     assert.match(originError(bad), /Link-local/, bad);
   }
   assert.equal(originError('127.0.0.1:80'), null);
-  assert.match(docker, /^umask 077; printf/);
+  assert.match(docker, /^umask 077; docker pull/);
   assert.doesNotMatch(docker, /\$/);
   // Server twin and browser builder produce identical Docker output.
   const full = { ...env, AGENT_LOCAL_UPSTREAM: 'http://127.0.0.1:1' };

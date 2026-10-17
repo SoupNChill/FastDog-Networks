@@ -12,8 +12,8 @@ export const AGENT_IMAGE = (() => {
 })();
 const shellQuote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
 const PRIVATE_V4 = /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/;
-// Link-local (cloud metadata 169.254.0.0/16, fe80::/10, and the IPv4-mapped form) is never a valid origin: host networking would expose it to the agent.
-const LINK_LOCAL = /^(?:169\.254\.|fe[89ab][0-9a-f]:|::ffff:(?:169\.254\.|a9fe:))/i;
+// Link-local (cloud metadata 169.254.0.0/16, fe80::/10, AWS IPv6 metadata fd00:ec2::/32, and the IPv4-mapped form) is never a valid origin: host networking would expose it to the agent.
+const LINK_LOCAL = /^(?:169\.254\.|fe[89ab][0-9a-f]:|fd00:0*ec2:|::ffff:(?:169\.254\.|a9fe:))/i;
 export const LINK_LOCAL_ERROR = "Link-local addresses (169.254.0.0/16, fe80::/10) are not allowed as an origin. Use 127.0.0.1 or your app's private address.";
 export function originError(input) {
   const text = String(input ?? '').trim();
@@ -23,11 +23,11 @@ export function originError(input) {
   } catch { /* generic error */ }
   return null;
 }
-// Same suffix as the browser builder: sanitised hostname plus 6 hex of sha256(hostname), so lookalike hostnames never share a name.
+// Same suffix as the browser builder: sanitised hostname plus 10 hex of sha256(hostname), so lookalike hostnames never share a name.
 export function agentSuffix(hostname) {
   const full = String(hostname).toLowerCase();
   const slug = full.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
-  return `${slug}-${createHash('sha256').update(full).digest('hex').slice(0, 6)}`;
+  return `${slug}-${createHash('sha256').update(full).digest('hex').slice(0, 10)}`;
 }
 
 export function validOrigin(input) {
@@ -57,7 +57,8 @@ export function buildCommand(agentEnv, { platform = 'linux', portalOrigin, origi
     // Identical to the browser's Docker tab: host networking reaches an app on 127.0.0.1; the stable name lets a re-run replace the agent.
     const name = `fastdog-agent-${agentSuffix(env.AGENT_HOSTNAME)}`;
     const envFile = `${name}.env`;
-    return `umask 077; printf '%s\\n' ${Object.entries(env).map(([k, v]) => shellQuote(`${k}=${v}`)).join(' ')} > ${envFile} && chmod 600 ${envFile} && docker pull ${AGENT_IMAGE} && { docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ${envFile} ${AGENT_IMAGE}`;
+    // Pull first so a failed pull never leaves the token file on disk.
+    return `umask 077; docker pull ${AGENT_IMAGE} && printf '%s\\n' ${Object.entries(env).map(([k, v]) => shellQuote(`${k}=${v}`)).join(' ')} > ${envFile} && chmod 600 ${envFile} && { docker rm -f ${name} >/dev/null 2>&1; true; } && docker run -d --name ${name} --network host --cap-drop ALL --security-opt no-new-privileges --restart unless-stopped --env-file ${envFile} ${AGENT_IMAGE}`;
   }
   return null;
 }
