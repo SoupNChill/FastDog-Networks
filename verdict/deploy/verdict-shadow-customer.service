@@ -1,0 +1,40 @@
+[Unit]
+Description=FastDog Verdict shadow scorer for customer hosts (scrubbed per-host logs, counts only)
+After=network.target
+
+[Service]
+Type=simple
+# Dedicated non-root reader: in group caddy (read the 0640 per-host logs), owns only its state dir.
+# The edge user joins group verdict-shadow to read the counts file. Shadow only; nothing enforces.
+User=verdict-shadow
+Group=verdict-shadow
+SupplementaryGroups=caddy
+WorkingDirectory=/opt/verdict
+# No EnvironmentFile: this unit needs no secrets and must not inherit first-party log settings.
+Environment=VERDICT_SHADOW_LOGS=
+Environment=VERDICT_SHADOW_CUSTOMER_DIR=/var/log/caddy
+Environment=VERDICT_SHADOW_COUNTS_FILE=/var/lib/verdict-shadow/customer-counts.json
+Environment=VERDICT_SHADOW_POLL_MS=5000
+ExecStart=/usr/bin/node /opt/verdict/scripts/shadow-tail.js
+Restart=on-failure
+RestartSec=10
+Nice=15
+CPUQuota=10%
+MemoryMax=150M
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+StateDirectory=verdict-shadow
+StateDirectoryMode=0750
+ReadOnlyPaths=/var/log/caddy /opt/verdict
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

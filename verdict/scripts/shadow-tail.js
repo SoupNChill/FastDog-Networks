@@ -6,7 +6,10 @@ import { dirname } from 'node:path';
 import { loadHostingAsns, asnDb } from '../src/asn/lookup.js';
 import { scoreAccessLogLine } from '../src/shadow/score.js';
 
-const logPaths = (process.env.VERDICT_SHADOW_LOGS || '/var/log/caddy/access-apex.json,/var/log/caddy/access-verdict-demo.json')
+import { createCountStore, createCustomerTail, excludedHosts } from '../src/shadow/customer.js';
+
+// VERDICT_SHADOW_LOGS="" (set but empty) turns the first-party scorer off; customer mode is separate.
+const logPaths = (process.env.VERDICT_SHADOW_LOGS ?? '/var/log/caddy/access-apex.json,/var/log/caddy/access-verdict-demo.json')
   .split(',').map(s => s.trim()).filter(Boolean);
 const outFile = process.env.VERDICT_SHADOW_FILE || 'data/shadow.jsonl';
 const asnFile = process.env.VERDICT_ASN_FILE || '';
@@ -19,7 +22,15 @@ if (asnFile) {
   catch (e) { console.warn('asn skip:', e.message); }
 }
 
-await mkdir(dirname(outFile), { recursive: true });
+const customerDir = process.env.VERDICT_SHADOW_CUSTOMER_DIR || '';
+const countsFile = process.env.VERDICT_SHADOW_COUNTS_FILE || '';
+let customer = null;
+if (customerDir && countsFile) {
+  const store = createCountStore(countsFile);
+  await store.load();
+  customer = createCustomerTail({ logDir: customerDir, store, hosting, exclude: excludedHosts() });
+}
+if (logPaths.length) await mkdir(dirname(outFile), { recursive: true });
 const offsets = new Map();
 let outSize = 0;
 try { outSize = (await stat(outFile)).size; } catch { outSize = 0; }
@@ -52,10 +63,11 @@ async function consume(path) {
   offsets.set(path, size);
 }
 
-console.log(JSON.stringify({ shadow_tail: true, logs: logPaths, out: outFile }));
+console.log(JSON.stringify({ shadow_tail: true, logs: logPaths, out: logPaths.length ? outFile : null, customer: Boolean(customer) }));
 for (;;) {
   for (const p of logPaths) {
     try { await consume(p); } catch (e) { console.error('tail_error', p, e.message); }
   }
+  if (customer) { try { await customer.poll(); } catch (e) { console.error('customer_tail_error', e.message); } }
   await new Promise(r => setTimeout(r, pollMs));
 }
