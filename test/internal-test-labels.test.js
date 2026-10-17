@@ -204,6 +204,43 @@ test('guardrail hosts and their subdomains are refused when claiming and never a
   for (const { hostname } of records) assert.equal(ask(hostname).status, 404, hostname);
 });
 
+test('e2e labels under a denylisted attach domain are claimable and ask-approved only for marked tenants', async (t) => {
+  // The denylisted attach-domain apex is the one with a denylisted subdomain besides www; derived to keep real names out of tests.
+  const under = (guard) => ENFORCE_DENYLIST.filter((h) => h.endsWith(`.${guard}`) && h !== `www.${guard}`);
+  const apex = ENFORCE_DENYLIST.find((guard) => under(guard).length);
+  const [sibling] = under(apex);
+  const prodTarget = `attach.${apex}`;
+  const prodAlt = `edge.${apex}`;
+  const dataDir = tempDir(t);
+  const txt = new Map();
+  const resolver = {
+    async resolveCname() { return [prodTarget]; },
+    async resolve4() { return []; },
+    async resolveTxt(name) { return txt.get(name) ?? []; },
+  };
+  const claims = createClaims({ dataDir, attachTarget: prodTarget, altAttachTarget: prodAlt, edgePublicIp: '192.0.2.1', resolver,
+    now: () => Date.UTC(2026, 0, 1) }, () => {});
+  const ask = createTlsAsk({ tlsAskEnabled: true, liveVerify: false, dataDir, attachTarget: prodTarget, altAttachTarget: prodAlt,
+    now: () => Date.UTC(2026, 0, 1) });
+  const host = `e2e-abc.${apex}`;
+  const create = (tid, hostname) => code(() => claims.create(tid, { hostname, hostname_limit: 5 }));
+  writeJson('test_tenants.json', [tester], 0o600, dataDir);
+  assert.equal(create(normal, host), 'reserved_hostname');
+  const created = claims.create(tester, { hostname: host, hostname_limit: 5 }).body;
+  assert.equal(ask(host).status, 404);
+  txt.set(created.dns.txt.name, [[created.dns.txt.value]]);
+  assert.equal((await claims.verify(tester, host)).status, 'active');
+  assert.equal(ask(host).status, 200);
+  writeJson('test_tenants.json', [], 0o600, dataDir);
+  assert.equal(ask(host).status, 404);
+  writeJson('test_tenants.json', [tester], 0o600, dataDir);
+  for (const refused of [`a.${host}`, `e2e-abc.${sibling}`, apex, `www.${apex}`, sibling, `x.${sibling}`, `app.${apex}`]) {
+    assert.equal(create(tester, refused), 'reserved_hostname', refused);
+    assert.equal(create(normal, refused), 'reserved_hostname', refused);
+    assert.equal(ask(refused).status, 404, refused);
+  }
+});
+
 test('test tenants cache avoids reads until file metadata changes and fails closed on removal', (t) => {
   const directory = tempDir(t);
   const file = path.join(directory, 'test_tenants.json');

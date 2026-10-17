@@ -120,3 +120,9 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - ACCEPTED (MEDIUM, availability): first issuance requires the _fastdog-challenge TXT and routing to still resolve; a single-resolver NXDOMAIN/ENODATA is treated as not found (60 s cache). Follow-up: map SERVFAIL/NXDOMAIN-from-one-resolver to inconclusive (503); keep the "keep the TXT" note prominent in tenant docs.
 - OPEN (LOW): per-host day cap counts approvals not issuances (operator reset: onboard.js tls-reset); stale-lock recovery race (use rename or flock); history rescans on capped hosts; revision-change reparse not throttled; 421 SNI check only in the catch-all; duplicate catch-all check is literal; --probe-host not mandatory.
 - VERIFY AT DEPLOY: through the catch-all on an e2e test label, /_FASTDOG/metrics and //_fastdog/metrics must be denied by (fdctl).
+
+## E2E test-label follow-ups
+- DONE: operator test labels `e2e-<label>.<attach-domain>` are no longer treated as guardrail hosts by the attach domain's own denylist entry (claims create/verify and TLS ask); exact guardrail names and subdomains of every other entry stay refused.
+- OPEN: the portal API-keys page has no "copy prompt for your AI assistant" for the key flow; only the post-verify connect-token prompt exists.
+- OPEN: the v9 edge tarball shipped without `scripts/onboard.js`, so the deployed operator CLI lacks `test-tenant` and `tls-reset`. Include `scripts/onboard.js` in the next edge build.
+- OPEN: ns2 (2.29.58.90) is not reachable by ssh from server3, the edge or the operator PC, so zone changes cannot follow `docs/runbooks/dns-changes.md` from operator boxes.
