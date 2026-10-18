@@ -26,7 +26,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE (E2): `sessions.get()` persists `last_seen` and sliding expiry at most once a minute.
 - LOW: file mailer outbox keeps raw links; delete after delivery or TTL.
 - LOW: whitelist fields of `/api/domain-requests` (do not return operator `notes`).
-- LOW: tenant suspension has no path that deletes the tenant's hostnames and credentials.
+- DONE (#80): administrative suspension revokes tenant credentials and routes, reserves hostnames indefinitely, fences in-flight verification, and supports authenticated, idempotent administrative release; DNS suspension still expires after 24h.
 - LOW: `isReserved` in `portal/src/hostname.js` is unused (edge enforces); keep or remove.
 
 ## Lane D (tests)

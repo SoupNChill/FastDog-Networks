@@ -50,10 +50,11 @@ export function createClaims(opts, changed) {
   const registry = opts.registry;
   const read = (name) => readJson(name, [], directory);
   const write = (name, data) => writeJson(name, data, 0o600, directory);
-  const claims = () => read('tenant_hostnames.json').filter((c) => c.status === 'active' || Date.parse(c.expires_at) > now());
+  const administrative = (c) => c.status === 'suspended' && (c.suspension_reason === 'administrative' || c.expires_at === null);
+  const claims = () => read('tenant_hostnames.json').filter((c) => c.status === 'active' || administrative(c) || Date.parse(c.expires_at) > now());
   const save = (records) => write('tenant_hostnames.json', records);
   const legacy = (host) => read('attached_hosts.json').find((c) => c.hostname === host && !c.tenant_id);
-  const unavailable = (records, tid, host) => Boolean(legacy(host) || records.some((c) => c.hostname === host && c.status === 'active' && c.tenant_id !== tid));
+  const unavailable = (records, tid, host) => Boolean(legacy(host) || records.some((c) => c.hostname === host && (c.status === 'active' || administrative(c)) && c.tenant_id !== tid));
   const find = (records, tid, host) => {
     const record = records.find((c) => c.tenant_id === tid && c.hostname === host);
     if (!record) throw fail(404, 'hostname_not_found');
@@ -204,6 +205,7 @@ export function createClaims(opts, changed) {
     },
     async verify(tid, host, signal) {
       const initial = find(claims(), tid, host);
+      if (administrative(initial)) throw fail(409, 'administratively_suspended');
       limit(`verify:${tid}`, 6, 60000);
       const activeResult = (c) => ({ hostname: host, status: 'active', verified: true, verified_at: c.verified_at, method: c.method });
       if (initial.status === 'active') return activeResult(initial);
@@ -216,6 +218,7 @@ export function createClaims(opts, changed) {
       // Re-read after DNS: another request may have activated, deleted or replaced this claim.
       const records = claims();
       const record = find(records, tid, host);
+      if (administrative(record) || (record.suspension_generation ?? 0) !== (initial.suspension_generation ?? 0)) throw fail(409, 'administratively_suspended');
       if (record.txt_value !== initial.txt_value || signal?.aborted) throw fail(404, 'hostname_not_found');
       if (unavailable(records, tid, host)) throw fail(409, 'hostname_unavailable');
       if (record.status === 'active') return activeResult(record);
@@ -245,9 +248,60 @@ export function createClaims(opts, changed) {
     agent(tid, host) { active(find(claims(), tid, host)); return agent(host); },
     // When this tenant's current claim became active (verified_at only; null makes the probes fail closed).
     claimSince(tid, host) { const c = find(claims(), tid, host); active(c); return c.verified_at || null; },
+    suspendTenant(tid) {
+      const raw = read('tenant_hostnames.json');
+      const records = claims();
+      const owned = records.filter((c) => c.tenant_id === tid);
+      const suspended = owned.filter((c) => c.status !== 'pending' && !administrative(c));
+      // Pending and DNS-suspended claims may overlap another active owner.
+      const removable = new Set(owned.filter((c) => !legacy(c.hostname) &&
+        !records.some((other) => other.tenant_id !== tid && other.hostname === c.hostname && other.status === 'active'))
+        .map((c) => c.hostname));
+      const credentials = read('agent-credentials.json');
+      const remainingCredentials = credentials.filter((c) => c.tenant_id !== tid);
+      const tunnels = read('tunnel_hosts.json');
+      const remainingTunnels = tunnels.filter((host) => !removable.has(host));
+      for (const record of suspended) {
+        record.status = 'suspended';
+        record.suspension_reason = 'administrative';
+        record.suspension_generation = (record.suspension_generation ?? 0) + 1;
+        record.expires_at = null;
+      }
+      const recordsChanged = suspended.length > 0 || raw.length !== records.length;
+      // Persist the verification fence first. Keep pending records until cleanup succeeds
+      // so a failed write leaves enough information for a retry to remove stale routes.
+      if (recordsChanged) save(records);
+      const closed = new Set([...suspended.map((c) => c.hostname), ...tunnels.filter((host) => removable.has(host))]);
+      try {
+        if (remainingCredentials.length !== credentials.length) write('agent-credentials.json', remainingCredentials);
+        if (remainingTunnels.length !== tunnels.length) write('tunnel_hosts.json', remainingTunnels);
+        if (owned.some((c) => c.status === 'pending')) save(records.filter((c) => c.tenant_id !== tid || c.status !== 'pending'));
+      } finally {
+        for (const host of closed) if (removable.has(host)) registry?.closeHost(host);
+        if (recordsChanged || closed.size || remainingCredentials.length !== credentials.length) changed();
+      }
+      return { tenant_id: tid, suspended: suspended.length, hostnames: suspended.map((c) => c.hostname) };
+    },
+    releaseTenant(tid) {
+      const records = claims();
+      const released = records.filter((c) => c.tenant_id === tid && administrative(c));
+      // Finish any interrupted suspension cleanup before dropping its reservations.
+      if (released.length) {
+        const hosts = new Set(released.map((c) => c.hostname));
+        write('agent-credentials.json', read('agent-credentials.json').filter((c) => c.tenant_id !== tid || !hosts.has(c.claim_hostname)));
+        const removable = new Set([...hosts].filter((host) => !legacy(host) &&
+          !records.some((c) => c.hostname === host && c.tenant_id !== tid && c.status === 'active')));
+        write('tunnel_hosts.json', read('tunnel_hosts.json').filter((host) => !removable.has(host)));
+        for (const host of removable) registry?.closeHost(host);
+        save(records.filter((c) => !released.includes(c)));
+        changed();
+      }
+      return { tenant_id: tid, released: released.length };
+    },
     delete(tid, host) {
       const records = claims();
       const record = find(records, tid, host);
+      if (administrative(record)) throw fail(409, 'administratively_suspended');
       save(records.filter((c) => c !== record));
       write('agent-credentials.json', read('agent-credentials.json').filter((c) => c.tenant_id !== tid || c.claim_hostname !== host));
       if (record.status === 'active') {

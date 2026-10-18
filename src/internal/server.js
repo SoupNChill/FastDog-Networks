@@ -109,17 +109,19 @@ export function createInternalServer(opts = {}) {
         return send(res, result.status, result.retry_after ? { error: 'rate_limited', retry_after: result.retry_after } : undefined);
       }
       if (!equalToken(req.headers['x-fastdog-portal-key'], opts.portalKey)) throw fail(401, 'unauthorized');
-      const match = url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/hostnames(?:\/([^/]+)(?:\/(verify|credentials\/rotate|agent|status|test))?)?$/);
+      const suspension = url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/(suspend|release)$/);
+      const match = suspension ?? url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/hostnames(?:\/([^/]+)(?:\/(verify|credentials\/rotate|agent|status|test))?)?$/);
       if (!match) throw fail(404, 'not_found');
       const [, tid, rawHost, action] = match;
-      route = '/internal/v1/tenants/:tid/hostnames' + (rawHost ? '/:hostname' : '') + (action ? `/${action}` : '');
+      route = suspension ? `/internal/v1/tenants/:tid/${suspension[2]}` : '/internal/v1/tenants/:tid/hostnames' + (rawHost ? '/:hostname' : '') + (action ? `/${action}` : '');
       if (!/^t_[a-z2-7]{20}$/.test(tid)) throw fail(400, 'invalid_tenant');
-      const allowed = !rawHost ? ['GET', 'POST'] : ['agent', 'status'].includes(action) ? ['GET'] : action ? ['POST'] : ['GET', 'DELETE'];
+      const allowed = suspension ? ['POST'] : !rawHost ? ['GET', 'POST'] : ['agent', 'status'].includes(action) ? ['GET'] : action ? ['POST'] : ['GET', 'DELETE'];
       if (!allowed.includes(req.method)) throw fail(405, 'method_not_allowed');
       if (Number(req.headers['content-length']) > 16384) throw fail(413, 'payload_too_large');
       const body = await readBody(req);
       bodyRead = true;
       if (abort.signal.aborted) return;
+      if (suspension) return send(res, 200, suspension[2] === 'release' ? claims.releaseTenant(tid) : claims.suspendTenant(tid));
       if (!rawHost) {
         if (req.method === 'GET') return send(res, 200, claims.list(tid));
         const result = claims.create(tid, body);
