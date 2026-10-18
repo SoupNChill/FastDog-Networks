@@ -24,7 +24,13 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
   };
   function link(data, user, kind) {
     const raw = token();
-    data.links = data.links.filter((item) => item.expires_at > now() && !(item.user_id === user.id && item.kind === kind));
+    data.links = data.links.filter((item) => item.expires_at > now() && (kind === 'password-reset' || !(item.user_id === user.id && item.kind === kind)));
+    // Replacement delivery may fail after enqueue; retain recent links until redemption.
+    if (kind === 'password-reset') {
+      const previous = data.links.filter((item) => item.user_id === user.id && item.kind === kind);
+      const remove = new Set(previous.slice(0, Math.max(0, previous.length - 2)));
+      data.links = data.links.filter((item) => !remove.has(item));
+    }
     data.links.push({ token_hash: digest(raw), user_id: user.id, kind, expires_at: now() + 3600000 });
     return `${config.origin}/${kind === 'verify-email' ? 'verify-email' : 'login'}#${new URLSearchParams({ kind, token: raw, ...(kind === 'verify-email' && user.signup_source === 'open' ? { setup: '1' } : {}) })}`;
   }
@@ -56,7 +62,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         }
         const data = read();
         // Only expired, unverified open registrations may be reclaimed. Never release a tenant's claims.
-        const stale = data.users.find((u) => u.email === email && !u.email_verified_at
+        const stale = data.users.find((u) => normalizeEmail(u.email) === email && !u.email_verified_at
           && data.tenants.some((t) => t.id === u.tenant_id && t.source === 'open' && t.status === 'active')
           && !data.links.some((item) => item.user_id === u.id && item.kind === 'verify-email' && item.expires_at > now()));
         if (open && stale) {
@@ -73,7 +79,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
           return send(200, generic);
         }
         const invite = open ? null : findInvite(data, body.invite_code, email, now());
-        if ((!open && !invite) || data.users.some((u) => u.email === email)) {
+        if ((!open && !invite) || data.users.some((u) => normalizeEmail(u.email) === email)) {
           if (open) log('refused', 'exists');
           return send(200, generic);
         }
@@ -100,7 +106,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         const ipKey = `login-ip:${ip}`;
         limits.take(ipKey, 20, 900000);
         limits.take(accountKey, 5, 900000, true);
-        const initial = read().users.find((u) => u.email === email);
+        const initial = read().users.find((u) => email && normalizeEmail(u.email) === email);
         const valid = await verifyPassword(body.password, initial?.password_hash || dummyPassword);
         const user = read().users.find((u) => u.id === initial?.id);
         if (!valid || !user || user.auth_version !== initial.auth_version) throw fail('unauthorized');
@@ -118,7 +124,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         limits.take(`reset-ip:${ip}`, 10, 900000);
         limits.take(`reset-account:${digest(email || '')}`, 3, 900000);
         const data = read();
-        const user = data.users.find((u) => u.email === email);
+        const user = data.users.find((u) => email && normalizeEmail(u.email) === email);
         if (user) {
           const url = link(data, user, 'password-reset');
           store.write('accounts', data);

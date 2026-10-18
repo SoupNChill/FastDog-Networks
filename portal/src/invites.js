@@ -21,6 +21,6 @@ export function createInvites({ dataDir, now = Date.now }) {
 }
 export function findInvite(data, code, email, now) {
   if (typeof code !== 'string' || code.length > 256) return undefined;
-  return data.invites.find((invite) => invite.code_hash === digest(code) && invite.email === email
+  return data.invites.find((invite) => invite.code_hash === digest(code) && normalizeEmail(invite.email) === email
     && invite.redeemed_at == null && invite.expires_at > now);
 }

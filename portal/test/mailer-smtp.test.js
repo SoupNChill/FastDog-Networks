@@ -370,3 +370,16 @@ test('crash-left budget and outbox locks are broken after 30 s and logged as loc
   assert.equal(logs.filter((entry) => entry.reason === 'lock_stuck').length, 2);
   assert.deepEqual(readdirSync(outboxDir).filter((name) => !name.endsWith('.json')), ['.budget']);
 });
+
+test('SMTP envelope and headers support atext and normalize IDN domains', needsTls, async (t) => {
+  const smtp = await fakeSmtp(t);
+  const m = mailer(t, smtp.port);
+  for (const [to, expected] of [["owner'tag+=_-@example.test", "owner'tag+=_-@example.test"],
+    ['owner@bücher.example.test', 'owner@xn--bcher-kva.example.test']]) {
+    for (const kind of ['verify-email', 'password-reset']) {
+      assert.equal((await m.instance.send({ to, kind, link: verifyLink() })).delivered, 'smtp');
+      assert.ok(smtp.state.commands.includes('RCPT TO:<' + expected + '>'));
+      assert.ok(smtp.state.messages.at(-1).includes('To: ' + expected + '\r\n'));
+    }
+  }
+});

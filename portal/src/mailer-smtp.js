@@ -6,10 +6,10 @@ import { createMailBudget } from './mail-budget.js';
 import tls from 'node:tls';
 import { randomUUID } from 'node:crypto';
 import { renderMail } from './mail-templates.js';
+import { normalizeEmail } from './tokens.js';
 
-const ADDRESS = /^[A-Za-z0-9._+-]{1,64}@(?=.{1,190}$)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
 const HOST = /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*$/;
-export const isAddress = (value) => typeof value === 'string' && ADDRESS.test(value);
+export const isAddress = (value) => normalizeEmail(value) !== null;
 export const isMailHost = (value) => typeof value === 'string' && (HOST.test(value) || net.isIP(value) > 0);
 class SmtpError extends Error { constructor(reason) { super(`smtp ${reason}`); this.reason = reason; } }
 const failure = (reason) => new SmtpError(reason);
@@ -123,6 +123,8 @@ export function createSmtpMailer({ host, port = 2525, user, pass, from, replyTo,
     || !isAddress(from) || (replyTo && !isAddress(replyTo)) || !Number.isInteger(maxPerHour) || maxPerHour < 1 || !fallback) {
     throw new Error('Invalid mail configuration');
   }
+  from = normalizeEmail(from);
+  if (replyTo) replyTo = normalizeEmail(replyTo);
   const domain = from.split('@')[1];
   heloName ||= domain;
   const budget = fallback.outboxDir && createMailBudget({ directory: join(fallback.outboxDir, '.budget'),
@@ -152,7 +154,8 @@ export function createSmtpMailer({ host, port = 2525, user, pass, from, replyTo,
       const message = { to, kind, link, code };
       let rendered;
       try {
-        if (!isAddress(to)) throw failure('invalid_address');
+        to = normalizeEmail(to);
+        if (!to) throw failure('invalid_address');
         if (!headerSafe(link) || (code !== undefined && !headerSafe(code))) throw failure('invalid_message');
         rendered = renderMail({ kind, link, code });
       } catch (error) { return toOutbox(message, error.reason || 'invalid_message'); }
