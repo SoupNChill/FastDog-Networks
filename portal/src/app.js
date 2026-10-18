@@ -64,12 +64,18 @@ function clientIp(request, trustProxy) {
   return remote;
 }
 export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now, config = {} } = {}) {
-  config = { defaultPlan: 'assigned', defaultHostnameLimit: 3, ...config,
+  config = { defaultPlan: 'assigned', defaultHostnameLimit: 3, openSignup: false, openSignupPlan: 'trial', openSignupHostnameLimit: 1,
+    openConnectTokensPerHour: 3, signupIpPerHour: 3, signupDomainPerDay: 5, signupBigmailPerDay: 200, signupGlobalPerDay: 100, ...config,
     origin: config.origin || config.portalOrigin || 'https://portal.example.test' };
   const origin = new URL(config.origin);
   if (origin.protocol !== 'https:' || origin.origin !== config.origin) throw new Error('HTTPS portal origin required');
-  if (!Number.isInteger(config.defaultHostnameLimit) || config.defaultHostnameLimit < 1 || config.defaultHostnameLimit > 1000
-    || typeof config.defaultPlan !== 'string' || !config.defaultPlan.trim()) throw new Error('Invalid default plan');
+  const count = (value, max) => Number.isInteger(value) && value >= 1 && value <= max;
+  if (!count(config.defaultHostnameLimit, 1000) || typeof config.defaultPlan !== 'string' || !config.defaultPlan.trim()) throw new Error('Invalid default plan');
+  if (typeof config.openSignup !== 'boolean' || config.openSignupHostnameLimit !== 1 || config.openSignupPlan !== 'trial'
+    || config.openConnectTokensPerHour !== 3
+    || !['openConnectTokensPerHour', 'signupIpPerHour', 'signupDomainPerDay', 'signupBigmailPerDay', 'signupGlobalPerDay'].every((key) => count(config[key], 100000))) {
+    throw new Error('Invalid open sign-up settings');
+  }
   // Public edge address agents dial (PORTAL_EDGE_URL). Without it the portal never renders a connect command.
   const edgeUrl = config.edgeUrl ? String(config.edgeUrl).replace(/\/$/, '') : null;
   if (edgeUrl) {
@@ -284,7 +290,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const identity = auth.identity(session);
         return send(200, { email: identity?.user.email ?? null,
           tenant: identity ? pick(identity.tenant, ['id', 'plan', 'hostname_limit']) : null,
-          email_verified: Boolean(identity?.user.email_verified_at), csrf: session.csrf });
+          email_verified: Boolean(identity?.user.email_verified_at), open_signup: config.openSignup, csrf: session.csrf });
       }
       const body = request.method === 'GET' ? {} : await readBody(request);
       if (authPaths.has(path)) return await auth.handle(path, body, { ip, session, send });
@@ -361,7 +367,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         if (!user.email_verified_at) throw fail('unauthorized');
         if (record.status !== 'active') throw fail('not_active');
         if (typeof record.created_at !== 'string') throw fail('internal_error');
-        limits.take(`connect-token:${tenant.id}`, 5, 3600000, true);
+        // Open sign-up tenants get a smaller budget until an operator raises their limits.
+        limits.take(`connect-token:${tenant.id}`, tenant.source === 'open' ? config.openConnectTokensPerHour : 5, 3600000, true);
         const issued = connectTokens.issue(tenant.id, hostname, { user_id: user.id, auth_version: user.auth_version, claim_created_at: record.created_at });
         return send(201, { ...issued, hostname, scope: 'connect',
           prompt: assistantPrompt({ hostname, token: issued.token, expiresAt: issued.expires_at, portalOrigin: config.origin, docsUrl }) });
