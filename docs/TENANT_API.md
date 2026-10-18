@@ -252,7 +252,7 @@ All commands are idempotent, print a JSON summary without secrets and append to 
 
 ## Agent bootstrap (flagged off, AGENT_BOOTSTRAP_ENABLED)
 
-This additive contract is disabled unless the edge has `AGENT_BOOTSTRAP_ENABLED=1`. It does not change existing connect endpoints, snippets or the default agent image. Milestone 1 issues pending credentials only; candidate authentication and promotion are not yet available.
+This additive contract is disabled unless the edge has `AGENT_BOOTSTRAP_ENABLED=1`. It does not change existing connect endpoints, snippets or the default agent image. Milestones 1–2 add issuance, exchange, key-bound request proofs, candidate registration and the promotion hold. The portal, agent image and issuer-check transport are not yet available.
 
 The following internal endpoints require the existing portal key and loopback internal listener, with existing 16 KiB body and five-second limits. The hostname must belong to the active tenant for issuance and cancellation.
 
@@ -260,13 +260,14 @@ The following internal endpoints require the existing portal key and loopback in
 | --- | --- |
 | `POST /internal/v1/tenants/:tid/hostnames/:hostname/bootstraps` | JSON `{origin,deployment_id,issuer:{kind,id,authorization_generation},issuance_id}`. Returns `200` with `code`, canonical `origin`, `issuance_id`, `hostname`, `deployment_id`, `expires_at`, `status`. The code is returned once and expires in 15 minutes by edge time. |
 | `GET /internal/v1/tenants/:tid/hostnames/:hostname/bootstraps/:issuance_id` | Status and nonsecret IDs only. An unknown ID or ID under another tenant/hostname returns the same `404 bootstrap_not_found`. |
-| `DELETE /internal/v1/tenants/:tid/hostnames/:hostname/bootstraps` | Cancels pending codes, recovery responses and pending credentials; returns `{cancelled:true}`. |
+| `DELETE /internal/v1/tenants/:tid/hostnames/:hostname/bootstraps` | Cancels pending codes, recovery responses and pending/held candidate credentials, and disconnects candidate tunnels; returns `{cancelled:true}`. The active credential and tunnel are untouched. |
+| `POST /internal/v1/tenants/:tid/hostnames/:hostname/bootstraps/candidates/:credential_id/confirm` | Owner confirmation, sent by the portal for an authenticated owner session. JSON `{key_fingerprint}`. Returns `200 {promoted:true,credential_id}` when it promotes a held, connected candidate. Returns `409 candidate_mismatch` when the fingerprint differs or the credential is not a held, connected candidate. A hostname the tenant does not actively own returns `404 hostname_not_found`. An unknown credential ID, or one belonging to another tenant or hostname, returns the same `404 candidate_not_found`. |
 
-Issuance is idempotent on the full tenant/hostname/issuance-ID triple; repeats return status without the code and without another budget charge. A newer issuance cancels earlier unused codes. Issuance shares the five-per-day hostname rotation budget and also counts toward an eight-per-day absolute issuance ceiling. Budgets use UTC days. Refund accounting is deferred.
+Issuance is idempotent on the full tenant/hostname/issuance-ID triple; repeats return status without the code and without another budget charge. A newer issuance cancels earlier unused codes, revokes pending/held candidate credentials from earlier codes, deletes their recovery responses and disconnects their candidate tunnels. Redeemed codes keep their used diagnostic, so different-key reuse still returns `409 bootstrap_used`. The active credential stays. Issuance shares the five-per-day hostname rotation budget and also counts toward an eight-per-day absolute issuance ceiling. Budgets use UTC days. Refund accounting is deferred.
 
 `POST /_fastdog/agents/bootstrap/exchange` accepts only the canonical raw path, `Authorization: Bearer <code>`, and JSON `{hostname,origin,deployment_id,request_id,recipient_public_key,agent_version,proof}`. Maximum body size is 16 KiB and the handler deadline is five seconds. RSA-3072 SPKI PEM keys must use exponent 65537. `agent_version` must match `^\d{1,3}\.\d{1,3}\.\d{1,3}$`. Proof uses RSA-PSS/SHA-256 with 32-byte salt and the versioned length-prefixed transcript specified in [the implementation notes](AGENT_BOOTSTRAP_IMPL.md).
 
-Success is `200`, `Cache-Control: no-store`, with `{credential_id,hostname,origin,deployment_id,algorithm:"RSA-OAEP-256",encrypted_token,recovery_expires_at}`. The token is encrypted to the submitted key using the fixed protocol OAEP label. It is never returned in plaintext. The pending credential is bound immutably to that key and cannot authenticate on existing register/tunnel paths. The active credential and tunnel remain untouched. Matching retries return identical ciphertext until the 120-second activation deadline, including after the original code TTL. Revocation or ownership changes disable recovery.
+Success is `200`, `Cache-Control: no-store`, with `{credential_id,hostname,origin,deployment_id,algorithm:"RSA-OAEP-256",encrypted_token,recovery_expires_at}`. The token is encrypted to the submitted key using the fixed protocol OAEP label. It is never returned in plaintext. The pending credential is bound immutably to that key and cannot authenticate on the active register/tunnel paths. It can authenticate only as a candidate (below). The active credential and tunnel remain untouched. Matching retries return identical ciphertext until the 120-second activation deadline, including after the original code TTL. Revocation or ownership changes disable recovery.
 
 | Status | Error |
 | --- | --- |
@@ -278,4 +279,20 @@ Success is `200`, `Cache-Control: no-store`, with `{credential_id,hostname,origi
 | 503 | `bootstrap_unavailable` for issuer-check or storage uncertainty |
 | 404 / 405 / 413 | Disabled/wrong route, wrong method, oversized body |
 
-Attempt limits are 30/minute/direct-peer-IP before code lookup, 10/minute/known-code, 30/minute/claim and 300/minute globally, with at most 20,000 live entries and fail-closed admission at capacity. An injected issuer checker must return true for redemption and recovery; without a configured checker exchange fails closed with 503. Portal HMAC issuer verification is a later milestone.
+Exchange attempts are limited before code lookup to 30/minute per client IP. The client IP is the socket peer, or the last `X-Forwarded-For` hop when the peer is the loopback proxy. Loopback requests without forwarding share one 10/minute bucket. Further limits are 10/minute/known-code, 30/minute/claim and 300/minute globally, with at most 20,000 live entries and fail-closed admission at capacity. An injected issuer checker must return true for redemption and recovery; without a configured checker exchange fails closed with 503. Portal HMAC issuer verification is a later milestone.
+
+### Key-bound register and tunnel requests
+
+A credential with a bound key (every bootstrap credential) authenticates on `POST /_fastdog/agents/register` and the `/_fastdog/tunnel` upgrade only with `Authorization: Bearer <token>` plus exactly one `X-Fastdog-Agent-Proof` header. The header is base64url of the UTF-8 JSON `{"v":1,"nonce":…,"timestamp":…,"signature":…}`, in that key order with no whitespace and no other fields, at most 2 KiB decoded:
+
+- `nonce` is 32 random bytes in base64url.
+- `timestamp` is integer Unix seconds within 60 seconds of edge time.
+- `signature` is RSA-PSS/SHA-256 (32-byte salt) by the bound key over the transcript in [the implementation notes](AGENT_BOOTSTRAP_IMPL.md).
+
+Nonces are single-use per credential across register and upgrade. A missing, duplicated, malformed, stale, replayed or wrong-key proof gets the same `401 unauthorized` as a bad token. Credentials without a bound key (all existing agents) keep today's behaviour: no header is required and any header is ignored.
+
+### Candidates and promotion
+
+A bootstrap agent selects candidate mode explicitly by adding `?candidate=1` to the register path and the upgrade query. The selector is part of the signed request target. Register returns `201 {id,hostname,candidate:true,state,wsPath}` and no route. A candidate never receives traffic and never replaces or disconnects the active agent. After the upgrade welcome it receives `{"type":"candidate_status","state":"held"|"promoted"}`. A pending credential must reach a connected candidate tunnel within 120 seconds of redemption.
+
+Promotion happens when the active agent is not connected and has been continuously absent for `AGENT_BOOTSTRAP_ABSENT_FOR_SECONDS` (default 300; allowed 60–3600), or when there is no active credential. Absence is counted from the active tunnel's last detach, never from before edge start, and any reattachment resets it. Otherwise the candidate is `held` until owner confirmation or that absence, while its tunnel stays connected. A held candidate may reconnect until one hour after redemption, after which it expires. Promotion selects the new credential and revokes the replaced one in one state transaction, then moves the tunnel and closes the old socket. Cancellation, reissue, rotation, detach and suspension remove candidates.

@@ -420,6 +420,29 @@ test('a lock released between the failed open and the read is retried, not repor
   assert.ok(raced); assert.ok(!fs.existsSync(lock));
 });
 
+test('a reap claim left by a crashed reaper is recovered after the ceiling; a fresh claim stays busy', (t) => {
+  const f = fixture(t); const lock = path.join(f.directory, AUTH_LOCK); const claim = `${lock}.reap`;
+  fs.writeFileSync(lock, JSON.stringify({ pid: 2147483647, nonce: randomUUID(), created: Date.now() }));
+  fs.linkSync(lock, claim);
+  assert.throws(() => f.issue(), { status: 503 });
+  assert.ok(fs.existsSync(claim));
+  const real = Date.now; t.mock.method(Date, 'now', () => real() + LOCK_CEILING_MS + 1000);
+  f.issue();
+  assert.ok(!fs.existsSync(claim)); assert.ok(!fs.existsSync(lock));
+});
+
+test('a live writer that releases during the bounded retries does not surface as unavailable', (t) => {
+  const f = fixture(t); const lock = path.join(f.directory, AUTH_LOCK);
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, nonce: randomUUID(), created: Date.now() }));
+  const open = fs.openSync; let attempts = 0;
+  t.mock.method(fs, 'openSync', function (file, ...rest) {
+    if (file === lock && ++attempts === 2) fs.unlinkSync(lock);
+    return open.call(this, file, ...rest);
+  });
+  f.issue();
+  assert.ok(attempts > 2); assert.ok(!fs.existsSync(lock));
+});
+
 test('unknown codes return uniform unauthorized even with malformed fields or keys', async (t) => {
   const f = fixture(t);
   for (const body of [null, {}, { recipient_public_key: 'malformed' }]) await rejects(() => f.service.exchange('unknown', body, 'ip'), 401, 'unauthorized');

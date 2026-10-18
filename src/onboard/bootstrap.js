@@ -1,7 +1,8 @@
 import { equalHash } from '../control/auth.js';
 import { randomBytes, createHash, createPublicKey, publicEncrypt, verify, constants } from 'node:crypto';
 import { readJson, writeJson, dataDir, enableAuthState, authTransaction } from './json.js';
-import { generateCredential, tenantOwner } from './credentials.js';
+import { generateCredential, tenantOwner, expireCandidates } from './credentials.js';
+import { lengthPrefixed } from '../control/agent-proof.js';
 import { validOrigin } from './bootstrap-origin.js';
 import { normalizeHostname } from './hostname.js';
 import { validAgentVersion } from '../control/agent-version.js';
@@ -20,9 +21,7 @@ const error = (status, code, retry_after) => Object.assign(new Error(code), { st
 const text = (s) => typeof s === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(s);
 const fields = ['hostname', 'origin', 'deployment_id', 'request_id', 'recipient_public_key', 'agent_version'];
 export function exchangeTranscript(audience, digest, body) {
-  return Buffer.concat(['fastdog-agent-bootstrap-v1', 'POST', EXCHANGE_PATH, audience, digest, ...fields.map((k) => body[k])].map((value) => {
-    const bytes = Buffer.from(value); const size = Buffer.alloc(4); size.writeUInt32BE(bytes.length); return Buffer.concat([size, bytes]);
-  }));
+  return lengthPrefixed(['fastdog-agent-bootstrap-v1', 'POST', EXCHANGE_PATH, audience, digest, ...fields.map((k) => body[k])]);
 }
 function state(directory) {
   const value = readJson(FILE, [], directory);
@@ -85,7 +84,7 @@ export function createBootstrap(opts = {}) {
     for (const key of Object.keys(s.limits)) if (s.limits[key].until <= time) { delete s.limits[key]; changed = true; }
     persistedSize = Object.keys(s.limits).length;
     for (const c of codes) if (c.activate_by && now() >= c.activate_by && c.response) { delete c.response; changed = true; }
-    for (const c of pending) if (c.status === 'pending' && now() >= c.activate_by && !c.revoked_at) { c.revoked_at = new Date(now()).toISOString(); changed = true; }
+    if (expireCandidates(pending, now())) changed = true;
     if (changed) { save(directory, s); writeJson('agent-credentials.json', credentials, 0o600, directory); }
   }
   function gate() { if (!enabled) throw error(404, 'not_found'); authTransaction(directory, expire); }
@@ -105,12 +104,16 @@ export function createBootstrap(opts = {}) {
     try { authTransaction(directory, () => expire(true)); } catch { /* Retry next sweep; never publish uncertain state. */ }
   }, opts.sweepIntervalMs ?? 30000) : undefined;
   sweep?.unref();
+  // Deadlines are checked at startup too, not only by the sweep.
+  if (enabled) authTransaction(directory, expire);
+  const closeCandidates = (host) => { try { opts.registry?.closeCandidates?.(host); } catch { /* Durable revocation already rejects them. */ } };
   return {
     enabled, audience,
     close() { clearInterval(sweep); },
     issue(tid, host, body) {
       gate();
-      return authTransaction(directory, () => {
+      let fresh = false;
+      const result = authTransaction(directory, () => {
         expire(); const o = owner(tid, host); const s = state(directory);
         const prior = s.codes.find((c) => c.tenant_id === tid && c.hostname === host && c.issuance_id === body.issuance_id);
         if (prior) return present(prior);
@@ -120,8 +123,15 @@ export function createBootstrap(opts = {}) {
         if (!audience) throw error(503, 'bootstrap_unavailable');
         if (s.codes.filter((c) => c.tombstone_at === undefined).length >= 10000) throw error(503, 'bootstrap_unavailable');
         chargeRotation(directory, host, now(), true);
-        const updated = state(directory);
-        for (const c of updated.codes) if (c.tenant_id === tid && c.hostname === host && !c.request_fingerprint) { c.cancelled = true; c.cancelled_at = now(); }
+        // Reissue cancels earlier unused codes, recovery responses and unpromoted candidates; the active credential stays.
+        // Redeemed codes keep their used tombstone so different-key reuse still reports bootstrap_used.
+        const credentials = readJson('agent-credentials.json', [], directory);
+        for (const r of credentials) if (r.tenant_id === tid && r.claim_hostname === host && ['pending', 'held'].includes(r.status) && !r.revoked_at) r.revoked_at = new Date(now()).toISOString();
+        writeJson('agent-credentials.json', credentials, 0o600, directory);
+        const updated = state(directory); fresh = true;
+        for (const c of updated.codes) if (c.tenant_id === tid && c.hostname === host) {
+          if (!c.request_fingerprint) { c.cancelled = true; c.cancelled_at = now(); } else delete c.response;
+        }
         const code = `fdab_${randomBytes(32).toString('base64url')}`;
         const c = { tenant_id: tid, hostname: host, origin, deployment_id: body.deployment_id, issuer: { kind: body.issuer.kind, id: body.issuer.id, authorization_generation: body.issuer.authorization_generation },
           issuance_id: body.issuance_id, code_hash: hash(code), expires_at: now() + 900000, audience,
@@ -129,12 +139,29 @@ export function createBootstrap(opts = {}) {
         updated.codes.push(c); save(directory, updated);
         return { ...present(c), code, origin };
       });
+      if (fresh) closeCandidates(host);
+      return result;
     },
     status(tid, host, id) {
       gate(); owner(tid, host); const c = state(directory).codes.find((c) => c.tenant_id === tid && c.hostname === host && c.issuance_id === id);
       if (!c) throw error(404, 'bootstrap_not_found'); return present(c);
     },
-    cancel(tid, host) { gate(); return authTransaction(directory, () => { owner(tid, host); cancelBootstraps(directory, tid, host, now()); return { cancelled: true }; }); },
+    cancel(tid, host) {
+      gate(); const result = authTransaction(directory, () => { owner(tid, host); cancelBootstraps(directory, tid, host, now()); return { cancelled: true }; });
+      closeCandidates(host); return result;
+    },
+    // Owner confirmation of a held candidate (portal session on the owner's behalf), scoped by (tid, hostname, credential_id).
+    confirm(tid, host, id, body) {
+      gate(); owner(tid, host);
+      const record = readJson('agent-credentials.json', [], directory).find((r) => r.id === id && r.tenant_id === tid && r.claim_hostname === host && r.key_fingerprint !== undefined);
+      if (!record) throw error(404, 'candidate_not_found');
+      if (typeof body?.key_fingerprint !== 'string' || !equalHash(body.key_fingerprint, record.key_fingerprint) || record.status !== 'held' || record.revoked_at) throw error(409, 'candidate_mismatch');
+      if (typeof opts.registry?.confirmCandidate !== 'function') throw error(503, 'bootstrap_unavailable');
+      const outcome = opts.registry.confirmCandidate(id, body.key_fingerprint);
+      if (outcome === 'promoted') return { promoted: true, credential_id: id };
+      if (outcome === 'unavailable') throw error(503, 'bootstrap_unavailable');
+      throw error(409, 'candidate_mismatch');
+    },
     admit(ip) {
       if (!enabled) throw error(404, 'not_found');
       // Narrow buckets first: a rejected client must never consume shared global capacity.
@@ -197,7 +224,8 @@ export function createBootstrap(opts = {}) {
         if (c.response) return c.response;
         const { token, record } = generateCredential({ tenant_id: c.tenant_id, hostname: c.hostname }, now);
         const activateBy = now() + 120000;
-        Object.assign(record, { status: 'pending', key_fingerprint: keyFingerprint, activate_by: activateBy });
+        // The bound public key verifies later register/WS proofs; hold_until bounds an unpromoted candidate to one hour.
+        Object.assign(record, { status: 'pending', key_fingerprint: keyFingerprint, public_key: der.toString('base64'), activate_by: activateBy, hold_until: now() + 3600000 });
         const credentials = readJson('agent-credentials.json', [], directory); credentials.push(record);
         const response = { credential_id: record.id, hostname: c.hostname, origin: c.origin, deployment_id: c.deployment_id, algorithm: 'RSA-OAEP-256',
           encrypted_token: publicEncrypt({ key, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256', oaepLabel: OAEP_LABEL }, Buffer.from(token)).toString('base64url'), recovery_expires_at: new Date(activateBy).toISOString() };

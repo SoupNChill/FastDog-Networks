@@ -1,6 +1,16 @@
 import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { readJson, writeJson, dataDir, authTransaction, combined } from './json.js';
 import { normalizeHostname } from './hostname.js';
+import { verifyAgentProof } from '../control/agent-proof.js';
+
+// Unpromoted key-bound credentials: pending until ready by activate_by, held until hold_until.
+export const candidateExpired = (c, time) => !c.revoked_at &&
+  ((c.status === 'pending' && !(time < c.activate_by)) || (c.status === 'held' && !(time < c.hold_until)));
+export function expireCandidates(records, time) {
+  let changed = false;
+  for (const c of records) if (candidateExpired(c, time)) { c.revoked_at = new Date(time).toISOString(); changed = true; }
+  return changed;
+}
 
 // At most one persisted last_used_at update per credential per window.
 export const LAST_USED_WRITE_INTERVAL = 60000;
@@ -33,15 +43,14 @@ function issueCredentialRecord({ name, hostname, tenant_id }, directory, now) {
   return { id, token, agent_env: { AGENT_TOKEN: token, ...(name ? { AGENT_NAME: name } : {}), ...(host ? { AGENT_HOSTNAME: host } : {}) } };
 }
 
-export function validCredential(token, hostname, directory = dataDir(), now = Date.now) {
-  return authTransaction(directory, () => validateCredential(token, hostname, directory, now));
+// `proof` is the request's agent-proof context; it is consulted only for key-bound records and ignored for legacy ones.
+export function validCredential(token, hostname, directory = dataDir(), now = Date.now, proof = undefined) {
+  return authTransaction(directory, () => validateCredential(token, hostname, directory, now, proof));
 }
-function validateCredential(token, hostname, directory, now) {
+function validateCredential(token, hostname, directory, now, proof) {
   if (combined(directory)) authTransaction(directory, () => {
     const records = readJson('agent-credentials.json', [], directory);
-    let changed = false;
-    for (const c of records) if (c.status === 'pending' && !c.revoked_at && now() >= c.activate_by) { c.revoked_at = new Date(now()).toISOString(); changed = true; }
-    if (changed) writeJson('agent-credentials.json', records, 0o600, directory);
+    if (expireCandidates(records, now())) writeJson('agent-credentials.json', records, 0o600, directory);
   });
   if (typeof token !== 'string' || !token) return false;
   let host = String(hostname).toLowerCase();
@@ -50,13 +59,15 @@ function validateCredential(token, hostname, directory, now) {
   const hash = createHash('sha256').update(token).digest();
   const credentials = readJson('agent-credentials.json', [], directory);
   const credential = credentials.find((item) => {
-    if (item.key_fingerprint !== undefined || ['pending', 'held'].includes(item.status) || item.revoked_at || (item.hostname && item.hostname !== host)) return false;
+    if (['pending', 'held'].includes(item.status) || item.revoked_at || (item.hostname && item.hostname !== host)) return false;
     if (owner && (item.tenant_id !== owner.tenant_id || item.claim_hostname !== host || item.id !== owner.credential_id)) return false;
     if (item.tenant_id && (!owner || owner.tenant_id !== item.tenant_id)) return false;
     const stored = Buffer.from(item.token_hash || '', 'hex');
     return stored.length === hash.length && timingSafeEqual(stored, hash);
   });
   if (!credential) return false;
+  // Downgrade guard: a key-bound token alone never authenticates.
+  if (credential.key_fingerprint !== undefined && !verifyAgentProof(proof, credential, now)) return false;
   if (combined(directory)) return true;
   // The decision above always uses a fresh read; only the last_used_at write is throttled.
   const time = now();

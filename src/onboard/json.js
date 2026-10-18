@@ -22,7 +22,7 @@ export function writeJson(name, data, mode = 0o644, directory = dataDir()) {
       const current = transactions.get(path.resolve(directory));
       if (name === 'agent-credentials.json') for (const record of data) {
         const old = current[name]?.find((c) => c.id === record.id);
-        if (old?.key_fingerprint !== undefined && !equalHash(old.key_fingerprint, record.key_fingerprint)) throw new Error('immutable_key_binding');
+        if (old?.key_fingerprint !== undefined && (!equalHash(old.key_fingerprint, record.key_fingerprint) || old.public_key !== record.public_key)) throw new Error('immutable_key_binding');
       }
       current[name] = structuredClone(data);
     });
@@ -120,18 +120,36 @@ function staleLock(lock, raw) {
   if (!Number.isSafeInteger(holder?.pid) || holder.pid <= 0) return false;
   try { process.kill(holder.pid, 0); return false; } catch (err) { return err.code === 'ESRCH'; }
 }
+const busy = () => Object.assign(new Error('lock_busy'), { code: 'EEXIST' });
+// Short bounded backoff for a competing live writer; transactions are synchronous, so this blocks for at most ~17 ms.
+export const LOCK_RETRY_MS = [2, 5, 10];
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 function acquireLock(lock) {
+  for (let retry = 0; ; retry++) {
+    try { return tryLock(lock); } catch (e) {
+      if (e.message !== 'lock_busy' || retry >= LOCK_RETRY_MS.length) throw e;
+      pause(LOCK_RETRY_MS[retry]);
+    }
+  }
+}
+function tryLock(lock) {
   for (let attempt = 0; attempt < 3; attempt++) {
     let held;
     try { held = createLock(lock); } catch (e) {
       if (e.code !== 'EEXIST') throw e;
       let raw;
-      try { raw = fs.readFileSync(lock, 'utf8'); if (!staleLock(lock, raw)) throw e; } catch (err) { if (err.code === 'ENOENT') continue; throw err; }
+      try { raw = fs.readFileSync(lock, 'utf8'); if (!staleLock(lock, raw)) throw busy(); } catch (err) { if (err.code === 'ENOENT') continue; throw err; }
       // A hard-link claim serializes recovery; reap only the exact lock (by nonce) that was judged stale.
       const claim = `${lock}.reap`;
-      try { fs.linkSync(lock, claim); } catch (err) { if (err.code === 'ENOENT') continue; throw err; }
+      try { fs.linkSync(lock, claim); } catch (err) {
+        if (err.code === 'ENOENT') continue;
+        if (err.code !== 'EEXIST') throw err;
+        // A live claim exists for microseconds. Linking updates ctime, so an old claim was left by a crashed reaper.
+        try { if (Date.now() - fs.statSync(claim).ctimeMs <= LOCK_CEILING_MS) throw busy(); fs.unlinkSync(claim); } catch (stat) { if (stat.code !== 'ENOENT') throw stat; }
+        continue;
+      }
       try {
-        if (fs.readFileSync(claim, 'utf8') !== raw) throw e;
+        if (fs.readFileSync(claim, 'utf8') !== raw) throw busy();
         fs.unlinkSync(lock);
       } finally { fs.unlinkSync(claim); }
       held = createLock(lock);
@@ -142,5 +160,5 @@ function acquireLock(lock) {
       try { if (fs.readFileSync(lock, 'utf8') === held.content) fs.unlinkSync(lock); } catch (e) { if (e.code !== 'ENOENT') throw e; }
     };
   }
-  throw Object.assign(new Error('lock_busy'), { code: 'EEXIST' });
+  throw busy();
 }
