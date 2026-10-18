@@ -31,15 +31,15 @@ Rules that apply to everything below:
 
 ## 3. Hostname lifecycle
 
-States: `pending` -> `active` <-> `suspended` -> (`detached`: record removed). `pending` expires after 24 h (`expired`, treated as absent, not shown). `suspended` expires 24 h after suspension and is then also treated as absent. Suspension revokes claim credentials; restoration requires explicit routing and TXT verification and issues a new credential. Scheduled routing checks never restore suspended claims.
+States: `pending` -> `active` <-> `suspended` -> (`detached`: record removed). `pending` expires after 24 h (`expired`, treated as absent, not shown). DNS-recheck `suspended` claims expire 24 h after suspension and are then treated as absent. Administrative suspension is an indefinite, exclusive reservation (`suspension_reason: administrative`, `expires_at: null`); it never expires and cannot be verified or deleted through ordinary hostname endpoints (`409 administratively_suspended`). Only administrative release removes it. Existing suspended records with a null expiry are also administrative reservations. Suspension revokes claim credentials; restoration requires explicit routing and TXT verification and issues a new credential. Scheduled routing checks never restore suspended claims.
 
 Rules:
-1. A hostname may have **at most one `active` owner**. Any number of tenants may hold a `pending` claim for the same name; pending claims do not block anyone.
+1. A hostname may have **at most one `active` owner**. Any number of tenants may hold a `pending` claim for the same name; pending claims do not block anyone. An administrative reservation blocks every other tenant at both create and verify, including after DNS yields.
 2. Activation requires **both** proofs, checked by the edge's resolver at verify time:
    - **Routing proof:** `CNAME` (or chain <= 5) to `ATTACH_TARGET` / `ALT_ATTACH_TARGET`, or an `A` record equal to `EDGE_PUBLIC_IP` (same logic as `checkDnsVerification` today).
    - **Ownership proof:** TXT at `_fastdog-challenge.<hostname>` containing exactly the claim's `txt_value` (`fd-verify=` + 32 hex chars, random per claim). Keep it in place after verification: with `TLS_ASK_LIVE_VERIFY=1` the edge re-checks it before approving a new certificate.
-3. On activation the edge atomically: re-checks no other tenant became active; marks the claim `active`; adds the host to `tunnel_hosts.json`; issues the credential; reloads routes. First tenant to complete this wins; others get `409 hostname_unavailable` when they next verify.
-4. `DELETE` removes the claim, the tunnel host mapping and all credentials for that claim, and closes the live tunnel.
+3. On activation the edge atomically: re-checks no other tenant became active or holds an administrative reservation, and that the claim's persisted suspension generation has not changed during DNS resolution; marks the claim `active`; adds the host to `tunnel_hosts.json`; issues the credential; reloads routes. First tenant to complete this wins; others get `409 hostname_unavailable` when they next verify.
+4. Except for administrative reservations, `DELETE` removes the claim, the tunnel host mapping and all credentials for that claim, and closes the live tunnel.
 5. Legacy operator-attached hosts (records in `attached_hosts.json` without `tenant_id`) are unchanged and cannot be claimed or modified by any tenant (`hostname_unavailable`).
 
 Per-tenant limit: the portal sends `hostname_limit` (integer 1-1000, from the plan) on create. The edge counts the tenant's non-expired `pending` + `suspended` claims plus `active` claims and returns `409 hostname_limit_reached` when full.
@@ -47,6 +47,18 @@ Per-tenant limit: the portal sends `hostname_limit` (integer 1-1000, from the pl
 ## 4. Edge internal endpoints
 
 Base path `/internal/v1`. Every route except `tls/ask` and `health` requires the portal key. `:tid` must match the tenant pattern and **every read or write is scoped to it**: a hostname belonging to another tenant is indistinguishable from a missing one (`404 hostname_not_found`).
+
+### POST `/tenants/:tid/suspend`
+Administrative kill switch, authenticated with the portal key. No body required. Drops pending and expired claims, converts remaining active or DNS-suspended claims into indefinite administrative reservations, removes this tenant's credentials and tunnel routes, closes affected agents and invalidates route/TLS ownership caches. Another tenant's active routes and legacy hosts are preserved. A persisted suspension generation fences in-flight verification. Interrupted cleanup is safe to retry.
+
+`200 { "tenant_id": "<tid>", "suspended": 2, "hostnames": ["one.example.test", "two.example.test"] }`
+The count and names describe newly administratively suspended claims; an already completed suspension returns zero and an empty list. These reservations count against the hostname limit.
+
+### POST `/tenants/:tid/release`
+Authenticated administrative release command, using the same portal key, tenant validation and POST-only rules as suspension. No body or force flag required; no tenant account-state check. Deletes only this tenant's administratively suspended claims, finishing any interrupted credential/route cleanup first. Leaves active, pending and DNS-suspended claims unchanged. It does not restore service or issue credentials; released names can be claimed and verified again.
+
+`200 { "tenant_id": "<tid>", "released": 2 }`
+Idempotent: repeating release returns `released: 0`. Both administrative endpoints reject missing/wrong/operator keys with 401, invalid tenant IDs with 400, and other methods with 405.
 
 ### POST `/tenants/:tid/hostnames`
 Create or return the caller's pending claim.
