@@ -26,7 +26,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - LOW: per-account login lockout enables lock-out of a known email; also key on IP plus account.
 - LOW: `trustProxy` only accepts a single-IP `X-Forwarded-For`; document that Caddy overwrites it or take the last hop.
 - DONE (E2): `sessions.get()` persists `last_seen` and sliding expiry at most once a minute.
-- LOW: file mailer outbox keeps raw links; delete after delivery or TTL.
+- DONE (open signup B1): outbox files older than 7 days are deleted on startup and hourly; SMTP audit records always redact links/codes, including failures.
 - LOW: whitelist fields of `/api/domain-requests` (do not return operator `notes`).
 - DONE (#80): administrative suspension revokes tenant credentials and routes, reserves hostnames indefinitely, fences in-flight verification, and supports authenticated, idempotent administrative release; DNS suspension still expires after 24h.
 - LOW: `isReserved` in `portal/src/hostname.js` is unused (edge enforces); keep or remove.
@@ -86,7 +86,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 ## Open after the Day 3 reviews (flags stay off)
 - MEDIUM (re-check): a tenant that controls its own authoritative DNS can answer conclusively once every few checks and so never reach the inconclusive cap. Consider a cumulative inconclusive ratio over a window instead of a streak.
 - MEDIUM (suspension): suspending a tenant does not yet remove its edge hosts, tunnels or credentials. Until that ships, the operator revokes them per host (runbooks/portal-invites.md).
-- MEDIUM (outbox): files in the outbox hold live verify and reset links and are never swept. Add a TTL sweep, or delete each file after delivery.
+- MEDIUM (outbox) — DONE (open signup B1): startup/hourly TTL sweeps and a 10,000-file cap bound outbox retention; SMTP delivery leaves only redacted audit copies.
 - DONE (lane K): agent 0.1.1 sends Bearer headers for registration and the tunnel; offline coverage verifies credential-free logs. Existing proxy query redaction remains required.
 
 ## Lane D (documentation refresh)
@@ -161,3 +161,10 @@ Operator-reported evidence for the homepage claim; logs live on the operator hos
 - DNS: 2 records (CNAME + TXT) on our own authoritative nameservers.
 - Single run, not a typical-outcome guarantee.
 - Code facts: `CONNECT_TOKEN_TTL_MS=3600000` in [connect-tokens.js](../portal/src/connect-tokens.js); the [agent](../agent/index.js) opens only outbound connections and has no listening server, so no inbound ports are needed on the customer's server.
+
+- DONE (PR 87 mail review): asynchronous SMTP auth delivery, shared persistent mailbox/recipient budgets with priority reserve, and explicit CLI delivery failure.
+
+- DONE (PR 87 merge review): preserve open signup admission and Terms acceptance alongside guarded mail enqueue/send; retry contended mail locks three times at 10 ms intervals.
+
+- MEDIUM — DONE (#87 mail review): preserve all three unexpired reset links when full and suppress further issuance until expiry or redemption; revoke all on redemption. Regressions cover three consecutive replacement requests under recipient/global caps and SMTP failure, plus delivery failures with available slots.
+- MEDIUM — DONE (#87 mail review): share signup/invite/SMTP email normalization, supporting ASCII dot-atom local parts and punycode domains, with verification/reset delivery regressions.
