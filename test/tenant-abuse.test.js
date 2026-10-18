@@ -172,6 +172,66 @@ test('tls ask exposes no data and accepts only active claims', { skip }, async (
   assert.equal((await ask('app.example.com')).status, 404);
 });
 
+test('verify after pending expiry with valid DNS is hostname_not_found; the stale proof cannot activate a new claim', { skip }, async (t) => {
+  const h = await internalHarness(t);
+  const host = 'late.example.com';
+  const first = await h.create(tenants[0], host);
+  h.prove(first.body);
+  h.clock.advance(86_400_000);
+  const calls = h.resolver.calls.length;
+  expectError(await h.request(hostPath(tenants[0], host, '/verify'), { method: 'POST' }), 404, 'hostname_not_found');
+  assert.equal(h.resolver.calls.length, calls, 'expired claims are not re-checked in DNS');
+  assert.deepEqual((await h.request(hostPath(tenants[0]))).body, { hostnames: [] });
+  assert.equal((await jsonRequest(h.server, `/tls/ask?domain=${host}`)).status, 404);
+  const renewed = await h.create(tenants[0], host);
+  assert.equal(renewed.status, 201);
+  assert.notEqual(renewed.body.dns.txt.value, first.body.dns.txt.value);
+  const stale = await h.request(hostPath(tenants[0], host, '/verify'), { method: 'POST' });
+  assert.equal(stale.status, 200);
+  assert.deepEqual([stale.body.verified, stale.body.status, stale.body.credential], [false, 'pending', undefined]);
+  h.prove(renewed.body);
+  const active = await h.request(hostPath(tenants[0], host, '/verify'), { method: 'POST' });
+  assert.deepEqual([active.body.verified, active.body.status], [true, 'active']);
+});
+
+test('logs for 401/409/429/500 and POST bodies keep only method, route template, status and duration', { skip }, async (t) => {
+  let failAgentLookup = false;
+  const h = await internalHarness(t, { registry: {
+    getAgentByHost: () => { if (failAgentLookup) throw new Error('synthetic registry failure'); return null; },
+    closeHost: () => {},
+  } });
+  const marker = fakeSecret();
+  const active = await h.activate(tenants[0], 'owned.example.com');
+  const secretHeaders = { authorization: `Bearer ${marker}`, cookie: `session=${marker}`, 'x-forwarded-for': '198.51.100.7' };
+  const responses = [
+    await h.request(hostPath(tenants[0]), { method: 'POST', headers: { ...secretHeaders, 'x-fastdog-portal-key': marker },
+      body: { hostname: 'denied.example.com', hostname_limit: 5, password: marker } }),
+    await h.request(hostPath(tenants[1]), { method: 'POST', headers: secretHeaders,
+      body: { hostname: 'owned.example.com', hostname_limit: 5, token: marker } }),
+    await h.request(hostPath(tenants[0], 'owned.example.com', '/credentials/rotate'), { method: 'POST', headers: secretHeaders, body: { note: marker } }),
+  ];
+  const pending = await h.create(tenants[0], 'pending.example.com');
+  for (let i = 0; i < 7; i++) responses.push(await h.request(hostPath(tenants[0], 'pending.example.com', '/verify'), { method: 'POST', body: { secret: marker } }));
+  failAgentLookup = true;
+  responses.push(await h.request(`${hostPath(tenants[0], 'owned.example.com')}?token=${marker}`, { headers: secretHeaders }));
+  const statuses = new Set(responses.map((response) => response.status));
+  for (const status of [401, 409, 429, 500]) assert.ok(statuses.has(status), `exercised ${status}`);
+  assert.deepEqual(responses.at(-1).body, { error: 'internal_error' });
+  const events = h.logs.map((args) => { assert.equal(args.length, 1); return args[0]; });
+  for (const status of [401, 409, 429, 500]) assert.ok(events.some((event) => event.status === status), `logged ${status}`);
+  for (const event of events) {
+    if (!('method' in event)) { assert.deepEqual(Object.keys(event).filter((key) => !['status', 'reason'].includes(key)), []); continue; }
+    assert.deepEqual(Object.keys(event).sort(), ['duration', 'method', 'route', 'status']);
+    assert.match(event.route, /^(not_found|\/health|\/tls\/ask|\/internal\/v1\/tenants\/:tid\/hostnames(\/:hostname(\/[a-z/]+)?)?)$/);
+  }
+  const text = JSON.stringify(h.logs);
+  // No client address in any form: the internal API logs no IP at all (stricter than the /24 or /48 allowance).
+  for (const value of [marker, h.portalKey, active.credential.token, pending.body.dns.txt.value, ...tenants, 'owned.example.com',
+    'pending.example.com', 'denied.example.com', '127.0.0.1', '127.0.0', '::ffff', '198.51.100', 'synthetic registry failure']) {
+    assert.ok(!text.includes(value), `log leaked ${value === marker ? 'marker' : value}`);
+  }
+});
+
 test('pending claims cannot rotate or read agent status; logs omit identifiers and query values', { skip }, async (t) => {
   const h = await internalHarness(t);
   const claim = await h.create(tenants[0], 'private.example.com');

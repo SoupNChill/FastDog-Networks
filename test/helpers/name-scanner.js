@@ -87,6 +87,20 @@ export function scanRepository(root, denyNames, allow, fileAllow = unscannableAl
   return errors;
 }
 
+// Every file under dir is checked (filesUnder skips .tmp-, node_modules, .git, symlinks and sensitive
+// files); only exact legacy paths are exempt and NUL (binary) files are not parsed.
+export function hostnameScan(root, dir, legacy = []) {
+  const violations = [];
+  for (const file of filesUnder(root, dir)) {
+    const path = relative(root, file).split(sep).join('/');
+    if (legacy.includes(path)) continue;
+    const buffer = readFileSync(file);
+    if (buffer.includes(0)) continue;
+    for (const host of hostnameViolations(buffer.toString('utf8'))) violations.push({ path, host });
+  }
+  return violations;
+}
+
 export function hostnameViolations(source) {
   const violations = new Set();
   // Inspect literal text, skipping comments and template expressions with balanced braces.

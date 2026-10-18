@@ -7,14 +7,25 @@
 // Only the deny-list data itself may have a whole-file exemption.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, basename, relative } from 'node:path';
-import { scanRepository, scanText, filesUnder, hostnameViolations, lineHash, unscannableAllow } from './helpers/name-scanner.js';
+import { tempDir } from './helpers/temp-dir.js';
+import { scanRepository, scanText, filesUnder, hostnameScan, hostnameViolations, lineHash, unscannableAllow } from './helpers/name-scanner.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const denyNames = JSON.parse(readFileSync(new URL('./deny-names.json', import.meta.url), 'utf8'));
 const allow = JSON.parse(readFileSync(new URL('./no-hardcoded-names.allow.json', import.meta.url), 'utf8'));
+// Pre-existing test files with real operator literals (their names are pinned by the line-hash baseline).
+// Exact paths only; new test files are always checked. Shrink this list, never grow it without review.
+const hostnameLegacy = [
+  'test/add-customer-host.test.js', 'test/agent-installer.test.js', 'test/assistant-docs.test.js', 'test/attach.test.js',
+  'test/caddy-snippet.test.js', 'test/control-auth.test.js', 'test/deny-names.json', 'test/dns.test.js', 'test/edge.test.js',
+  'test/enable-on-demand-tls.test.js', 'test/fixtures/caddy-adapted-live-fdctl.json', 'test/fixtures/caddy-adapted-live-full.json',
+  'test/helpers/fixtures.js', 'test/helpers/name-scanner.js', 'test/helpers/offline.cjs', 'test/homepage-hero.test.js',
+  'test/no-hardcoded-names.allow.json', 'test/no-hardcoded-names.test.js', 'test/ns-cut-checklist.test.js',
+  'test/site-status.test.js', 'test/sync-coredns.test.js', 'test/test-guards.test.js', 'test/tls-ask.test.js',
+];
 
 test('deny-list is lowercase data and exemptions are explicitly reviewed', () => {
   assert.ok(Array.isArray(denyNames) && denyNames.length > 0);
@@ -98,15 +109,50 @@ test('scanner fails on each injected deny-list value, including uppercase and al
   assert.equal(scanText(path, `// new ${line}`, denyNames, baseline).length, 1);
 });
 
-test('tenant, portal, hostname and internal test literals use synthetic hostname suffixes', () => {
-  const violations = [];
-  for (const file of filesUnder(root, join(root, 'test'))) {
-    if (!/^(tenant-|portal-|hostname-|internal-)/.test(basename(file))) continue;
-    const buffer = readFileSync(file);
-    if (buffer.includes(0)) continue;
-    for (const host of hostnameViolations(buffer.toString('utf8'))) violations.push({ path: relative(root, file), host });
+test('test literals use synthetic hostname suffixes in every file except exact legacy paths', () => {
+  assert.deepEqual(hostnameScan(root, join(root, 'test'), hostnameLegacy), []);
+  assert.deepEqual(hostnameLegacy, [...new Set(hostnameLegacy)].sort());
+  const hits = new Set(hostnameScan(root, join(root, 'test')).map((hit) => hit.path));
+  for (const path of hostnameLegacy) {
+    assert.ok(hits.has(path), `stale legacy entry ${path}: remove it`);
+    assert.doesNotMatch(basename(path), /^(tenant-|portal-|hostname-|internal-)/, 'isolation suites are never exempt');
   }
-  assert.deepEqual(violations, []);
+});
+
+test('hostname check is not limited by file prefix and skips only .tmp- dirs, NUL files and file-name literals', (t) => {
+  // tempDir names start with .tmp- (skipped by the walk), so scan a plain child directory.
+  const dir = join(tempDir(t), 'scan');
+  const external = ['outside', 'com'].join('.');
+  const files = {
+    'zz-any-name.test.js': `const host = '${external}';`,
+    'nested/helper.js': `fetch('https://${external}/');`,
+    'data.json': JSON.stringify({ host: external }),
+    'docs-literal.test.js': "readFileSync('docs/TENANT_API.md'); readFileSync('README.md');",
+    'md-prefix.test.js': `const host = 'readme.md.${external}';`,
+    '.tmp-run/leftover.test.js': `const host = '${external}';`,
+  };
+  for (const [path, source] of Object.entries(files)) {
+    mkdirSync(join(dir, path, '..'), { recursive: true });
+    writeFileSync(join(dir, path), source);
+  }
+  writeFileSync(join(dir, 'binary.test.js'), Buffer.from(`'${external}'\0`));
+  const relativeTo = relative(root, dir).split('\\').join('/');
+  const found = (legacy) => hostnameScan(root, dir, legacy).map(({ path, host }) => [path.slice(relativeTo.length + 1), host])
+    .sort(([a], [b]) => a.localeCompare(b));
+  assert.deepEqual(found(), [['data.json', external], ['md-prefix.test.js', `readme.md.${external}`],
+    ['nested/helper.js', external], ['zz-any-name.test.js', external]]);
+  assert.deepEqual(found([`${relativeTo}/zz-any-name.test.js`]).map(([path]) => path), ['data.json', 'md-prefix.test.js', 'nested/helper.js']);
+  assert.deepEqual(found(['zz-any-name.test.js']).length, 4, 'legacy entries are exact repository paths');
+});
+
+test('repository file walk skips .tmp-, node_modules, .git, symlinks and sensitive files', (t) => {
+  const dir = join(tempDir(t), 'walk');
+  for (const path of ['keep/a.js', '.tmp-x/b.js', 'keep/.tmp-y/c.js', 'node_modules/d.js', '.git/e', 'keep/.env', 'keep/k.pem', 'keep/f.md']) {
+    mkdirSync(join(dir, path, '..'), { recursive: true });
+    writeFileSync(join(dir, path), 'synthetic');
+  }
+  symlinkSync('a.js', join(dir, 'keep/link.js'));
+  assert.deepEqual([...filesUnder(dir)].map((file) => relative(dir, file).split('\\').join('/')), ['keep/a.js', 'keep/f.md']);
 });
 
 test('hostname scanner catches literal external domains without flagging property accesses', () => {
