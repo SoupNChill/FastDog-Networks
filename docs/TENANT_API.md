@@ -173,7 +173,7 @@ The portal derives `tenant_id` from the session only. It never accepts a tenant 
 
 `MAIL_TRANSPORT=file` remains the default private operator outbox. SMTP-backed signup and reset requests enqueue delivery in a bounded, private in-process queue (300 waiting messages); generic HTTP responses do not wait for SMTP completion. Queued messages are lost on process exit. SMTP audit records, including failures and rate caps, contain no plaintext links or invite codes. `mint-invite --send` waits for delivery and exits nonzero on SMTP failure, even if a redacted audit was saved; file transport succeeds only after saving the private message.
 
-Password reset requests retain the three most recent unexpired reset tokens (one-hour TTL), including when replacement delivery is capped, queued or fails. Redeeming any valid reset token revokes all reset tokens for that user and existing sessions.
+Password reset requests retain up to three unexpired reset tokens (one-hour TTL). When all three slots are occupied, requests return generic success without creating a token or sending mail; existing links remain valid until expiry or redemption. Capped, queued or failed delivery never evicts an existing link. Redeeming any valid reset token revokes all reset tokens for that user and existing sessions.
 
 Signup, invite admission and SMTP share email normalization: lowercase ASCII dot-atom local parts (up to 64 characters), internationalized domains converted to punycode, and a maximum normalized address length of 254 characters. Whitespace, controls, header delimiters and malformed domain labels are rejected. Existing stored Unicode-domain addresses are normalized when matching accounts and invitations.
 

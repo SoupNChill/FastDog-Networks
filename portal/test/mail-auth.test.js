@@ -36,6 +36,9 @@ for (const failure of ['recipient_cap', 'rate_cap', 'internal']) test('reset lin
   const count = failure === 'internal' ? 1 : 3;
   for (let i = 0; i < count; i++) assert.equal((await request()).status, 200);
   const token = resetToken(f.delivered.at(-1));
+  const saved = f.store.read('accounts');
+  saved.links = saved.links.slice(-1); // Leave capacity to exercise mail admission/failure.
+  f.store.write('accounts', saved);
   f.advance(900001);
   if (failure === 'internal') f.break();
   // A different recipient consumes no recipient budget in the global-cap case.
@@ -51,6 +54,28 @@ for (const failure of ['recipient_cap', 'rate_cap', 'internal']) test('reset lin
   assert.equal(f.store.read('accounts').links.length, 0);
   for (const message of f.delivered) await assert.rejects(f.call('/api/password-reset/confirm',
     { token: resetToken(message), password: fakeSecret() }), { code: 'unauthorized' });
+});
+
+for (const failure of ['recipient_cap', 'rate_cap', 'internal']) test('full reset set survives three replacement requests: ' + failure, async (t) => {
+  const f = setup(t, { maxPerHour: failure === 'rate_cap' ? 3 : 300 });
+  const data = emptyAccounts();
+  data.users.push({ id: 'u', email: 'owner@example.test', auth_version: 1 });
+  f.store.write('accounts', data);
+  const request = () => f.call('/api/password-reset', { email: 'owner@example.test' });
+  for (let i = 0; i < 3; i++) assert.equal((await request()).status, 200);
+  const links = f.store.read('accounts').links;
+  const token = resetToken(f.delivered[0]);
+  f.advance(900001);
+  if (failure === 'internal') f.break();
+  for (let i = 0; i < 3; i++) assert.deepEqual(await request(), { status: 200, body: { ok: true } });
+  assert.deepEqual(f.store.read('accounts').links, links);
+  assert.equal(f.delivered.length, 3);
+  assert.equal((await f.call('/api/password-reset/confirm', { token, password: fakeSecret() })).status, 200);
+  assert.equal(f.store.read('accounts').links.length, 0);
+  f.advance(900001);
+  if (failure !== 'internal') f.advance(3600000);
+  assert.equal((await request()).status, 200);
+  assert.equal(f.store.read('accounts').links.length, 1);
 });
 
 for (const invited of [false, true]) for (const email of ["owner'tag+=_-@example.test", 'owner@bücher.example.test']) {

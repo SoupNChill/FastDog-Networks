@@ -5,7 +5,7 @@ import { hashPassword, verifyPassword, validPassword, dummyPassword } from './pa
 import { findInvite } from './invites.js';
 import { fail } from './errors.js';
 import { sessionCookie } from './sessions.js';
-import { createSignupGuard } from './signup-guard.js';
+import { createSignupGuard, emailDomain } from './signup-guard.js';
 import { termsRecord } from './terms.js';
 
 export function createAuth({ store, sessions, limits, now, mailer, config }) {
@@ -25,11 +25,10 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
   function link(data, user, kind) {
     const raw = token();
     data.links = data.links.filter((item) => item.expires_at > now() && (kind === 'password-reset' || !(item.user_id === user.id && item.kind === kind)));
-    // Replacement delivery may fail after enqueue; retain recent links until redemption.
+    // Never evict an unexpired reset link: replacement delivery may fail after enqueue.
     if (kind === 'password-reset') {
       const previous = data.links.filter((item) => item.user_id === user.id && item.kind === kind);
-      const remove = new Set(previous.slice(0, Math.max(0, previous.length - 2)));
-      data.links = data.links.filter((item) => !remove.has(item));
+      if (previous.length >= 3) return null;
     }
     data.links.push({ token_hash: digest(raw), user_id: user.id, kind, expires_at: now() + 3600000 });
     return `${config.origin}/${kind === 'verify-email' ? 'verify-email' : 'login'}#${new URLSearchParams({ kind, token: raw, ...(kind === 'verify-email' && user.signup_source === 'open' ? { setup: '1' } : {}) })}`;
@@ -51,7 +50,15 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
       if (path === '/api/signup') {
         limits.take(`signup:${ip}`, config.openSignup ? config.signupIpPerHour : 3, 3600000, config.openSignup);
         // Terms acceptance is enforced here for invite and open sign-up alike; stored versions are the server's own.
-        if (!email || !validPassword(body.password) || body.accept_terms !== true) return send(200, generic);
+        if (!validPassword(body.password) || body.accept_terms !== true) return send(200, generic);
+        if (!email) {
+          // Preserve the open guard's domain refusals for addresses accepted by the old shape check.
+          const candidate = typeof body.email === 'string' && body.email.length <= 254 ? body.email.trim().toLowerCase() : '';
+          if (config.openSignup && (body.invite_code === undefined || body.invite_code === null || body.invite_code === '')
+            && /^[^\s@\x00-\x1f\x7f]+@[^\s@\x00-\x1f\x7f]+\.[^\s@\x00-\x1f\x7f]+$/.test(candidate)
+            && !emailDomain(candidate)) log('refused', 'invalid_domain');
+          return send(200, generic);
+        }
         // Derive before checking the invite to keep invalid invites and existing accounts indistinguishable.
         const password_hash = await hashPassword(body.password);
         // Open sign-up applies only when no invite is offered; an invite always takes the invite path.
@@ -127,6 +134,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         const user = data.users.find((u) => email && normalizeEmail(u.email) === email);
         if (user) {
           const url = link(data, user, 'password-reset');
+          if (!url) return send(200, generic);
           store.write('accounts', data);
           await sendMail({ to: email, kind: 'password-reset', link: url });
         }

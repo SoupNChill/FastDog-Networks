@@ -166,5 +166,5 @@ Operator-reported evidence for the homepage claim; logs live on the operator hos
 
 - DONE (PR 87 merge review): preserve open signup admission and Terms acceptance alongside guarded mail enqueue/send; retry contended mail locks three times at 10 ms intervals.
 
-- MEDIUM — DONE (#87 mail review): retain three unexpired reset links across replacement delivery failures; revoke all on redemption, with recipient/global-cap and SMTP-failure integration coverage.
+- MEDIUM — DONE (#87 mail review): preserve all three unexpired reset links when full and suppress further issuance until expiry or redemption; revoke all on redemption. Regressions cover three consecutive replacement requests under recipient/global caps and SMTP failure, plus delivery failures with available slots.
 - MEDIUM — DONE (#87 mail review): share signup/invite/SMTP email normalization, supporting ASCII dot-atom local parts and punycode domains, with verification/reset delivery regressions.
