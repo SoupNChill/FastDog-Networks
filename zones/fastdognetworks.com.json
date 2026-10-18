@@ -6,7 +6,7 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026101205 3600 600 604800 300",
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026101206 3600 600 604800 300",
       "comment": "Serial: YYYYMMDDNN \u2014 bump NN on each edit"
     },
     {
@@ -111,7 +111,7 @@
       "name": "_dmarc",
       "type": "TXT",
       "ttl": 300,
-      "content": "v=DMARC1; p=none;",
+      "content": "v=DMARC1; p=none; rua=mailto:support@fastdognetworks.com;",
       "comment": "DMARC monitoring only"
     },
     {
@@ -143,5 +143,5 @@
       "comment": "Verdict antibot decide / demo (FastDog edge)"
     }
   ],
-  "updated_at": "2026-10-17T17:40:00Z"
+  "updated_at": "2026-10-18T01:00:00Z"
 }
