@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { equalHash } from '../control/auth.js';
 import { randomUUID } from 'node:crypto';
 import { ROOT, env } from '../lib/config.js';
 
@@ -21,7 +22,7 @@ export function writeJson(name, data, mode = 0o644, directory = dataDir()) {
       const current = transactions.get(path.resolve(directory));
       if (name === 'agent-credentials.json') for (const record of data) {
         const old = current[name]?.find((c) => c.id === record.id);
-        if (old?.key_fingerprint !== undefined && old.key_fingerprint !== record.key_fingerprint) throw new Error('immutable_key_binding');
+        if (old?.key_fingerprint !== undefined && !equalHash(old.key_fingerprint, record.key_fingerprint)) throw new Error('immutable_key_binding');
       }
       current[name] = structuredClone(data);
     });
@@ -41,6 +42,7 @@ const AUTH_FILES = ['agent-credentials.json', 'tenant_hostnames.json', 'agent-bo
 const enabled = new Set();
 const transactions = new Map();
 const STATE = 'agent-auth-state.json';
+export const AUTH_LOCK = '.agent-auth.lock';
 export const combined = (directory) => enabled.has(path.resolve(directory)) || fs.existsSync(path.join(directory, STATE));
 function snapshot(directory) {
   const state = transactions.get(path.resolve(directory)) ?? JSON.parse(fs.readFileSync(path.join(directory, STATE), 'utf8'));
@@ -68,8 +70,8 @@ export function enableAuthState(directory = dataDir()) {
   const file = path.join(directory, STATE);
   if (!fs.existsSync(file)) {
     fs.mkdirSync(directory, { recursive: true });
-    const lock = path.join(directory, '.agent-auth.lock');
-    const fd = fs.openSync(lock, 'wx', 0o600);
+    const lock = path.join(directory, AUTH_LOCK);
+    const fd = acquireLock(lock);
     try {
       if (!fs.existsSync(file)) {
         const initial = { version: 1 };
@@ -85,9 +87,9 @@ export function authTransaction(directory, fn) {
   if (!combined(directory)) return fn();
   const key = path.resolve(directory);
   if (transactions.has(key)) return fn();
-  const lock = path.join(directory, '.agent-auth.lock');
+  const lock = path.join(directory, AUTH_LOCK);
   let fd;
-  try { fd = fs.openSync(lock, 'wx', 0o600); } catch { throw Object.assign(new Error('bootstrap_unavailable'), { status: 503, code: 'bootstrap_unavailable' }); }
+  try { fd = acquireLock(lock); } catch { throw Object.assign(new Error('bootstrap_unavailable'), { status: 503, code: 'bootstrap_unavailable' }); }
   try { transactions.set(key, snapshot(directory)); } catch (e) { fs.closeSync(fd); fs.unlinkSync(lock); throw e; }
   try {
     const result = fn();
@@ -99,4 +101,31 @@ export function authTransaction(directory, fn) {
     }
     return result;
   } finally { transactions.delete(key); fs.closeSync(fd); fs.unlinkSync(lock); }
+}
+
+function acquireLock(lock) {
+  try {
+    const fd = fs.openSync(lock, 'wx', 0o600);
+    fs.writeFileSync(fd, String(process.pid));
+    return fd;
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+    const stat = fs.statSync(lock);
+    const pid = Number(fs.readFileSync(lock, 'utf8'));
+    let stale = !Number.isSafeInteger(pid) || pid <= 0;
+    if (stale) stale = Date.now() - stat.mtimeMs > 60000;
+    else { try { process.kill(pid, 0); } catch (err) { stale = err.code === 'ESRCH'; } }
+    if (!stale) throw e;
+    // A hard-link claim serializes recovery; never unlink a replacement writer's lock.
+    const claim = `${lock}.reap`;
+    fs.linkSync(lock, claim);
+    try {
+      const current = fs.statSync(lock), claimed = fs.statSync(claim);
+      if (current.ino !== stat.ino || claimed.ino !== stat.ino) throw e;
+      fs.unlinkSync(lock);
+      const fd = fs.openSync(lock, 'wx', 0o600);
+      fs.writeFileSync(fd, String(process.pid));
+      return fd;
+    } finally { fs.unlinkSync(claim); }
+  }
 }

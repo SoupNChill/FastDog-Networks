@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID, randomBytes, generateKeyPairSync, sign, createHash, privateDecrypt, constants } from 'node:crypto';
-import { createBootstrap, exchangeTranscript, OAEP_LABEL, bootstrapHandler, EXCHANGE_PATH } from '../src/onboard/bootstrap.js';
-import { readJson, writeJson, atomicSnapshot } from '../src/onboard/json.js';
+import { createBootstrap, exchangeTranscript, OAEP_LABEL, bootstrapHandler, bootstrapMiddleware, clientIp, EXCHANGE_PATH } from '../src/onboard/bootstrap.js';
+import { readJson, writeJson, atomicSnapshot, AUTH_LOCK } from '../src/onboard/json.js';
 import { issueCredential, validCredential } from '../src/onboard/credentials.js';
 import { createClaims } from '../src/internal/claims.js';
 import { createTlsAsk } from '../src/internal/tls-ask.js';
@@ -27,6 +27,7 @@ function fixture(t, extra = {}) {
   writeJson('tenant_hostnames.json', [{ tenant_id: tid, hostname, status: 'active', txt_value: fakeSecret(), verified_at: new Date(time).toISOString(), created_at: new Date(time).toISOString(), credential_id: active.id }], 0o600, directory);
   const options = { bootstrapEnabled: true, bootstrapAudience: audience, dataDir: directory, now: () => time, issuerCheck: async () => true, ...extra };
   const service = createBootstrap(options);
+  t.after(() => service.close());
   const issuance = (overrides = {}) => ({ origin: 'http://127.0.0.1:8080', deployment_id: randomUUID(), issuance_id: randomUUID(), issuer: { kind: 'session', id: randomUUID(), authorization_generation: 1 }, ...overrides });
   function request(code, issued, overrides = {}, key = keys[0]) {
     const body = { hostname, origin: issued.origin, deployment_id: issued.deployment_id, request_id: randomUUID(), recipient_public_key: key.publicKey.export({ type: 'spki', format: 'pem' }), agent_version: '1.2.3', ...overrides };
@@ -184,7 +185,7 @@ test('HTTP handlers enforce auth, scope, flag, method, cap, canonical path and r
   assert.equal((await invoke(publicHandler, { method: 'GET' })).status, 405);
   assert.equal((await invoke(publicHandler, { url: `${EXCHANGE_PATH}?x=1` })).status, 404);
   assert.equal((await invoke(publicHandler, { body: 'x'.repeat(16385) })).status, 413);
-  assert.equal((await invoke(publicHandler, { body: '{' })).status, 400);
+  assert.equal((await invoke(publicHandler, { body: '{' })).status, 401);
   const body = f.request(issued.body.code, issued.body);
   const result = await invoke(publicHandler, { body, headers: { authorization: `Bearer ${issued.body.code}` } }); assert.equal(result.status, 200); assert.equal(result.headers['cache-control'], 'no-store');
   const off = createBootstrap({ bootstrapEnabled: false, dataDir: f.directory });
@@ -284,9 +285,100 @@ test('concurrent matching exchanges commit one pending credential and one cipher
 });
 
 
-test('malformed HTTP bodies spend the peer budget before parsing and forwarded headers do not change it', async (t) => {
+test('trusted last-hop IP buckets are separate and external peers ignore forwarding', async (t) => {
+  assert.equal(clientIp({ socket: { remoteAddress: '127.0.0.1' }, headers: { 'x-forwarded-for': '192.0.2.1, 192.0.2.2' } }), '192.0.2.2');
+  assert.equal(clientIp({ socket: { remoteAddress: '192.0.2.3' }, headers: { 'x-forwarded-for': '192.0.2.1' } }), '192.0.2.3');
   const f = fixture(t); const handler = bootstrapHandler(f.service);
-  for (let i = 0; i < 30; i++) assert.equal((await invoke(handler, { body: '{', headers: { 'x-forwarded-for': `192.0.2.${i}` } })).status, 400);
-  const response = await invoke(handler, { body: '{' });
-  assert.equal(response.status, 429); assert.equal(response.headers['retry-after'], '60');
+  for (let i = 0; i < 30; i++) assert.equal((await invoke(handler, { body: '{', headers: { 'x-forwarded-for': `192.0.2.${i}, 192.0.2.1` } })).status, 401);
+  assert.equal((await invoke(handler, { headers: { 'x-forwarded-for': '192.0.2.1' } })).status, 429);
+  assert.equal((await invoke(handler, { headers: { 'x-forwarded-for': '192.0.2.2' } })).status, 401);
+});
+
+test('exchange middleware preserves downstream routing off and scopes enabled authority exactly', async (t) => {
+  for (const enabled of [false, true]) {
+    const f = fixture(t, { bootstrapEnabled: enabled });
+    const middleware = bootstrapMiddleware(f.service);
+    const handler = (req, res) => middleware(req, res, () => { res.writeHead(299, {}); res.end('{}'); });
+    for (const url of [EXCHANGE_PATH, `${EXCHANGE_PATH}X`, `${EXCHANGE_PATH}?x=1`]) {
+      assert.equal((await invoke(handler, { url, headers: { host: hostname } })).status, 299);
+      assert.equal((await invoke(handler, { url, headers: { host: 'edge.example.test' } })).status, enabled && url === EXCHANGE_PATH ? 401 : 299);
+    }
+  }
+});
+
+test('flag-off legacy upgrade retains registration authority after revocation', (t) => {
+  const f = fixture(t, { bootstrapEnabled: false });
+  const reg = registerAgent({ hostname, localUpstream: 'http://127.0.0.1:8080', token: f.active.token, expectedToken: fakeSecret(), dataDir: f.directory });
+  const records = readJson('agent-credentials.json', [], f.directory); records[0].revoked_at = new Date().toISOString();
+  writeJson('agent-credentials.json', records, 0o600, f.directory);
+  assert.equal(attachWs(reg.id, {}, f.active.token), true);
+});
+
+test('retention prunes terminal records after 24h, old budgets, and refuses the live cap atomically', (t) => {
+  const f = fixture(t); const issued = f.issue();
+  f.advance(900000); f.service.status(tid, hostname, issued.issuance_id);
+  let state = readJson('agent-bootstrap.json', [], f.directory);
+  assert.ok(state.codes[0].tombstone_at); assert.equal(state.codes[0].issuer, undefined);
+  state.budgets['old.example.test'] = { day: 0, rotations: 1, issuances: 1 };
+  writeJson('agent-bootstrap.json', state, 0o600, f.directory);
+  f.advance(86400000); f.issue();
+  state = readJson('agent-bootstrap.json', [], f.directory);
+  assert.equal(state.codes.length, 1); assert.equal(state.budgets['old.example.test'], undefined);
+  const live = state.codes[0];
+  state.codes = Array.from({ length: 10000 }, (_, i) => ({ ...live, issuance_id: `issued_${i}` }));
+  writeJson('agent-bootstrap.json', state, 0o600, f.directory);
+  const before = fs.readFileSync(path.join(f.directory, 'agent-auth-state.json'), 'utf8');
+  assert.throws(() => f.issue(), { status: 503 });
+  assert.equal(fs.readFileSync(path.join(f.directory, 'agent-auth-state.json'), 'utf8'), before);
+});
+
+test('idle periodic sweep purges recovery and is disabled with the flag', async (t) => {
+  const f = fixture(t, { sweepIntervalMs: 10 }); const issued = f.issue();
+  await f.service.exchange(issued.code, f.request(issued.code, issued), 'ip');
+  f.advance(120000);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(readJson('agent-bootstrap.json', [], f.directory).codes[0].response, undefined);
+  assert.ok(readJson('agent-credentials.json', [], f.directory).at(-1).revoked_at);
+  const off = fixture(t, { bootstrapEnabled: false, sweepIntervalMs: 10 });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.ok(!fs.existsSync(path.join(off.directory, 'agent-auth-state.json')));
+});
+
+test('stale empty lock recovers while a live writer lock is preserved', (t) => {
+  const f = fixture(t); const lock = path.join(f.directory, AUTH_LOCK);
+  fs.writeFileSync(lock, ''); fs.utimesSync(lock, new Date(0), new Date(0));
+  f.issue(); assert.ok(!fs.existsSync(lock));
+  fs.writeFileSync(lock, '2147483647');
+  f.issue(); assert.ok(!fs.existsSync(lock));
+  fs.writeFileSync(lock, String(process.pid));
+  assert.throws(() => f.issue(), { status: 503 });
+  assert.equal(fs.readFileSync(lock, 'utf8'), String(process.pid));
+});
+
+test('unknown codes return uniform unauthorized even with malformed fields or keys', async (t) => {
+  const f = fixture(t);
+  for (const body of [null, {}, { recipient_public_key: 'malformed' }]) await rejects(() => f.service.exchange('unknown', body, 'ip'), 401, 'unauthorized');
+});
+
+test('cancelled and used recovery tombstones are retained for 24h then purged', async (t) => {
+  for (const consumed of [false, true]) {
+    const f = fixture(t); const issued = f.issue();
+    if (consumed) { await f.service.exchange(issued.code, f.request(issued.code, issued), 'ip'); f.advance(120000); }
+    else f.service.cancel(tid, hostname);
+    f.service.status(tid, hostname, issued.issuance_id);
+    const retired = readJson('agent-bootstrap.json', [], f.directory).codes[0];
+    assert.ok(retired.tombstone_at); assert.equal(retired.response, undefined);
+    f.advance(86400000);
+    assert.throws(() => f.service.status(tid, hostname, issued.issuance_id), { status: 404 });
+    assert.equal(readJson('agent-bootstrap.json', [], f.directory).codes.length, 0);
+  }
+});
+
+test('startup migration recovers an abandoned lock', (t) => {
+  const f = fixture(t, { bootstrapEnabled: false });
+  fs.writeFileSync(path.join(f.directory, AUTH_LOCK), '2147483647');
+  const enabled = createBootstrap({ ...f.options, bootstrapEnabled: true });
+  t.after(() => enabled.close());
+  assert.ok(fs.existsSync(path.join(f.directory, 'agent-auth-state.json')));
+  assert.ok(!fs.existsSync(path.join(f.directory, AUTH_LOCK)));
 });

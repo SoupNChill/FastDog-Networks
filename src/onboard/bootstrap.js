@@ -1,4 +1,5 @@
-import { randomBytes, createHash, createPublicKey, publicEncrypt, verify, constants, timingSafeEqual } from 'node:crypto';
+import { equalHash } from '../control/auth.js';
+import { randomBytes, createHash, createPublicKey, publicEncrypt, verify, constants } from 'node:crypto';
 import { readJson, writeJson, dataDir, enableAuthState, authTransaction } from './json.js';
 import { generateCredential, tenantOwner } from './credentials.js';
 import { validOrigin } from './bootstrap-origin.js';
@@ -7,6 +8,11 @@ import { validAgentVersion } from '../control/agent-version.js';
 
 export const EXCHANGE_PATH = '/_fastdog/agents/bootstrap/exchange';
 export const OAEP_LABEL = Buffer.from('fastdog-agent-bootstrap-v1');
+export function clientIp(req) {
+  const peer = req.socket.remoteAddress;
+  if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(peer)) return peer;
+  return req.headers['x-forwarded-for']?.split(',').at(-1).trim() || peer;
+}
 const FILE = 'agent-bootstrap.json';
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const error = (status, code, retry_after) => Object.assign(new Error(code), { status, code, retry_after });
@@ -24,7 +30,7 @@ function state(directory) {
 const save = (directory, value) => writeJson(FILE, value, 0o600, directory);
 export function cancelBootstraps(directory, tid, host, time = Date.now()) {
   const s = state(directory);
-  for (const c of s.codes) if (c.tenant_id === tid && (!host || c.hostname === host)) { c.cancelled = true; delete c.response; }
+  for (const c of s.codes) if (c.tenant_id === tid && (!host || c.hostname === host)) { c.cancelled = true; c.cancelled_at ??= time; delete c.response; }
   const credentials = readJson('agent-credentials.json', [], directory);
   for (const c of credentials) if (c.tenant_id === tid && (!host || c.claim_hostname === host) && ['pending', 'held'].includes(c.status)) c.revoked_at = new Date(time).toISOString();
   save(directory, s); writeJson('agent-credentials.json', credentials, 0o600, directory);
@@ -52,11 +58,29 @@ export function createBootstrap(opts = {}) {
     if (entry.count >= maximum) throw error(429, 'rate_limited', Math.max(1, Math.ceil((entry.until - time) / 1000)));
     entry.count++;
   }
-  function expire() {
+  let sweepCodeOffset = 0, sweepCredentialOffset = 0;
+  function expire(bounded = false) {
     const s = state(directory); const credentials = readJson('agent-credentials.json', [], directory);
     let changed = false;
-    for (const c of s.codes) if (c.activate_by && now() >= c.activate_by && c.response) { delete c.response; changed = true; }
-    for (const c of credentials) if (c.status === 'pending' && now() >= c.activate_by && !c.revoked_at) { c.revoked_at = new Date(now()).toISOString(); changed = true; }
+    const time = now();
+    const codes = bounded ? s.codes.slice(sweepCodeOffset, sweepCodeOffset + 10000) : s.codes;
+    const pending = bounded ? credentials.slice(sweepCredentialOffset, sweepCredentialOffset + 10000) : credentials;
+    if (bounded) {
+      sweepCodeOffset = sweepCodeOffset + 10000 >= s.codes.length ? 0 : sweepCodeOffset + 10000;
+      sweepCredentialOffset = sweepCredentialOffset + 10000 >= credentials.length ? 0 : sweepCredentialOffset + 10000;
+    }
+    const remove = new Set();
+    for (const c of codes) {
+      const terminal = c.cancelled ? (c.cancelled_at ??= time) : c.activate_by ?? c.expires_at;
+      if (time >= terminal && c.tombstone_at === undefined) { c.tombstone_at = terminal; delete c.issuer; changed = true; }
+      if (c.tombstone_at !== undefined && time >= c.tombstone_at + 86400000) remove.add(c);
+    }
+    const retained = s.codes.filter((c) => !remove.has(c));
+    if (retained.length !== s.codes.length) { s.codes = retained; changed = true; }
+    for (const host of Object.keys(s.budgets)) if (s.budgets[host].day < Math.floor(time / 86400000)) { delete s.budgets[host]; changed = true; }
+    for (const key of Object.keys(s.limits)) if (s.limits[key].until <= time) { delete s.limits[key]; changed = true; }
+    for (const c of codes) if (c.activate_by && now() >= c.activate_by && c.response) { delete c.response; changed = true; }
+    for (const c of pending) if (c.status === 'pending' && now() >= c.activate_by && !c.revoked_at) { c.revoked_at = new Date(now()).toISOString(); changed = true; }
     if (changed) { save(directory, s); writeJson('agent-credentials.json', credentials, 0o600, directory); }
   }
   function gate() { if (!enabled) throw error(404, 'not_found'); authTransaction(directory, expire); }
@@ -72,21 +96,27 @@ export function createBootstrap(opts = {}) {
     return !c.cancelled && o && o.tenant_id === c.tenant_id && o.created_at === c.claim_generation && o.credential_id === c.credential_generation &&
       c.hostname === body.hostname && c.origin === body.origin && c.deployment_id === body.deployment_id && c.audience === audience;
   }
+  const sweep = enabled ? setInterval(() => {
+    try { authTransaction(directory, () => expire(true)); } catch { /* Retry next sweep; never publish uncertain state. */ }
+  }, opts.sweepIntervalMs ?? 30000) : undefined;
+  sweep?.unref();
   return {
-    enabled,
+    enabled, audience,
+    close() { clearInterval(sweep); },
     issue(tid, host, body) {
       gate();
       return authTransaction(directory, () => {
-        const o = owner(tid, host); const s = state(directory);
+        expire(); const o = owner(tid, host); const s = state(directory);
         const prior = s.codes.find((c) => c.tenant_id === tid && c.hostname === host && c.issuance_id === body.issuance_id);
         if (prior) return present(prior);
         const origin = validOrigin(body.origin);
         if (!origin || !text(body.deployment_id) || !text(body.issuance_id) || !body.issuer || !text(body.issuer.kind) || !text(body.issuer.id) ||
           !(text(body.issuer.authorization_generation) || Number.isSafeInteger(body.issuer.authorization_generation))) throw error(400, 'invalid_request');
         if (!audience) throw error(503, 'bootstrap_unavailable');
+        if (s.codes.filter((c) => c.tombstone_at === undefined).length >= 10000) throw error(503, 'bootstrap_unavailable');
         chargeRotation(directory, host, now(), true);
         const updated = state(directory);
-        for (const c of updated.codes) if (c.tenant_id === tid && c.hostname === host && !c.request_fingerprint) c.cancelled = true;
+        for (const c of updated.codes) if (c.tenant_id === tid && c.hostname === host && !c.request_fingerprint) { c.cancelled = true; c.cancelled_at = now(); }
         const code = `fdab_${randomBytes(32).toString('base64url')}`;
         const c = { tenant_id: tid, hostname: host, origin, deployment_id: body.deployment_id, issuer: { kind: body.issuer.kind, id: body.issuer.id, authorization_generation: body.issuer.authorization_generation },
           issuance_id: body.issuance_id, code_hash: hash(code), expires_at: now() + 900000, audience,
@@ -112,7 +142,7 @@ export function createBootstrap(opts = {}) {
       const digest = hash(typeof code === 'string' ? code : '');
       let c;
       authTransaction(directory, () => {
-        const s = state(directory); c = s.codes.find((c) => timingSafeEqual(Buffer.from(c.code_hash, 'hex'), Buffer.from(digest, 'hex')));
+        const s = state(directory); c = s.codes.find((c) => equalHash(c.code_hash, digest));
         if (!c) return;
         let failure;
         try { limit(s.limits, `code:${digest}`, 10, anonymous); limit(s.limits, `claim:${c.tenant_id}:${c.hostname}`, 30, anonymous); } catch (e) { failure = e; }
@@ -120,6 +150,7 @@ export function createBootstrap(opts = {}) {
         if (failure) c = { failure };
       });
       if (c?.failure) throw c.failure;
+      if (!c) throw error(401, 'unauthorized');
       if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => ![...fields, 'proof'].includes(k)) ||
         !validAgentVersion(body.agent_version) || !text(body.request_id) || !text(body.deployment_id) || typeof body.recipient_public_key !== 'string' || body.recipient_public_key.length > 2048 ||
         typeof body.origin !== 'string' || typeof body.proof !== 'string' || !/^[A-Za-z0-9_-]{512}$/.test(body.proof) || validOrigin(body.origin) !== body.origin) throw error(400, 'invalid_request');
@@ -138,7 +169,7 @@ export function createBootstrap(opts = {}) {
       function classify(current) {
         if (!current || !bound(current, body)) throw error(401, 'unauthorized');
         if (current.request_fingerprint) {
-          if (current.request_fingerprint !== fingerprint || current.key_fingerprint !== keyFingerprint) throw error(409, 'bootstrap_used');
+          if (!equalHash(current.request_fingerprint, fingerprint) || !equalHash(current.key_fingerprint, keyFingerprint)) throw error(409, 'bootstrap_used');
           const credential = readJson('agent-credentials.json', [], directory).find((r) => r.id === current.credential_id);
           if (now() >= current.activate_by) throw error(410, 'bootstrap_expired');
           if (!current.response || !credential || credential.revoked_at) throw error(401, 'unauthorized');
@@ -156,7 +187,7 @@ export function createBootstrap(opts = {}) {
       if (signal?.aborted) throw error(503, 'bootstrap_unavailable');
       // Recheck after the only asynchronous boundary, under the same synchronous writer lock.
       return authTransaction(directory, () => {
-        expire(); const s = state(directory); c = s.codes.find((r) => r.code_hash === digest); classify(c);
+        expire(); const s = state(directory); c = s.codes.find((r) => equalHash(r.code_hash, digest)); classify(c);
         if (c.response) return c.response;
         const { token, record } = generateCredential({ tenant_id: c.tenant_id, hostname: c.hostname }, now);
         const activateBy = now() + 120000;
@@ -180,18 +211,25 @@ export function bootstrapHandler(service) {
     const timer = setTimeout(() => { abort.abort(); send(503, { error: 'bootstrap_unavailable' }); }, 5000);
     res.once('close', () => abort.abort());
     try {
-      service.admit(req.socket.remoteAddress);
+      service.admit(clientIp(req));
       if (Number(req.headers['content-length']) > 16384) throw error(413, 'payload_too_large');
       const chunks = []; let size = 0;
       const body = await new Promise((resolve, reject) => {
         req.on('data', (chunk) => { size += chunk.length; if (size > 16384) { reject(error(413, 'payload_too_large')); return; } chunks.push(chunk); });
-        req.on('error', () => reject(error(400, 'invalid_request')));
+        req.on('error', () => resolve(null));
         abort.signal.addEventListener('abort', () => reject(error(503, 'bootstrap_unavailable')), { once: true });
-        req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch { reject(error(400, 'invalid_request')); } });
+        req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch { resolve(null); } });
       });
       const code = /^Bearer (fdab_[A-Za-z0-9_-]{43})$/.exec(req.headers.authorization ?? '')?.[1];
-      send(200, await service.exchange(code, body, req.socket.remoteAddress, abort.signal, true));
+      send(200, await service.exchange(code, body, clientIp(req), abort.signal, true));
     } catch (e) { const known = [400, 401, 409, 410, 413, 429, 503].includes(e.status); send(known ? e.status : 503, { error: known ? e.code : 'bootstrap_unavailable' }, e.retry_after); }
     finally { clearTimeout(timer); }
   };
+}
+
+export function bootstrapMiddleware(service) {
+  const handler = bootstrapHandler(service);
+  let authority;
+  try { const url = new URL(service.audience); if (url.protocol === 'https:') authority = url.host.toLowerCase(); } catch { /* Missing configuration fails closed. */ }
+  return (req, res, next) => service.enabled && authority && req.url === EXCHANGE_PATH && req.headers.host?.toLowerCase() === authority ? handler(req, res) : next();
 }

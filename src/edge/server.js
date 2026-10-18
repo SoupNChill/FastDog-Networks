@@ -1,4 +1,4 @@
-import { createBootstrap, bootstrapHandler, EXCHANGE_PATH } from '../onboard/bootstrap.js';
+import { createBootstrap, bootstrapMiddleware } from '../onboard/bootstrap.js';
 /**
  * Fastdog Edge — Phase 1 reverse proxy + control/DNS API + WS tunnel hub.
  *
@@ -86,7 +86,7 @@ app.use('/www', (err, req, res, next) => {
   res.status(code).type('html').send(`<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"><title>${code} ${text}</title></head><body><h1>${code} ${text}</h1></body></html>\n`);
 });
 const bootstrap = createBootstrap();
-app.use((req, res, next) => req.url.split('?')[0].startsWith(EXCHANGE_PATH) ? bootstrapHandler(bootstrap)(req, res) : next());
+if (bootstrap.enabled) app.use(bootstrapMiddleware(bootstrap));
 app.post('/_fastdog/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billingWebhook);
 // JSON only for control/billing APIs — never the catch-all reverse proxy.
 // A global express.json() consumes the body; proxyViaTunnel then waits forever on 'end'.

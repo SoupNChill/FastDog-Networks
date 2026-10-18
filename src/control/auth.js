@@ -14,3 +14,8 @@ export function operatorAuth(expected) {
     next();
   };
 }
+
+export function equalHash(a, b) {
+  const left = Buffer.from(a ?? '', 'hex'), right = Buffer.from(b ?? '', 'hex');
+  return left.length === 32 && right.length === 32 && timingSafeEqual(left, right);
+}

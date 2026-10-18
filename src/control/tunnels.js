@@ -1,3 +1,4 @@
+import { combined, dataDir } from '../onboard/json.js';
 import { validAgentVersion } from './agent-version.js';
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { inc } from '../lib/metrics.js';
@@ -83,7 +84,7 @@ export function attachWs(agentId, ws, token) {
   const hash = createHash('sha256').update(token).digest();
   if (!timingSafeEqual(a.tokenHash, hash)) return false;
   try {
-    if (a.credentialAuth && !validCredential(token, a.hostname, a.dataDir)) return false;
+    if (a.credentialAuth && (process.env.AGENT_BOOTSTRAP_ENABLED === '1' || combined(a.dataDir ?? dataDir())) && !validCredential(token, a.hostname, a.dataDir)) return false;
   } catch { return false; }
   a.ws = ws;
   a.lastSeen = new Date().toISOString();
