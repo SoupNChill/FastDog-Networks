@@ -2,6 +2,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fail } from './errors.js';
+import { termsUrls } from './terms.js';
 const root = dirname(fileURLToPath(import.meta.url));
 const publicRoot = resolve(root, '../public');
 export const pages = { '/': 'hostname.html', '/login': 'login.html', '/signup': 'signup.html', '/hostname': 'hostname.html',
@@ -13,7 +14,9 @@ export function supportEmail(env = process.env) {
   return /^[A-Za-z0-9._+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$/.test(value) ? value : supportFallback;
 }
 export function renderHtml(buffer, env = process.env) {
-  return Buffer.from(buffer.toString('utf8').replaceAll('{{SUPPORT_EMAIL}}', supportEmail(env)));
+  const urls = termsUrls(env);
+  return Buffer.from(buffer.toString('utf8').replaceAll('{{SUPPORT_EMAIL}}', supportEmail(env))
+    .replaceAll('{{TERMS_URL}}', urls.terms).replaceAll('{{PRIVACY_URL}}', urls.privacy));
 }
 export function safePath(raw) {
   if (typeof raw !== 'string' || !raw.startsWith('/') || raw.startsWith('//')) throw fail('not_found');

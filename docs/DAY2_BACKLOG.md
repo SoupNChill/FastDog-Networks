@@ -16,6 +16,8 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - INFO: 409 `hostname_unavailable` is an existence oracle, as the contract specifies.
 
 ## Lane B (portal)
+- DONE (OS-C2): sign-up requires a Terms/Privacy checkbox; the server refuses generically unless `accept_terms` is JSON `true` (invite, open and reclaimed open registrations) and stores its own document versions, acceptance time and a per-install salted IP hash.
+- DONE (OS81 review): fixed trial signup constraints, preserved flag-off IP limiter restart behavior, added password-setting open verification and expired-registration recovery, checked global admission before domain allocation, deleted refunded empty limit entries and added global-limit alert metadata. Synthetic account fixtures and restart operations documented.
 - DONE (first-run): authenticated `/start` page with three accessible progress steps, automatic status refresh, Start navigation and post-login routing from tenant-scoped hostname status. Live matches the existing active-claim plus connected-agent indicator, not an HTTPS probe. Copy explains the required CNAME and TXT records and operator-assigned plan limits. Offline validation: 304 root and 62 portal tests passed, zero failures/skips.
 - DONE (E2 review): authenticated sessions are capped at 10 per user and 20000 globally; admission returns 429 without revoking existing sessions, and expired or revoked sessions free capacity.
 - DONE (E2): anonymous sessions have a separate 5000 cap and 30-minute idle TTL; saturation returns `rate_limited` (429) without evicting existing CSRF bootstrap sessions.
@@ -26,7 +28,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - DONE (E2): `sessions.get()` persists `last_seen` and sliding expiry at most once a minute.
 - DONE (open signup B1): outbox files older than 7 days are deleted on startup and hourly; SMTP audit records always redact links/codes, including failures.
 - LOW: whitelist fields of `/api/domain-requests` (do not return operator `notes`).
-- LOW: tenant suspension has no path that deletes the tenant's hostnames and credentials.
+- DONE (#80): administrative suspension revokes tenant credentials and routes, reserves hostnames indefinitely, fences in-flight verification, and supports authenticated, idempotent administrative release; DNS suspension still expires after 24h.
 - LOW: `isReserved` in `portal/src/hostname.js` is unused (edge enforces); keep or remove.
 
 ## Lane D (tests)
@@ -161,3 +163,5 @@ Operator-reported evidence for the homepage claim; logs live on the operator hos
 - Code facts: `CONNECT_TOKEN_TTL_MS=3600000` in [connect-tokens.js](../portal/src/connect-tokens.js); the [agent](../agent/index.js) opens only outbound connections and has no listening server, so no inbound ports are needed on the customer's server.
 
 - DONE (PR 87 mail review): asynchronous SMTP auth delivery, shared persistent mailbox/recipient budgets with priority reserve, and explicit CLI delivery failure.
+
+- DONE (PR 87 merge review): preserve open signup admission and Terms acceptance alongside guarded mail enqueue/send; retry contended mail locks three times at 10 ms intervals.

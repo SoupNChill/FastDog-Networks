@@ -25,7 +25,10 @@ export function createRateLimits(now, store) {
   function refund(key, persistent = false) {
     const saved = persistent ? store.read('rate_limits', {}) : null;
     const entry = persistent ? saved[key] : memory.get(key);
-    if (entry) entry.count = Math.max(0, entry.count - 1);
+    if (entry && --entry.count <= 0) {
+      if (persistent) delete saved[key];
+      else memory.delete(key);
+    }
     if (persistent) store.write('rate_limits', saved);
   }
   return { take, refund };

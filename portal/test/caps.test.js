@@ -125,7 +125,9 @@ test('full login-account prefix fails closed for new accounts, preserves existin
   f.advance(900000);
   assert.equal((await call(f.app, '/api/login', session, credentials)).status, 200);
   limits.take('login-account:new', 5, 900000, true);
-  assert.equal(Object.keys(f.store.read('rate_limits')).length, 4);
+  // A refunded successful login leaves no zero-count entry occupying the login-account prefix.
+  assert.deepEqual(Object.keys(f.store.read('rate_limits')).sort(),
+    [`rotate:${f.user.tenant_id}:app.example.test`, 'login-account:new', 'rotate:synthetic'].sort());
 });
 
 test('in-memory prefixes have independent caps and reclaim expired entries', () => {

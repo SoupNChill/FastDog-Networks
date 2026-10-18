@@ -40,7 +40,7 @@ test('all business API routes reject anonymous sessions before calling upstreams
 test('missing and invalid invitations cannot create accounts or send mail', async (t) => {
   const f = await fixture(t);
   for (const invite_code of [undefined, fakeSecret()]) {
-    const result = await f.client.call('/api/signup', 'POST', { email: 'invited@example.test', password: fakeSecret(), invite_code });
+    const result = await f.client.call('/api/signup', 'POST', { email: 'invited@example.test', password: fakeSecret(), invite_code, accept_terms: true });
     assert.deepEqual(result.data, { ok: true }); // Contract deliberately hides invitation validity.
   }
   assert.equal(f.store.read('accounts', { users: [] }).users.length, 0);
