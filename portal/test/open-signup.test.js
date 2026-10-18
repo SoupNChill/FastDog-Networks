@@ -76,8 +76,8 @@ test('open sign-up creates an unverified trial tenant with one hostname and logs
   assert.deepEqual(f.reasons(), ['created', 'exists']);
 });
 
-test('open sign-up plan and hostname limit come from config; invites keep their own path', async (t) => {
-  const f = await open(t, { openSignupPlan: 'starter', openSignupHostnameLimit: 2 });
+test('open sign-up restrictions are fixed; invites keep their own path', async (t) => {
+  const f = await open(t);
   await f.signup('open@example.test');
   const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email: 'invited@example.test', plan: 'pro', hostnameLimit: 7 });
   await f.signup('invited@example.test', { invite_code: code });
@@ -85,31 +85,31 @@ test('open sign-up plan and hostname limit come from config; invites keep their 
   await f.signup('wrong@example.test', { invite_code: fakeSecret() });
   const { users, tenants, invites } = f.accounts();
   assert.deepEqual(users.map((u) => u.email), ['open@example.test', 'invited@example.test']);
-  assert.deepEqual(tenants.map((x) => [x.plan, x.hostname_limit, x.source]), [['starter', 2, 'open'], ['pro', 7, undefined]]);
+  assert.deepEqual(tenants.map((x) => [x.plan, x.hostname_limit, x.source]), [['trial', 1, 'open'], ['pro', 7, undefined]]);
   assert.equal(invites[0].tenant_id, tenants[1].id);
   assert.deepEqual(f.reasons(), ['created']);
 });
 
 test('disposable domains and their subdomains are refused generically in open mode only', async (t) => {
-  const f = await open(t, { signupIpPerHour: 100 });
-  for (const email of ['a@mailinator.com', 'b@inbox.MAILINATOR.com', 'c@yopmail.fr', 'd@-bad-.example']) await f.signup(email);
+  const f = await open(t, { signupIpPerHour: 100, signupDisposable: new Set(['blocked.example.test', 'blocked.example.invalid']) });
+  for (const email of ['a@blocked.example.test', 'b@inbox.BLOCKED.example.test', 'c@blocked.example.invalid', 'd@-bad-.example']) await f.signup(email);
   assert.equal(f.accounts().users.length, 0);
   assert.equal(f.messages.length, 0);
   assert.deepEqual(f.reasons(), ['disposable', 'disposable', 'disposable', 'invalid_domain']);
-  assert.ok(!JSON.stringify(f.logs).includes('mailinator'));
+  assert.ok(!JSON.stringify(f.logs).includes('blocked.example'));
   // Disposable blocks spend no domain or global budget.
   assert.deepEqual(Object.keys(f.store.read('rate_limits', {})).filter((k) => !k.startsWith('signup:')), []);
   // Invite sign-ups are unaffected by the disposable list.
-  const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email: 'ok@mailinator.com' });
-  await f.signup('ok@mailinator.com', { invite_code: code });
+  const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email: 'ok@blocked.example.test' });
+  await f.signup('ok@blocked.example.test', { invite_code: code });
   assert.equal(f.accounts().users.length, 1);
 });
 
 test('per-domain limits share a budget across subdomains, large providers get their own, and reset daily', async (t) => {
-  const f = await open(t, { signupIpPerHour: 100, signupDomainPerDay: 2, signupBigmailPerDay: 3 });
+  const f = await open(t, { signupIpPerHour: 100, signupDomainPerDay: 2, signupBigmailPerDay: 3, signupBigmail: new Set(['mail.example.invalid']) });
   for (const email of ['a@example.org', 'b@mail.example.org', 'c@other.example.org']) await f.signup(email);
-  for (const email of ['a@gmail.com', 'b@gmail.com', 'c@gmail.com', 'd@gmail.com']) await f.signup(email);
-  assert.deepEqual(f.accounts().users.map((u) => u.email), ['a@example.org', 'b@mail.example.org', 'a@gmail.com', 'b@gmail.com', 'c@gmail.com']);
+  for (const email of ['a@mail.example.invalid', 'b@mail.example.invalid', 'c@mail.example.invalid', 'd@mail.example.invalid']) await f.signup(email);
+  assert.deepEqual(f.accounts().users.map((u) => u.email), ['a@example.org', 'b@mail.example.org', 'a@mail.example.invalid', 'b@mail.example.invalid', 'c@mail.example.invalid']);
   assert.deepEqual(f.reasons(), ['created', 'created', 'domain_limit', 'created', 'created', 'created', 'domain_limit']);
   const saved = f.store.read('rate_limits', {});
   assert.equal(saved['signup-domain:example.org'].count, 2);
@@ -120,12 +120,14 @@ test('per-domain limits share a budget across subdomains, large providers get th
   assert.equal(f.accounts().users.length, 6);
 });
 
-test('the global daily limit applies across domains and refunds the domain slot it refused', async (t) => {
+test('the global daily limit refuses before creating domain keys and emits an alert', async (t) => {
   const f = await open(t, { signupIpPerHour: 100, signupGlobalPerDay: 2 });
   for (const email of ['a@one.example', 'b@two.example', 'c@three.example']) await f.signup(email);
   assert.equal(f.accounts().users.length, 2);
   assert.deepEqual(f.reasons(), ['created', 'created', 'global_limit']);
-  assert.equal(f.store.read('rate_limits', {})['signup-domain:three.example'].count, 0);
+  assert.equal(f.store.read('rate_limits', {})['signup-domain:three.example'], undefined);
+  assert.equal(f.logs.find((e) => e.reason === 'global_limit').alert, 'signup_global_limit');
+  assert.equal(f.logs.find((e) => e.reason === 'global_limit').level, 'error');
 });
 
 test('the per-IP sign-up limit is persistent and configurable', async (t) => {
@@ -145,14 +147,14 @@ test('the per-IP sign-up limit is persistent and configurable', async (t) => {
 });
 
 test('open tenants get the smaller connect-token budget', async (t) => {
-  const f = await fixture(t, { openConnectTokensPerHour: 2 });
+  const f = await fixture(t);
   const { client } = await f.seed();
   const data = f.store.read('accounts', emptyAccounts());
   data.tenants[0].source = 'open';
   f.store.write('accounts', data);
   await f.edge.createHostname(data.tenants[0].id, 'app.example.test', 1);
   await f.edge.verifyHostname(data.tenants[0].id, 'app.example.test');
-  for (let i = 0; i < 2; i++) assert.equal((await client.call('/api/hostnames/app.example.test/connect-token', 'POST')).status, 201);
+  for (let i = 0; i < 3; i++) assert.equal((await client.call('/api/hostnames/app.example.test/connect-token', 'POST')).status, 201);
   assert.equal((await client.call('/api/hostnames/app.example.test/connect-token', 'POST')).status, 429);
 });
 
@@ -177,7 +179,7 @@ test('unverified accounts cannot create hostnames, connect tokens, API keys or d
 
 test('createApp and server start validate open sign-up settings', async (t) => {
   const dataDir = temporary(t);
-  for (const bad of [{ openSignup: '1' }, { openSignupHostnameLimit: 0 }, { openSignupPlan: ' ' }, { openConnectTokensPerHour: 1.5 },
+  for (const bad of [{ openSignup: '1' }, { openSignupPlan: 'starter' }, { openSignupHostnameLimit: 2 }, { openConnectTokensPerHour: 4 }, { openSignupHostnameLimit: 0 }, { openSignupPlan: ' ' }, { openConnectTokensPerHour: 1.5 },
     { signupIpPerHour: 0 }, { signupDomainPerDay: -1 }, { signupBigmailPerDay: 'x' }, { signupGlobalPerDay: 1e6 }]) {
     assert.throws(() => createApp({ dataDir, config: { origin, ...bad } }), /Invalid open sign-up settings/, JSON.stringify(bad));
   }
@@ -197,4 +199,54 @@ test('createApp and server start validate open sign-up settings', async (t) => {
     assert.equal(me.data.open_signup, expected, String(flag));
   }
   assert.ok(readFileSync(join(dataDir, 'sessions.json'), 'utf8'));
+});
+
+
+test('flag-off signup IP limits reset after restart', async (t) => {
+  const f = await fixture(t);
+  const body = { email: 'invite@example.test', password: fakeSecret() };
+  for (let i = 0; i < 3; i++) assert.equal((await f.client.call('/api/signup', 'POST', body)).status, 200);
+  assert.equal((await f.client.call('/api/signup', 'POST', body)).status, 429);
+  assert.deepEqual(f.store.read('rate_limits', {}), {});
+  const restarted = createApp({ dataDir: f.dataDir, now: f.now, edge: f.edge, mailer: { async send() {} }, config: { origin } });
+  const client = browser(await listen(t, restarted));
+  await client.call('/api/me');
+  const invite_code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email: body.email });
+  assert.equal((await client.call('/api/signup', 'POST', { ...body, invite_code })).status, 200);
+  assert.equal(f.store.read('accounts', emptyAccounts()).users.length, 1);
+});
+
+test('open verification replaces the registration password and revokes pre-verification sessions', async (t) => {
+  const f = await open(t);
+  const email = 'owner@example.test', password = fakeSecret(), replacement = fakeSecret();
+  await f.signup(email, { password });
+  const token = new URLSearchParams(new URL(f.messages[0].link).hash.slice(1)).get('token');
+  assert.equal(new URLSearchParams(new URL(f.messages[0].link).hash.slice(1)).get('setup'), '1');
+  assert.equal((await f.client.call('/api/login', 'POST', { email, password })).status, 200);
+  await f.client.call('/api/me');
+  assert.equal((await f.client.call('/api/verify-email', 'POST', { token })).status, 401);
+  assert.equal((await f.client.call('/api/verify-email', 'POST', { token, password: replacement })).status, 200);
+  assert.equal((await f.client.call('/api/me')).data.tenant, null);
+  assert.equal((await f.client.call('/api/login', 'POST', { email, password })).status, 401);
+  assert.equal((await f.client.call('/api/login', 'POST', { email, password: replacement })).status, 200);
+  await f.client.call('/api/me');
+  assert.equal((await f.client.call('/api/verify-email', 'POST', { token, password })).status, 401);
+  assert.equal(f.accounts().users[0].auth_version, 2);
+  assert.equal((await f.client.call('/api/keys', 'POST', { scopes: ['status:read'], password: replacement })).status, 403);
+  assert.deepEqual(f.store.read('api_keys', []), []);
+});
+
+test('expired unverified open registrations can be reclaimed without creating another tenant', async (t) => {
+  const f = await open(t);
+  await f.signup('owner@example.test');
+  const old = new URLSearchParams(new URL(f.messages[0].link).hash.slice(1)).get('token');
+  const tenant = f.accounts().tenants[0].id;
+  f.advance(3600001);
+  await f.client.call('/api/me');
+  await f.signup('owner@example.test');
+  assert.equal(f.accounts().users.length, 1);
+  assert.equal(f.accounts().tenants[0].id, tenant);
+  assert.equal(f.messages.length, 2);
+  assert.equal((await f.client.call('/api/verify-email', 'POST', { token: old, password: fakeSecret() })).status, 401);
+  assert.deepEqual(f.reasons(), ['created', 'reclaimed']);
 });

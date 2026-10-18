@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#222831">
+  <title>FAQ (draft) — FastDog Networks</title>
+  <meta name="description" content="Draft answers to common questions about FastDog Networks. Not yet in effect.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/SpaceGrotesk-Medium.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="/fonts/SpaceGrotesk-Bold.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap">
+  <a class="brand" href="/" aria-label="FastDog Networks home"><picture><source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/hound-light.svg" width="70" height="21" alt=""></picture><span>FastDog <span class="brand-second">Networks</span></span></a>
+  <nav aria-label="Main navigation"><a href="/edge/">Edge</a><a href="/domains/">Domains</a><a href="/verdict/">Verdict</a><a href="/docs/">Docs</a></nav>
+</header>
+<main id="main" class="wrap docs">
+<section class="product-hero"><div><span class="eyebrow">Help</span><h1>Frequently asked questions</h1><p class="hero-lede"><strong>DRAFT. Not yet in effect.</strong> These answers are published for review and may change before launch.</p><p class="small-note">Version 2026-10-17-draft</p></div></section>
+
+<section class="section" id="questions"><h2>Questions</h2>
+<dl>
+<dt>What is FastDog?</dt><dd>FastDog puts your website behind our edge. We answer HTTPS for your hostname with a certificate we get for you, then pass each request to your app through a tunnel that your server opens to us. You don’t open ports or move your app.</dd>
+<dt>How do I connect my app?</dt><dd>Create an account in the portal, add your hostname, add two DNS records, then run the connect command on the server where your app runs. The <a href="/docs/">docs</a> walk through each step.</dd>
+<dt>Which DNS records do I need?</dt><dd>A CNAME on your hostname pointing at the target the portal shows, and a TXT record on <code>_fastdog-challenge.</code> plus your hostname that proves you control it. Keep both in place while you use FastDog, and remove both if you leave so no record points at us. On Cloudflare, set the CNAME to “DNS only”.</dd>
+<dt>Do I have to move my domain or nameservers?</dt><dd>No. Your domain stays with your registrar and your DNS stays where it is. You only add the two records.</dd>
+<dt>What do you log?</dt><dd>We keep your account email with your account, not in logs. Logs hold IP addresses in rate limits, Verdict bot decisions (time, IP address, path without the query string) and web server access logs (method, path, status, response time and a shortened IP). Verdict looks at headers such as the user agent to score a request but does not store them. We don’t store request or response bodies. Details are in the <a href="/privacy/">Privacy Policy</a>.</dd>
+<dt>Do you sell my data?</dt><dd>No. We don’t sell it or use it for advertising.</dd>
+<dt>How much does it cost?</dt><dd>Plans are monthly in US dollars. See the <a href="/edge/#pricing">pricing page</a> for current plans and limits.</dd>
+<dt>Is there an uptime guarantee?</dt><dd>No. We work hard to stay up, but there is no service level agreement. See the <a href="/terms/">Terms of Service</a>.</dd>
+<dt>How do I delete my account?</dt><dd>Remove your CNAME and <code>_fastdog-challenge</code> TXT records so no record points at us, then email support from your account’s email address and ask us to delete the account. We check the request with you at that address before deleting anything. We then revoke your agent credentials and API keys, release your hostnames and delete your account details.</dd>
+<dt>How do I get help?</dt><dd><!-- TODO(operator): replace the placeholder support address before launch. -->Email <a href="mailto:support@example.invalid?subject=FastDog%20help">support@example.invalid</a> with your hostname and what you see. The portal footer also shows the support address.</dd>
+</dl>
+</section>
+</main>
+<footer class="footer wrap"><picture><source srcset="/logos/lockup-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/lockup-light.svg" width="180" height="110" alt="FastDog Networks. Fast by Design."></picture><div><span>DNS · tunnel · TLS</span><span>© FastDog Networks</span><span><a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="/faq/">FAQ</a></span><a class="footer-link" href="/docs/">Docs</a></div></footer>
+</body>
+</html>

@@ -1,13 +1,15 @@
-// Operator kill switch: node portal/bin/tenant.js suspend|resume <tenant_id|email> --reason "<text>".
+// Operator kill switch: node portal/bin/tenant.js suspend|resume|release <tenant_id|email> --reason "<text>".
 // Writes only suspensions.json and admin_audit.json; the running server reads suspensions.json and ends
-// sessions, API keys and connect tokens on their next use. Never prints the portal key or any token.
+// sessions, API keys and connect tokens on their next use. Resume keeps the suspension's revocation
+// epoch, so credentials issued before it never come back. Release (only after resume) frees the
+// tenant's administratively reserved hostnames on the edge. Never prints the portal key or any token.
 import { pathToFileURL } from 'node:url';
 import { createStore, emptyAccounts } from '../src/store.js';
 import { createSuspensions } from '../src/suspensions.js';
 import { createEdgeClient } from '../src/edge-client.js';
 import { normalizeEmail } from '../src/tokens.js';
 
-const usage = 'Usage: STATE_DIRECTORY=<state directory> node portal/bin/tenant.js suspend|resume <tenant_id|email> --reason "<text>"\n';
+const usage = 'Usage: STATE_DIRECTORY=<state directory> node portal/bin/tenant.js suspend|resume|release <tenant_id|email> --reason "<text>"\n';
 const AUDIT_KEEP = 5000;
 const live = (record, now) => !record.revoked_at && Date.parse(record.expires_at) > now;
 
@@ -19,18 +21,19 @@ function parse(argv) {
     else return null;
   }
   reason = typeof reason === 'string' ? reason.replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, 500) : '';
-  if (!['suspend', 'resume'].includes(action) || typeof target !== 'string' || !target || !reason) return null;
+  if (!['suspend', 'resume', 'release'].includes(action) || typeof target !== 'string' || !target || !reason) return null;
   return { action, target, reason };
 }
 
 function resolveTenant(accounts, suspensions, target) {
-  if (/^t_[a-z2-7]{20}$/.test(target)) return accounts.tenants.some((t) => t.id === target) || suspensions.has(target) ? target : null;
+  if (/^t_[a-z2-7]{20}$/.test(target)) return accounts.tenants.some((t) => t.id === target) || suspensions.known(target) ? target : null;
   const email = normalizeEmail(target);
   return accounts.users.find((u) => email && u.email === email)?.tenant_id ?? null;
 }
 
 const hostnameCount = (result) => (Array.isArray(result?.hostnames) ? result.hostnames.length
   : Number.isInteger(result?.hostnames) ? result.hostnames : Number.isInteger(result?.suspended) ? result.suspended : null);
+const edgeClient = (env) => createEdgeClient({ baseUrl: env.EDGE_INTERNAL_URL || 'http://127.0.0.1:8789', portalKey: env.PORTAL_KEY });
 
 export async function main(argv, env, out) {
   const args = parse(argv);
@@ -40,6 +43,8 @@ export async function main(argv, env, out) {
   const accounts = store.read('accounts', emptyAccounts());
   const tid = resolveTenant(accounts, suspensions, args.target);
   if (!tid) { out.stderr('Tenant not found\n'); return 1; }
+  // Releasing a still-suspended account would hand its hostnames back to the pool while it is blocked.
+  if (args.action === 'release' && suspensions.has(tid)) { out.stderr('Tenant is still suspended; resume it first, then release\n'); return 1; }
   const at = new Date().toISOString();
   const now = Date.now();
   const users = new Set(accounts.users.filter((u) => u.tenant_id === tid).map((u) => u.id));
@@ -47,7 +52,8 @@ export async function main(argv, env, out) {
   let code = 0;
   if (args.action === 'suspend') {
     const changed = !suspensions.has(tid);
-    if (changed) suspensions.set(tid, { at, reason: args.reason });
+    // revoked_before: every credential issued up to now stays invalid, even after resume.
+    if (changed) suspensions.set(tid, { at, reason: args.reason, revoked_before: now });
     // The server revokes these on next use; the CLI never writes their files.
     Object.assign(summary, { changed, pending_revocation: {
       sessions: store.read('sessions', []).filter((s) => users.has(s.user_id) && s.expires_at > now).length,
@@ -56,16 +62,24 @@ export async function main(argv, env, out) {
     } });
     // Always call the edge, so re-running suspend retries a failed edge call. The edge route is idempotent.
     try {
-      const edge = createEdgeClient({ baseUrl: env.EDGE_INTERNAL_URL || 'http://127.0.0.1:8789', portalKey: env.PORTAL_KEY });
-      const result = await edge.suspendTenant(tid);
+      const result = await edgeClient(env).suspendTenant(tid);
       Object.assign(summary, { edge: 'ok', hostnames_suspended: hostnameCount(result) });
     } catch {
       Object.assign(summary, { edge: 'failed', hostnames_suspended: null, note: 'Portal suspension is in place. Re-run suspend to retry the edge.' });
       code = 2;
     }
+  } else if (args.action === 'resume') {
+    Object.assign(summary, { changed: suspensions.clear(tid, at),
+      note: 'Portal access restored; credentials issued before the suspension stay revoked. Hostnames stay reserved on the edge until release; the customer then re-adds and re-verifies each one.' });
   } else {
-    Object.assign(summary, { changed: suspensions.clear(tid),
-      note: 'Portal access restored. Hostnames stay suspended on the edge until the customer re-verifies each one and reconnects.' });
+    try {
+      const result = await edgeClient(env).releaseTenant(tid);
+      const released = Number.isInteger(result?.released) ? result.released : null;
+      Object.assign(summary, { changed: released > 0, edge: 'ok', hostnames_released: released });
+    } catch {
+      Object.assign(summary, { changed: false, edge: 'failed', hostnames_released: null, note: 'Hostnames stay reserved. Re-run release to retry the edge.' });
+      code = 2;
+    }
   }
   const audit = store.read('admin_audit', []);
   const entries = Array.isArray(audit) ? audit : [];

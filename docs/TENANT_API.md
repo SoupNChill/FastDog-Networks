@@ -31,15 +31,15 @@ Rules that apply to everything below:
 
 ## 3. Hostname lifecycle
 
-States: `pending` -> `active` <-> `suspended` -> (`detached`: record removed). `pending` expires after 24 h (`expired`, treated as absent, not shown). `suspended` expires 24 h after suspension and is then also treated as absent. Suspension revokes claim credentials; restoration requires explicit routing and TXT verification and issues a new credential. Scheduled routing checks never restore suspended claims.
+States: `pending` -> `active` <-> `suspended` -> (`detached`: record removed). `pending` expires after 24 h (`expired`, treated as absent, not shown). DNS-recheck `suspended` claims expire 24 h after suspension and are then treated as absent. Administrative suspension is an indefinite, exclusive reservation (`suspension_reason: administrative`, `expires_at: null`); it never expires and cannot be verified or deleted through ordinary hostname endpoints (`409 administratively_suspended`). Only administrative release removes it. Existing suspended records with a null expiry are also administrative reservations. Suspension revokes claim credentials; restoration requires explicit routing and TXT verification and issues a new credential. Scheduled routing checks never restore suspended claims.
 
 Rules:
-1. A hostname may have **at most one `active` owner**. Any number of tenants may hold a `pending` claim for the same name; pending claims do not block anyone.
+1. A hostname may have **at most one `active` owner**. Any number of tenants may hold a `pending` claim for the same name; pending claims do not block anyone. An administrative reservation blocks every other tenant at both create and verify, including after DNS yields.
 2. Activation requires **both** proofs, checked by the edge's resolver at verify time:
    - **Routing proof:** `CNAME` (or chain <= 5) to `ATTACH_TARGET` / `ALT_ATTACH_TARGET`, or an `A` record equal to `EDGE_PUBLIC_IP` (same logic as `checkDnsVerification` today).
    - **Ownership proof:** TXT at `_fastdog-challenge.<hostname>` containing exactly the claim's `txt_value` (`fd-verify=` + 32 hex chars, random per claim). Keep it in place after verification: with `TLS_ASK_LIVE_VERIFY=1` the edge re-checks it before approving a new certificate.
-3. On activation the edge atomically: re-checks no other tenant became active; marks the claim `active`; adds the host to `tunnel_hosts.json`; issues the credential; reloads routes. First tenant to complete this wins; others get `409 hostname_unavailable` when they next verify.
-4. `DELETE` removes the claim, the tunnel host mapping and all credentials for that claim, and closes the live tunnel.
+3. On activation the edge atomically: re-checks no other tenant became active or holds an administrative reservation, and that the claim's persisted suspension generation has not changed during DNS resolution; marks the claim `active`; adds the host to `tunnel_hosts.json`; issues the credential; reloads routes. First tenant to complete this wins; others get `409 hostname_unavailable` when they next verify.
+4. Except for administrative reservations, `DELETE` removes the claim, the tunnel host mapping and all credentials for that claim, and closes the live tunnel.
 5. Legacy operator-attached hosts (records in `attached_hosts.json` without `tenant_id`) are unchanged and cannot be claimed or modified by any tenant (`hostname_unavailable`).
 
 Per-tenant limit: the portal sends `hostname_limit` (integer 1-1000, from the plan) on create. The edge counts the tenant's non-expired `pending` + `suspended` claims plus `active` claims and returns `409 hostname_limit_reached` when full.
@@ -47,6 +47,18 @@ Per-tenant limit: the portal sends `hostname_limit` (integer 1-1000, from the pl
 ## 4. Edge internal endpoints
 
 Base path `/internal/v1`. Every route except `tls/ask` and `health` requires the portal key. `:tid` must match the tenant pattern and **every read or write is scoped to it**: a hostname belonging to another tenant is indistinguishable from a missing one (`404 hostname_not_found`).
+
+### POST `/tenants/:tid/suspend`
+Administrative kill switch, authenticated with the portal key. No body required. Drops pending and expired claims, converts remaining active or DNS-suspended claims into indefinite administrative reservations, removes this tenant's credentials and tunnel routes, closes affected agents and invalidates route/TLS ownership caches. Another tenant's active routes and legacy hosts are preserved. A persisted suspension generation fences in-flight verification. Interrupted cleanup is safe to retry.
+
+`200 { "tenant_id": "<tid>", "suspended": 2, "hostnames": ["one.example.test", "two.example.test"] }`
+The count and names describe newly administratively suspended claims; an already completed suspension returns zero and an empty list. These reservations count against the hostname limit.
+
+### POST `/tenants/:tid/release`
+Authenticated administrative release command, using the same portal key, tenant validation and POST-only rules as suspension. No body or force flag required; no tenant account-state check. Deletes only this tenant's administratively suspended claims, finishing any interrupted credential/route cleanup first. Leaves active, pending and DNS-suspended claims unchanged. It does not restore service or issue credentials; released names can be claimed and verified again.
+
+`200 { "tenant_id": "<tid>", "released": 2 }`
+Idempotent: repeating release returns `released: 0`. Both administrative endpoints reject missing/wrong/operator keys with 401, invalid tenant IDs with 400, and other methods with 405.
 
 ### POST `/tenants/:tid/hostnames`
 Create or return the caller's pending claim.
@@ -66,7 +78,7 @@ Request: `{ "hostname": "App.Example.COM.", "hostname_limit": 3 }`
 }
 ```
 (`value` for CNAME is the configured `ATTACH_TARGET`.) `apex_note` is a string for 2-label names, else `null`.
-Errors: `400 invalid_hostname|reserved_hostname|invalid_limit`, `409 hostname_unavailable|hostname_limit_reached`, `429 rate_limited`.
+Errors: `400 invalid_hostname|reserved_hostname|invalid_limit`, `409 hostname_unavailable|hostname_limit_reached`, `429 rate_limited` (only when `CLAIM_CREATE_RATE_LIMIT` is a positive integer: that many create calls per tenant per minute, with `retry_after`; unset = no limit).
 
 ### GET `/tenants/:tid/hostnames`
 `200 { "hostnames": [ <hostname record> ... ] }`, only this tenant's non-expired records, sorted by `created_at`.
@@ -137,7 +149,7 @@ All JSON, same-origin, `__Host-fd_session` cookie, `Origin` check and `x-fd-csrf
 | Method | Path | Purpose |
 | --- | --- | --- |
 | POST | `/api/signup` | `{email, password, invite_code}` -> sends verification link; generic response |
-| POST | `/api/verify-email` | `{token}` |
+| POST | `/api/verify-email` | `{token, password?}` (new password required for self-serve accounts) |
 | POST | `/api/login` / `/api/logout` | session create/destroy; identical failure for unknown email and wrong password |
 | POST | `/api/password-reset` and `/api/password-reset/confirm` | request / complete |
 | GET | `/api/me` | `{email, tenant:{id, plan, hostname_limit}, csrf}` |
@@ -193,7 +205,7 @@ See `docs/decisions/2026-10-16-scoped-api-keys.md`. Session routes (CSRF, verifi
 
 ## 8. Error codes
 
-`unauthorized` 401 · `not_found` 404 · `hostname_not_found` 404 · `method_not_allowed` 405 · `invalid_hostname` 400 · `reserved_hostname` 400 · `invalid_limit` 400 · `invalid_tenant` 400 · `invalid_json` 400 · `payload_too_large` 413 · `hostname_unavailable` 409 · `hostname_limit_reached` 409 · `not_active` 409 · `rate_limited` 429 (with `retry_after` seconds) · `internal_error` 500 (generic, no detail). Errors never echo secrets or full upstream details.
+`unauthorized` 401 · `not_found` 404 · `hostname_not_found` 404 · `method_not_allowed` 405 · `invalid_hostname` 400 · `reserved_hostname` 400 · `invalid_limit` 400 · `invalid_tenant` 400 · `invalid_json` 400 (also a request that exceeds the 5 s internal timeout, unless `INTERNAL_TIMEOUT_CODES=1`) · `request_timeout` 408 and `gateway_timeout` 504 (only with `INTERNAL_TIMEOUT_CODES=1`: body incomplete vs. handler still running at 5 s) · `payload_too_large` 413 · `hostname_unavailable` 409 · `hostname_limit_reached` 409 · `not_active` 409 · `administratively_suspended` 409 (verify or delete of an administrative reservation; the portal passes it through) · `rate_limited` 429 (with `retry_after` seconds) · `internal_error` 500 (generic, no detail). Errors never echo secrets or full upstream details.
 
 ## 9. Logging (edge and portal)
 
@@ -206,3 +218,22 @@ Log method, route template (not raw path with identifiers), status, duration, an
 Synthetic tenants only: `t_aaaaaaaaaaaaaaaaaaaa`, `t_bbbbbbbbbbbbbbbbbbbb`, `t_cccccccccccccccccccc`. Hostnames only under `example.com`, `example.test`, `*.invalid` and the configured fake attach target. Awkward set used by every isolation test: 63-char label; 253-char total; `xn--bcher-kva.example.com` and `bücher.example.com` (same host); `App.Example.COM` / `app.example.com.`; `*.example.com`; `a*.example.com`; `app.example.com` vs `myapp.example.com` vs `x.app.example.com`; an IP literal; a reserved-suffix name. Every endpoint is exercised as every other tenant and must behave as `hostname_not_found`.
 
 CI grep check (`test/no-hardcoded-names.test.js`): fails if any file under `portal/`, `src/onboard/`, `src/control/`, `src/edge/`, `test/`, `deploy/caddy/` contains (case-insensitive) a deny-list entry, except files in `test/no-hardcoded-names.allow.json`. The deny-list is a data file (`test/deny-names.json`) and covers the person, product and customer names used so far. The test file itself reads the list and never spells the names.
+
+
+### Open signup admission
+
+`OPEN_SIGNUP` defaults to `0`; unset flags preserve invite-only signup and its in-memory 3/hour IP budget. Enabling it allows signup without an invitation and persists the configured IP budget. An offered invalid invitation never falls back to open signup. New self-serve tenants always receive `trial`, one hostname, no API keys and three connect tokens/hour; portal connection requires verified email and remains allowed. Conflicting `OPEN_SIGNUP_PLAN`, `OPEN_SIGNUP_HOSTNAME_LIMIT` or `OPEN_CONNECT_TOKENS_PER_HOUR` values fail startup. Later operator-approved account upgrades are separate from signup configuration.
+
+Open verification links require a new password via `POST /api/verify-email`; successful verification replaces the registration password, increments `auth_version`, revokes existing sessions and invalidates all outstanding account links. The user signs in again. An expired unverified open registration can be reclaimed by signup after the one-hour verification TTL, retaining its tenant id and invalidating old links and sessions. Verified and suspended accounts cannot be reclaimed. Invite verification retains its existing token-only behavior.
+
+The global admission budget is checked before reserving domain state; domain refusals refund it and zero-count refunds delete their entries. Global refusals emit `level:error`, `alert:signup_global_limit` with no address, domain or IP. The global cap deliberately bounds total daily registration attempts, including abuse; operators must monitor this alert and investigate admission outages. The default large-provider budget (200/day) is an independent ceiling: the lower global cap (100/day) takes precedence until an operator raises it. Email alias canonicalization is not applied: local-part equivalence is provider-specific. Registrable-domain grouping remains approximate, not a complete public suffix implementation.
+
+### Tenant kill switch (portal)
+
+`portal/bin/tenant.js suspend|resume|release <tenant_id|email> --reason "<text>"` (operator only, no browser route). The portal stores the state in `suspensions.json` (CLI-written, server read-only): `{ at, reason, revoked_before, resumed_at? }` per tenant. The edge keeps no per-tenant suspended flag, so the portal enforces the account state:
+
+- `suspend` records the entry, then calls edge `POST /tenants/:tid/suspend` (portal key). While suspended, sessions, API keys and connect tokens are refused (401) and revoked on use; login fails like a wrong password; reset and signup stay generic and send nothing. Hostname create, verify, rotate and connect-token issuance re-check suspension immediately before the edge call, so a request authenticated before the suspension still cannot reach the edge. An edge failure keeps the portal suspension, exits 2 and is retried by re-running `suspend`.
+- `resume` sets `resumed_at` but keeps the entry: every session, API key and connect token created at or before `revoked_before` stays invalid, whether or not it was used during the suspension. A later suspension moves `revoked_before` forward. Resume does not call the edge: the tenant's hostnames remain administrative reservations (they still count against its hostname limit, and verify/delete return `409 administratively_suspended`).
+- `release` calls edge `POST /tenants/:tid/release` and is refused (exit 1, no edge call) while the account is suspended. Afterwards any account, including the original one, may add and verify the names again. Reservations never expire; only `release` frees them.
+
+All commands are idempotent, print a JSON summary without secrets and append to `admin_audit.json`.

@@ -72,8 +72,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
   if (origin.protocol !== 'https:' || origin.origin !== config.origin) throw new Error('HTTPS portal origin required');
   const count = (value, max) => Number.isInteger(value) && value >= 1 && value <= max;
   if (!count(config.defaultHostnameLimit, 1000) || typeof config.defaultPlan !== 'string' || !config.defaultPlan.trim()) throw new Error('Invalid default plan');
-  if (typeof config.openSignup !== 'boolean' || !count(config.openSignupHostnameLimit, 1000) || typeof config.openSignupPlan !== 'string'
-    || !config.openSignupPlan.trim() || config.openSignupPlan.length > 100
+  if (typeof config.openSignup !== 'boolean' || config.openSignupHostnameLimit !== 1 || config.openSignupPlan !== 'trial'
+    || config.openConnectTokensPerHour !== 3
     || !['openConnectTokensPerHour', 'signupIpPerHour', 'signupDomainPerDay', 'signupBigmailPerDay', 'signupGlobalPerDay'].every((key) => count(config[key], 100000))) {
     throw new Error('Invalid open sign-up settings');
   }
@@ -100,6 +100,9 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
   const connectTokens = createConnectTokens(store, now);
   const apiKeys = createApiKeys(store, now);
   const suspensions = createSuspensions(store);
+  // The edge keeps no per-tenant suspended flag, so every call that creates, verifies or connects re-checks
+  // the kill switch at the last moment (after any awaits since authentication).
+  const unsuspended = (tid) => { if (suspensions.has(tid)) throw fail('unauthorized'); return tid; };
   const docsUrl = typeof config.docsUrl === 'string' && /^https:\/\/[a-z0-9.-]+(?:\/[a-z0-9/_-]*)?$/i.test(config.docsUrl) ? config.docsUrl : null;
   const server = http.createServer(async (request, response) => {
     const started = now();
@@ -157,6 +160,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const issuer = accounts.users.find((u) => u.id === key.user_id && u.tenant_id === key.tenant_id);
         // A kill-switch suspension revokes every key of the tenant on first touch.
         if (tenant?.status === 'suspended' && suspensions.has(tenant.id)) { apiKeys.revokeTenant(tenant.id); throw fail('unauthorized'); }
+        // Keys issued before a suspension stay dead after resume, used during the suspension or not.
+        if (suspensions.stale(key.tenant_id, key.created_at)) { apiKeys.revoke(key.tenant_id, key.id); throw fail('unauthorized'); }
         // Suspension, losing a paid plan, or a password change (auth_version bump) ends every key.
         if (!planAllowsKeys(tenant) || !issuer || !issuer.email_verified_at || (issuer.auth_version ?? null) !== (key.auth_version ?? null)) throw fail('unauthorized');
         limits.take(`api-key:${key.id}`, 60, 60000);
@@ -170,7 +175,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const tid = key.tenant_id;
         if (!m[1]) {
           limits.take(`api-create:${tid}`, 10, 3600000, true);
-          const created = hostnameRecord(await edge.createHostname(tid, hostname, tenant.hostname_limit));
+          const created = hostnameRecord(await edge.createHostname(unsuspended(tid), hostname, tenant.hostname_limit));
           const commands = store.read('connect_commands', {});
           if (delete commands[commandKey(tid, hostname)]) store.write('connect_commands', commands);
           return send(201, { ...created, docker: dockerDetails(hostname) });
@@ -183,7 +188,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         if (m[2] === 'verify') {
           limits.take(`verify:${tid}`, 6, 60000);
           // The first verify mints an agent credential; only the connect scope may see one.
-          return send(200, pick(await edge.verifyHostname(tid, hostname), ['hostname', 'status', 'verified', 'verified_at', 'method', 'checks']));
+          return send(200, pick(await edge.verifyHostname(unsuspended(tid), hostname), ['hostname', 'status', 'verified', 'verified_at', 'method', 'checks']));
         }
         const upstream = validOrigin(body.origin);
         const platform = body.platform === undefined ? 'linux' : body.platform;
@@ -197,7 +202,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         limits.take(`api-rotate:${tid}:${hostname}`, 3, 86400000, true);
         try { limits.take(`rotate:${tid}:${hostname}`, 5, 86400000, true); }
         catch (error) { limits.refund(`api-rotate:${tid}:${hostname}`, true); throw error; }
-        const rotated = withConnection(await edge.rotateCredential(tid, hostname));
+        const rotated = withConnection(await edge.rotateCredential(unsuspended(tid), hostname));
         markCommand(tid, hostname);
         const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
         if (!command) throw fail('internal_error');
@@ -225,6 +230,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const tenant = effectiveTenant(accounts.tenants.find((t) => t.id === record.tenant_id), suspensions);
         const issuer = accounts.users.find((u) => u.id === record.user_id && u.tenant_id === record.tenant_id);
         if (tenant?.status === 'suspended' && suspensions.has(tenant.id)) { connectTokens.revokeTenant(tenant.id); throw fail('unauthorized'); }
+        if (suspensions.stale(record.tenant_id, record.created_at)) throw fail('unauthorized');
         // A password reset (auth_version bump) or a suspended tenant ends every token that user issued.
         if (!tenant || (tenant.status && tenant.status !== 'active') || !issuer || (issuer.auth_version ?? null) !== (record.auth_version ?? null)) throw fail('unauthorized');
         limits.take(`connect-token:${record.id}`, 30, 60000);
@@ -260,7 +266,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         } catch (error) { connectTokens.unmarkCommand(record.id); throw error; }
         let rotated;
         // The edge refused or failed: the token may be retried (budgets stay spent).
-        try { rotated = withConnection(await edge.rotateCredential(record.tenant_id, record.hostname)); }
+        try { rotated = withConnection(await edge.rotateCredential(unsuspended(record.tenant_id), record.hostname)); }
         catch (error) { connectTokens.unmarkCommand(record.id); throw error; }
         // From here the old credential is gone; the token stays used whatever happens.
         markCommand(record.tenant_id, record.hostname);
@@ -350,7 +356,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         }
         if (!user.email_verified_at) throw fail('unauthorized');
         const hostname = normalizeHostname(body.hostname);
-        const created = hostnameRecord(await edge.createHostname(tenant.id, hostname, tenant.hostname_limit));
+        const created = hostnameRecord(await edge.createHostname(unsuspended(tenant.id), hostname, tenant.hostname_limit));
         const commands = store.read('connect_commands', {});
         if (delete commands[commandKey(tenant.id, hostname)]) store.write('connect_commands', commands);
         return send(201, created);
@@ -374,7 +380,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         if (typeof record.created_at !== 'string') throw fail('internal_error');
         // Open sign-up tenants get a smaller budget until an operator raises their limits.
         limits.take(`connect-token:${tenant.id}`, tenant.source === 'open' ? config.openConnectTokensPerHour : 5, 3600000, true);
-        const issued = connectTokens.issue(tenant.id, hostname, { user_id: user.id, auth_version: user.auth_version, claim_created_at: record.created_at });
+        const issued = connectTokens.issue(unsuspended(tenant.id), hostname, { user_id: user.id, auth_version: user.auth_version, claim_created_at: record.created_at });
         return send(201, { ...issued, hostname, scope: 'connect',
           prompt: assistantPrompt({ hostname, token: issued.token, expiresAt: issued.expires_at, portalOrigin: config.origin, docsUrl }) });
       }
@@ -390,10 +396,10 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
       if (!user.email_verified_at) throw fail('unauthorized');
       if (match[2] === 'verify') {
         limits.take(`verify:${tenant.id}`, 6, 60000);
-        return send(200, pick(withConnection(await edge.verifyHostname(tenant.id, hostname)), ['hostname', 'status', 'verified', 'verified_at', 'method', 'checks', 'credential']));
+        return send(200, pick(withConnection(await edge.verifyHostname(unsuspended(tenant.id), hostname)), ['hostname', 'status', 'verified', 'verified_at', 'method', 'checks', 'credential']));
       }
       limits.take(`rotate:${tenant.id}:${hostname}`, 5, 86400000, true);
-      const rotated = pick(withConnection(await edge.rotateCredential(tenant.id, hostname)), ['credential']);
+      const rotated = pick(withConnection(await edge.rotateCredential(unsuspended(tenant.id), hostname)), ['credential']);
       markCommand(tenant.id, hostname);
       return send(200, rotated);
     } catch (error) {

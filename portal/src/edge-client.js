@@ -21,5 +21,7 @@ export function createEdgeClient({ baseUrl = 'http://127.0.0.1:8789', portalKey,
     deleteHostname: (tid, hostname) => call(route(tid, hostname), 'DELETE'),
     // Kill switch (portal/bin/tenant.js): suspends every claim of the tenant and drops its tunnels and credentials.
     suspendTenant: (tid) => call(`${tenant(tid)}/suspend`, 'POST'),
+    // Admin release: drops the tenant's administrative reservations so the hostnames can be claimed again.
+    releaseTenant: (tid) => call(`${tenant(tid)}/release`, 'POST'),
   };
 }
