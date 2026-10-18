@@ -71,8 +71,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
   if (origin.protocol !== 'https:' || origin.origin !== config.origin) throw new Error('HTTPS portal origin required');
   const count = (value, max) => Number.isInteger(value) && value >= 1 && value <= max;
   if (!count(config.defaultHostnameLimit, 1000) || typeof config.defaultPlan !== 'string' || !config.defaultPlan.trim()) throw new Error('Invalid default plan');
-  if (typeof config.openSignup !== 'boolean' || !count(config.openSignupHostnameLimit, 1000) || typeof config.openSignupPlan !== 'string'
-    || !config.openSignupPlan.trim() || config.openSignupPlan.length > 100
+  if (typeof config.openSignup !== 'boolean' || config.openSignupHostnameLimit !== 1 || config.openSignupPlan !== 'trial'
+    || config.openConnectTokensPerHour !== 3
     || !['openConnectTokensPerHour', 'signupIpPerHour', 'signupDomainPerDay', 'signupBigmailPerDay', 'signupGlobalPerDay'].every((key) => count(config[key], 100000))) {
     throw new Error('Invalid open sign-up settings');
   }

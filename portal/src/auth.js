@@ -10,17 +10,17 @@ import { createSignupGuard } from './signup-guard.js';
 export function createAuth({ store, sessions, limits, now, mailer, config }) {
   const read = () => store.read('accounts', emptyAccounts());
   const generic = { ok: true };
-  const guard = createSignupGuard({ limits, config });
+  const guard = createSignupGuard({ limits, config, disposable: config.signupDisposable, bigmail: config.signupBigmail });
   // Open sign-up outcomes: a reason code only, never the email or its domain.
   const log = (outcome, reason) => {
-    try { config.logger?.({ event: 'signup', source: 'open', outcome, ...(reason ? { reason } : {}) }); }
+    try { config.logger?.({ event: 'signup', source: 'open', outcome, ...(reason ? { reason } : {}), ...(reason === 'global_limit' ? { level: 'error', alert: 'signup_global_limit' } : {}) }); }
     catch { /* Logging cannot affect a response. */ }
   };
   function link(data, user, kind) {
     const raw = token();
     data.links = data.links.filter((item) => item.expires_at > now() && !(item.user_id === user.id && item.kind === kind));
     data.links.push({ token_hash: digest(raw), user_id: user.id, kind, expires_at: now() + 3600000 });
-    return `${config.origin}/${kind === 'verify-email' ? 'verify-email' : 'login'}#${new URLSearchParams({ kind, token: raw })}`;
+    return `${config.origin}/${kind === 'verify-email' ? 'verify-email' : 'login'}#${new URLSearchParams({ kind, token: raw, ...(kind === 'verify-email' && user.signup_source === 'open' ? { setup: '1' } : {}) })}`;
   }
   function findLink(data, body, kind) {
     return typeof body.token === 'string' && data.links.find((item) => item.token_hash === digest(body.token)
@@ -37,7 +37,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
       const { ip, session, send } = context;
       const email = normalizeEmail(body.email);
       if (path === '/api/signup') {
-        limits.take(`signup:${ip}`, config.signupIpPerHour, 3600000, true);
+        limits.take(`signup:${ip}`, config.openSignup ? config.signupIpPerHour : 3, 3600000, config.openSignup);
         if (!email || !validPassword(body.password)) return send(200, generic);
         // Derive before checking the invite to keep invalid invites and existing accounts indistinguishable.
         const password_hash = await hashPassword(body.password);
@@ -48,16 +48,32 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
           if (reason) { log('refused', reason); return send(200, generic); }
         }
         const data = read();
+        // Only expired, unverified open registrations may be reclaimed. Never release a tenant's claims.
+        const stale = data.users.find((u) => u.email === email && !u.email_verified_at
+          && data.tenants.some((t) => t.id === u.tenant_id && t.source === 'open' && t.status === 'active')
+          && !data.links.some((item) => item.user_id === u.id && item.kind === 'verify-email' && item.expires_at > now()));
+        if (open && stale) {
+          stale.password_hash = password_hash;
+          stale.auth_version++;
+          stale.signup_source = 'open';
+          data.links = data.links.filter((item) => item.user_id !== stale.id);
+          const url = link(data, stale, 'verify-email');
+          store.write('accounts', data);
+          sessions.revokeUser(stale.id);
+          log('reclaimed', null);
+          await mailer.send({ to: email, kind: 'verify-email', link: url });
+          return send(200, generic);
+        }
         const invite = open ? null : findInvite(data, body.invite_code, email, now());
         if ((!open && !invite) || data.users.some((u) => u.email === email)) {
           if (open) log('refused', 'exists');
           return send(200, generic);
         }
         const tenant = open
-          ? { id: tenantId(), name: '', plan: config.openSignupPlan, hostname_limit: config.openSignupHostnameLimit, status: 'active', source: 'open' }
+          ? { id: tenantId(), name: '', plan: 'trial', hostname_limit: 1, status: 'active', source: 'open' }
           : { id: tenantId(), name: '', plan: invite.plan ?? config.defaultPlan,
             hostname_limit: invite.hostname_limit ?? config.defaultHostnameLimit, status: 'active' };
-        const user = { id: randomUUID(), tenant_id: tenant.id, email, password_hash, email_verified_at: null, auth_version: 1 };
+        const user = { id: randomUUID(), tenant_id: tenant.id, email, password_hash, email_verified_at: null, auth_version: 1, ...(open ? { signup_source: 'open' } : {}) };
         data.tenants.push(tenant);
         data.users.push(user);
         if (invite) {
@@ -103,11 +119,20 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
       }
       limits.take(`link:${ip}`, 20, 900000);
       if (path === '/api/verify-email') {
+        // Derive before reading mutable state; then recheck the one-use link after the await.
+        const password_hash = validPassword(body.password) ? await hashPassword(body.password) : null;
         const data = read();
         const entry = findLink(data, body, 'verify-email');
         if (!entry) throw fail('unauthorized');
         const user = data.users.find((u) => u.id === entry.user_id);
         if (!user) throw fail('unauthorized');
+        if (user.signup_source === 'open' || data.tenants.some((t) => t.id === user.tenant_id && t.source === 'open')) {
+          if (!password_hash) throw fail('unauthorized');
+          user.password_hash = password_hash;
+          user.auth_version++;
+          data.links = data.links.filter((item) => item.user_id !== user.id);
+          sessions.revokeUser(user.id);
+        }
         user.email_verified_at = new Date(now()).toISOString();
         data.links = data.links.filter((item) => item !== entry);
         store.write('accounts', data);

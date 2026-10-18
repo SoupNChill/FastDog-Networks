@@ -36,7 +36,7 @@ export function baseDomain(domain) {
   return labels.slice(-take).join('.');
 }
 
-export function createSignupGuard({ limits, config, disposable = loadDisposable() }) {
+export function createSignupGuard({ limits, config, disposable = loadDisposable(), bigmail = BIGMAIL }) {
   return {
     // Returns null when the open sign-up may proceed, else a reason code. Budgets are spent by
     // every attempt that passes validation, including ones for addresses that already exist.
@@ -46,13 +46,13 @@ export function createSignupGuard({ limits, config, disposable = loadDisposable(
       if (parentDomains(domain).some((name) => disposable.has(name))) return 'disposable';
       const base = baseDomain(domain);
       const domainKey = `signup-domain:${base}`;
-      const perDay = BIGMAIL.has(domain) ? config.signupBigmailPerDay : config.signupDomainPerDay;
-      try { limits.take(domainKey, perDay, DAY, true); }
-      catch (error) { if (error.code === 'rate_limited') return 'domain_limit'; throw error; }
+      const perDay = bigmail.has(domain) ? config.signupBigmailPerDay : config.signupDomainPerDay;
       try { limits.take('signup-global', config.signupGlobalPerDay, DAY, true); }
+      catch (error) { if (error.code === 'rate_limited') return 'global_limit'; throw error; }
+      try { limits.take(domainKey, perDay, DAY, true); }
       catch (error) {
-        limits.refund(domainKey, true);
-        if (error.code === 'rate_limited') return 'global_limit';
+        limits.refund('signup-global', true);
+        if (error.code === 'rate_limited') return 'domain_limit';
         throw error;
       }
       return null;

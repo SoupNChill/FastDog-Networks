@@ -137,7 +137,7 @@ All JSON, same-origin, `__Host-fd_session` cookie, `Origin` check and `x-fd-csrf
 | Method | Path | Purpose |
 | --- | --- | --- |
 | POST | `/api/signup` | `{email, password, invite_code}` -> sends verification link; generic response |
-| POST | `/api/verify-email` | `{token}` |
+| POST | `/api/verify-email` | `{token, password?}` (new password required for self-serve accounts) |
 | POST | `/api/login` / `/api/logout` | session create/destroy; identical failure for unknown email and wrong password |
 | POST | `/api/password-reset` and `/api/password-reset/confirm` | request / complete |
 | GET | `/api/me` | `{email, tenant:{id, plan, hostname_limit}, csrf}` |
@@ -206,3 +206,12 @@ Log method, route template (not raw path with identifiers), status, duration, an
 Synthetic tenants only: `t_aaaaaaaaaaaaaaaaaaaa`, `t_bbbbbbbbbbbbbbbbbbbb`, `t_cccccccccccccccccccc`. Hostnames only under `example.com`, `example.test`, `*.invalid` and the configured fake attach target. Awkward set used by every isolation test: 63-char label; 253-char total; `xn--bcher-kva.example.com` and `bücher.example.com` (same host); `App.Example.COM` / `app.example.com.`; `*.example.com`; `a*.example.com`; `app.example.com` vs `myapp.example.com` vs `x.app.example.com`; an IP literal; a reserved-suffix name. Every endpoint is exercised as every other tenant and must behave as `hostname_not_found`.
 
 CI grep check (`test/no-hardcoded-names.test.js`): fails if any file under `portal/`, `src/onboard/`, `src/control/`, `src/edge/`, `test/`, `deploy/caddy/` contains (case-insensitive) a deny-list entry, except files in `test/no-hardcoded-names.allow.json`. The deny-list is a data file (`test/deny-names.json`) and covers the person, product and customer names used so far. The test file itself reads the list and never spells the names.
+
+
+### Open signup admission
+
+`OPEN_SIGNUP` defaults to `0`; unset flags preserve invite-only signup and its in-memory 3/hour IP budget. Enabling it allows signup without an invitation and persists the configured IP budget. An offered invalid invitation never falls back to open signup. New self-serve tenants always receive `trial`, one hostname, no API keys and three connect tokens/hour; portal connection requires verified email and remains allowed. Conflicting `OPEN_SIGNUP_PLAN`, `OPEN_SIGNUP_HOSTNAME_LIMIT` or `OPEN_CONNECT_TOKENS_PER_HOUR` values fail startup. Later operator-approved account upgrades are separate from signup configuration.
+
+Open verification links require a new password via `POST /api/verify-email`; successful verification replaces the registration password, increments `auth_version`, revokes existing sessions and invalidates all outstanding account links. The user signs in again. An expired unverified open registration can be reclaimed by signup after the one-hour verification TTL, retaining its tenant id and invalidating old links and sessions. Verified and suspended accounts cannot be reclaimed. Invite verification retains its existing token-only behavior.
+
+The global admission budget is checked before reserving domain state; domain refusals refund it and zero-count refunds delete their entries. Global refusals emit `level:error`, `alert:signup_global_limit` with no address, domain or IP. The global cap deliberately bounds total daily registration attempts, including abuse; operators must monitor this alert and investigate admission outages. The default large-provider budget (200/day) is an independent ceiling: the lower global cap (100/day) takes precedence until an operator raises it. Email alias canonicalization is not applied: local-part equivalence is provider-specific. Registrable-domain grouping remains approximate, not a complete public suffix implementation.
