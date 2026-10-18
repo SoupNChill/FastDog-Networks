@@ -11,6 +11,7 @@ import { mayClaimTestLabel, isTestLabelHost, isGuardrailHost } from './test-labe
 export const fail = (status, code, extra = {}) => Object.assign(new Error(code), { status, code, ...extra });
 const DAY = 86400000;
 const MIN_OUTAGE_SAMPLE = 10;
+const CREATE_LIMIT_KEYS = 10000;
 
 // Host and port only (never userinfo or path); limited to address characters because the agent chooses it.
 const originAddress = (upstream) => { try { const host = upstream ? new URL(upstream).host : ''; return /^[a-z0-9.:[\]-]{1,100}$/i.test(host) ? host : null; } catch { return null; } };
@@ -67,6 +68,20 @@ export function createClaims(opts, changed) {
     if (value.count >= count) throw fail(429, 'rate_limited', { retry_after: Math.ceil((value.until - time) / 1000) });
     value.count++;
     limits.set(key, value);
+  }
+  // Default off (unset, 0 or not a positive integer): claim creates per tenant per minute.
+  // Separate map, capped at CREATE_LIMIT_KEYS by evicting the oldest window, so memory stays bounded.
+  const createLimit = Number(opts.claimCreateRateLimit ?? process.env.CLAIM_CREATE_RATE_LIMIT ?? 0);
+  const createLimits = new Map();
+  function limitCreate(tid) {
+    if (!Number.isInteger(createLimit) || createLimit < 1) return;
+    const time = now();
+    for (const [k, value] of createLimits) if (value.until <= time) createLimits.delete(k);
+    const value = createLimits.get(tid) ?? { count: 0, until: time + 60000 };
+    if (value.count >= createLimit) throw fail(429, 'rate_limited', { retry_after: Math.max(1, Math.ceil((value.until - time) / 1000)) });
+    value.count++;
+    createLimits.set(tid, value);
+    while (createLimits.size > CREATE_LIMIT_KEYS) createLimits.delete(createLimits.keys().next().value);
   }
   function agent(host) {
     const value = registry?.getAgentByHost(host);
@@ -169,6 +184,7 @@ export function createClaims(opts, changed) {
     list(tid) { return { hostnames: claims().filter((c) => c.tenant_id === tid).sort((a, b) => a.created_at.localeCompare(b.created_at)).map(present) }; },
     get(tid, host) { return present(find(claims(), tid, host)); },
     create(tid, body) {
+      limitCreate(tid);
       const host = normalizeHostname(body.hostname);
       if (isGuardrailHost(host, attachTarget, altAttachTarget)) throw fail(400, 'reserved_hostname');
       if (!mayClaimTestLabel(tid, host, attachTarget, altAttachTarget, directory)

@@ -54,6 +54,8 @@ export function createInternalServer(opts = {}) {
   server.setTimeout(5000);
   const claims = createClaims(opts, () => server.emit('routesChanged'));
   const tlsAskEnabled = opts.tlsAskEnabled ?? (process.env.TLS_ASK_ENABLED === '1');
+  // Default off: a timeout keeps the legacy 400 invalid_json. On: 408 while the body is incomplete, else 504.
+  const timeoutCodes = opts.timeoutCodes ?? (process.env.INTERNAL_TIMEOUT_CODES === '1');
   const tlsAsk = createTlsAsk({ ...opts, tlsAskEnabled });
   const siteStatus = createSiteStatus({ ...opts, agent: (tid, host) => claims.agent(tid, host), claimSince: (tid, host) => claims.claimSince(tid, host) });
 
@@ -73,9 +75,11 @@ export function createInternalServer(opts = {}) {
     const abort = new AbortController();
     let route = 'not_found';
     let reason;
+    let bodyRead = false;
     const timer = setTimeout(() => {
       abort.abort();
-      send(res, 400, { error: 'invalid_json' });
+      if (!timeoutCodes) send(res, 400, { error: 'invalid_json' });
+      else send(res, bodyRead ? 504 : 408, { error: bodyRead ? 'gateway_timeout' : 'request_timeout' });
       req.destroy();
     }, 5000);
     res.once('close', () => { clearTimeout(timer); if (!res.writableFinished) abort.abort(); });
@@ -97,6 +101,7 @@ export function createInternalServer(opts = {}) {
         if (pathname === '/tls/ask' && !tlsAskEnabled) return send(res, 404);
         if (pathname === '/tls/ask' && (!isLoopback(req.socket.remoteAddress) || Object.keys(req.headers).some((name) => ['forwarded', 'x-real-ip', 'via', 'cf-connecting-ip'].includes(name) || name.startsWith('x-forwarded-')))) return send(res, 404);
         if (req.method !== 'GET') throw fail(405, 'method_not_allowed');
+        bodyRead = true;
         if (pathname === '/health') return send(res, 200, { ok: true });
         const client = req.socket.remoteAddress.replace(/^::ffff:/, '');
         const result = await tlsAsk(url.searchParams.get('domain'), client);
@@ -114,6 +119,7 @@ export function createInternalServer(opts = {}) {
       if (!allowed.includes(req.method)) throw fail(405, 'method_not_allowed');
       if (Number(req.headers['content-length']) > 16384) throw fail(413, 'payload_too_large');
       const body = await readBody(req);
+      bodyRead = true;
       if (abort.signal.aborted) return;
       if (suspension) return send(res, 200, suspension[2] === 'release' ? claims.releaseTenant(tid) : claims.suspendTenant(tid));
       if (!rawHost) {
