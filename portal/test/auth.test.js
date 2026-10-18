@@ -220,6 +220,22 @@ for (const trustedSource of [true, false]) {
 }
 
 
+test('a throwing mailer never turns signup or reset into a 500 that reveals the account', async (t) => {
+  const logs = [];
+  const mailer = { send: async () => { throw new Error('Outbox full'); } };
+  const f = await fixture(t, { logger: (entry) => logs.push(entry) }, mailer);
+  const { user } = await f.seed();
+  const known = await f.client.call('/api/password-reset', 'POST', { email: user.email });
+  const unknown = await f.client.call('/api/password-reset', 'POST', { email: 'absent@example.test' });
+  assert.equal(known.status, 200);
+  assert.deepEqual([known.status, known.data], [unknown.status, unknown.data]);
+  const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email: 'new@example.test' });
+  const signup = await f.client.call('/api/signup', 'POST', { email: 'new@example.test', password: fakeSecret(), invite_code: code });
+  assert.deepEqual([signup.status, signup.data], [unknown.status, unknown.data]);
+  assert.ok(logs.some((entry) => entry.event === 'mail' && entry.kind === 'password-reset' && entry.reason === 'send_failed'));
+  assert.ok(!JSON.stringify(logs).includes(user.email));
+});
+
 test('known and unknown reset HTTP responses complete while SMTP delivery is stalled', { timeout: 5000 }, async (t) => {
   let release, started = false, completed = false;
   const pending = new Promise((resolve) => { release = resolve; });

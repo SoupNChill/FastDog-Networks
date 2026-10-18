@@ -9,7 +9,11 @@ import { sessionCookie } from './sessions.js';
 export function createAuth({ store, sessions, limits, now, mailer, config }) {
   const read = () => store.read('accounts', emptyAccounts());
   const generic = { ok: true };
-  const sendMail = (message) => mailer.enqueue ? mailer.enqueue(message) : mailer.send(message);
+  // Delivery failures must not change the response (account enumeration); log a reason code only.
+  const sendMail = async (message) => {
+    try { await (mailer.enqueue ? mailer.enqueue(message) : mailer.send(message)); }
+    catch { try { config.logger?.({ event: 'mail', kind: message.kind, result: 'lost', reason: 'send_failed' }); } catch { /* ignore */ } }
+  };
   function link(data, user, kind) {
     const raw = token();
     data.links = data.links.filter((item) => item.expires_at > now() && !(item.user_id === user.id && item.kind === kind));

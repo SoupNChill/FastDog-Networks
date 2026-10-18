@@ -347,3 +347,26 @@ test('budget contention and damaged state fail closed without resetting reservat
   writeFileSync(file, '[{}]');
   assert.equal(reserve('v@example.test', 'invite'), 'budget_unavailable');
 });
+
+test('crash-left budget and outbox locks are broken after 30 s and logged as lock_stuck', async (t) => {
+  const outboxDir = temporary(t), logs = [], old = new Date(Date.now() - 31000);
+  const fallback = createFileMailer({ outboxDir, logger: (entry) => logs.push(entry) });
+  const m = createSmtpMailer({ host: 'mail.example.test', user: 'u', pass: 'p', from: 'noreply@example.invalid',
+    fallback, logger: (entry) => logs.push(entry), deliver: async () => {} });
+  const budgetDir = join(outboxDir, '.budget'), link = 'https://portal.example.test/login';
+  assert.deepEqual(await m.send({ to: 'a@example.test', kind: 'password-reset', link }), { delivered: 'smtp' });
+  const budgetLock = join(budgetDir, `${readdirSync(budgetDir).find((name) => name.endsWith('.json'))}.lock`);
+  mkdirSync(budgetLock);
+  assert.equal((await m.send({ to: 'b@example.test', kind: 'password-reset', link })).reason, 'budget_unavailable');
+  assert.ok(!logs.some((entry) => entry.reason === 'lock_stuck'));
+  utimesSync(budgetLock, old, old);
+  assert.deepEqual(await m.send({ to: 'b@example.test', kind: 'password-reset', link }), { delivered: 'smtp' });
+  assert.deepEqual(logs.filter((entry) => entry.reason === 'lock_stuck'), [{ event: 'mail', kind: 'mail', result: 'lock_broken', reason: 'lock_stuck' }]);
+  const writeLock = join(outboxDir, '.write-lock');
+  mkdirSync(writeLock);
+  await assert.rejects(fallback.send({ to: 'c@example.test', kind: 'password-reset', link }), /Outbox locked/);
+  utimesSync(writeLock, old, old);
+  assert.deepEqual(await fallback.send({ to: 'c@example.test', kind: 'password-reset', link }), { delivered: 'outbox' });
+  assert.equal(logs.filter((entry) => entry.reason === 'lock_stuck').length, 2);
+  assert.deepEqual(readdirSync(outboxDir).filter((name) => !name.endsWith('.json')), ['.budget']);
+});

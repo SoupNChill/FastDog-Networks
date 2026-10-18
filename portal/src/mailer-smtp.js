@@ -126,7 +126,8 @@ export function createSmtpMailer({ host, port = 2525, user, pass, from, replyTo,
   const domain = from.split('@')[1];
   heloName ||= domain;
   const budget = fallback.outboxDir && createMailBudget({ directory: join(fallback.outboxDir, '.budget'),
-    mailbox: `${host.toLowerCase()}:${user.toLowerCase()}`, maxPerHour, now });
+    mailbox: `${host.toLowerCase()}:${user.toLowerCase()}`, maxPerHour, now,
+    log: (reason) => log('lock_broken', 'mail', reason) });
   let sent = [];
   const queue = [];
   let running = false;

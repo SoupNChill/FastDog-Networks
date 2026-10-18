@@ -13,7 +13,7 @@ const logJson = (entry) => console.log(JSON.stringify(entry));
 export function selectMailer(env, { outboxDir, logger = logJson, tlsOptions } = {}) {
   const transport = env.MAIL_TRANSPORT || 'file';
   if (transport !== 'file' && transport !== 'smtp') throw new Error('Invalid mail configuration');
-  const outbox = createFileMailer({ outboxDir });
+  const outbox = createFileMailer({ outboxDir, logger });
   if (transport === 'file') return outbox;
   const integer = (value, fallback) => (value === undefined || value === '' ? fallback : /^\d{1,6}$/.test(value) ? Number(value) : NaN);
   const replyTo = env.MAIL_REPLY_TO || (env.PORTAL_SUPPORT_EMAIL ? supportEmail(env) : undefined);

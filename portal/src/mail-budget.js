@@ -1,15 +1,17 @@
-import { mkdirSync, readFileSync, writeFileSync, renameSync, rmdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { acquireLock } from './mail-lock.js';
 
 // Exclusive directory lock serializes portal/CLI reservations. Fail closed on contention
-// or damaged state; a lock left by a crash requires operator removal while writers stop.
-export function createMailBudget({ directory, mailbox, maxPerHour, now = Date.now }) {
+// or damaged state; a lock left by a crash is broken after 30 s and logged as `lock_stuck`.
+export function createMailBudget({ directory, mailbox, maxPerHour, now = Date.now, log }) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const key = createHash('sha256').update(mailbox).digest('hex');
   const file = join(directory, `${key}.json`), lock = `${file}.lock`;
   return (to, kind) => {
-    try { mkdirSync(lock, { mode: 0o700 }); } catch { return 'budget_unavailable'; }
+    const release = acquireLock(lock, { log });
+    if (!release) return 'budget_unavailable';
     try {
       let entries = [];
       try { entries = JSON.parse(readFileSync(file, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -25,6 +27,6 @@ export function createMailBudget({ directory, mailbox, maxPerHour, now = Date.no
       renameSync(`${file}.tmp`, file);
       return null;
     } catch { return 'budget_unavailable'; }
-    finally { rmdirSync(lock); }
+    finally { release(); }
   };
 }

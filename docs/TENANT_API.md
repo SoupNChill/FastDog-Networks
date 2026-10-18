@@ -163,7 +163,7 @@ The portal derives `tenant_id` from the session only. It never accepts a tenant 
 
 The SMTP submission budget persists under `OUTBOX_DIR/.budget`, shared by portal and CLI using the same outbox and mailbox configuration. Attempts consume the hourly budget before connection, with three attempts per recipient per hour. Ten percent of capacity (for budgets of at least ten) is reserved for invites and password resets. Existing signup (3/hour/IP) and reset (10/15 minutes/IP, 3/15 minutes/account) limits remain. Budget contention or invalid state fails closed. All writers must use the same outbox; changing that directory starts a separate budget.
 
-Outbox files use mode 0600, expire after seven days with startup and hourly unreferenced cleanup, and are limited to 10,000 messages. Outbox writes and budget reservations use exclusive directory locks. If a crash leaves `.write-lock` or a `.budget/*.lock` directory, stop all mail writers before removing the stale lock; preserve budget JSON files. No mail credentials or recipient addresses are logged.
+Outbox files use mode 0600, expire after seven days with startup and hourly unreferenced cleanup, and are limited to 10,000 messages. Outbox writes and budget reservations use exclusive directory locks. A `.write-lock` or `.budget/*.lock` directory older than 30 seconds (left by a crash) is broken automatically by the next writer and logged as `{ event: 'mail', result: 'lock_broken', reason: 'lock_stuck' }`; younger locks still fail closed. Preserve budget JSON files. Signup and reset responses stay generic even when mail delivery or the outbox write fails (logged with reason `send_failed`). No mail credentials or recipient addresses are logged.
 
 ### Docker connect command
 
