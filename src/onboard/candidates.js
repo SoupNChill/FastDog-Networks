@@ -24,18 +24,23 @@ function bound(record, owner, directory) {
 }
 
 // Read-only apart from deadline revocation: returns the candidate record or null. Never falls back to active auth.
+const matching = (records, hash) => records.find((c) => {
+  const stored = Buffer.from(c.token_hash || '', 'hex');
+  return stored.length === hash.length && timingSafeEqual(stored, hash);
+});
+
 export function validCandidateCredential(token, hostname, directory = dataDir(), now = Date.now, proof = undefined) {
+  if (typeof token !== 'string' || !token) return null;
+  const hash = createHash('sha256').update(token).digest();
+  // Unauthenticated callers stop at a lock-free read of the committed snapshot: an unknown token never takes the
+  // writer lock or triggers deadline expiry writes.
+  if (!live(matching(readJson(CREDENTIALS, [], directory), hash), now())) return null;
   return authTransaction(directory, () => {
     const time = now(); const records = expire(directory, time);
-    if (typeof token !== 'string' || !token) return null;
     let host;
     try { host = normalizeHostname(hostname); } catch { return null; }
     const owner = tenantOwner(host, directory);
-    const hash = createHash('sha256').update(token).digest();
-    const record = records.find((c) => {
-      const stored = Buffer.from(c.token_hash || '', 'hex');
-      return stored.length === hash.length && timingSafeEqual(stored, hash);
-    });
+    const record = matching(records, hash);
     if (!live(record, time) || record.claim_hostname !== host || !bound(record, owner, directory)) return null;
     return verifyAgentProof(proof, record, now) ? record : null;
   });

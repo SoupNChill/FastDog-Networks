@@ -7,9 +7,10 @@ import { randomUUID, randomBytes, generateKeyPairSync, sign, createHash, private
 import { PassThrough } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { createBootstrap, exchangeTranscript, OAEP_LABEL } from '../src/onboard/bootstrap.js';
-import { readJson, writeJson } from '../src/onboard/json.js';
+import { readJson, writeJson, AUTH_LOCK } from '../src/onboard/json.js';
 import { issueCredential, validCredential } from '../src/onboard/credentials.js';
 import { createInternalServer } from '../src/internal/server.js';
+import { validCandidateCredential } from '../src/onboard/candidates.js';
 import { proofTranscript, agentAuthContext, agentNonces, createNonceCache, parseProof, PROOF_HEADER } from '../src/control/agent-proof.js';
 import { registerAgent, attachWs, detachWs, closeHost, getAgentByHost, listAgents, configureCandidates, candidateReady, sweepCandidates,
   closeCandidates, confirmCandidate, absentForSetting, _resetForTests } from '../src/control/tunnels.js';
@@ -332,4 +333,37 @@ test('proof failures and candidate flows never log tokens, proofs or keys', asyn
     const captured = JSON.stringify({ logs, sent: ws.sent });
     for (const secret of [c.token, proof.values[0], f.record(c.id).public_key]) assert.ok(!captured.includes(secret));
   } finally { Object.assign(console, originals); }
+});
+
+test('M2 review LOW: an active re-registration with its socket already down restarts the absence clock', async (t) => {
+  const f = fixture(t); const a = f.connectActive(); const c = await f.redeem();
+  const cand = f.connect(c);
+  assert.equal(cand.state, 'held');
+  detachWs(a.reg.id, a.ws);
+  f.advance(299000);
+  // The active agent registers again but has not attached its WS yet; that gap is not continuous absence.
+  const again = registerAgent({ hostname, localUpstream: origin, token: f.active.token, expectedToken: fakeSecret(), dataDir: f.directory });
+  f.advance(2000); sweepCandidates();
+  assert.equal(f.record(c.id).status, 'held');
+  assert.equal(getAgentByHost(hostname).id, again.id);
+  f.advance(297000); sweepCandidates(); assert.equal(f.record(c.id).status, 'held');
+  f.advance(1000); sweepCandidates();
+  assert.equal(f.record(c.id).status, 'active');
+});
+
+test('M2 review LOW: an unknown candidate token is rejected before the writer lock or any expiry write', async (t) => {
+  const f = fixture(t); const c = await f.redeem();
+  f.advance(121000);
+  const unknown = randomBytes(32).toString('hex');
+  // A competing live writer holds the lock: the unauthenticated lookup must not wait on it or fail with 503.
+  const lock = path.join(f.directory, AUTH_LOCK);
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, nonce: randomUUID(), created: Date.now() }), { mode: 0o600 });
+  assert.equal(validCandidateCredential(unknown, hostname, f.directory, f.now, undefined), null);
+  assert.throws(() => registerAgent({ hostname, localUpstream: origin, token: unknown, candidate: true, dataDir: f.directory }), { status: 401 });
+  fs.unlinkSync(lock);
+  // No deadline revocation was written on that path; an authenticated bootstrap operation still expires it.
+  assert.ok(!f.record(c.id).revoked_at);
+  assert.equal(validCandidateCredential(c.token, hostname, f.directory, f.now, undefined), null);
+  f.service.status(tid, hostname, c.issued.issuance_id);
+  assert.ok(f.record(c.id).revoked_at);
 });

@@ -86,11 +86,13 @@ export function registerAgent({ name, hostname, localUpstream, token, expectedTo
   if (existingId) {
     const old = agents.get(existingId);
     if (old?.ws) {
-      if (candidateMode && connected(old.ws)) absentSince.set(host, clock());
       try { old.ws.close(); } catch { /* ignore */ }
     }
     agents.delete(existingId);
   }
+  // Any active re-registration, even while its socket is already down, restarts the absence clock, so a candidate
+  // cannot promote in the gap between this register and its WS attach.
+  if (candidateMode) absentSince.set(host, clock());
   const id = randomUUID();
   const record = {
     id,
