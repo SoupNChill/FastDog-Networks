@@ -91,7 +91,7 @@ test('suspend calls the real edge: credentials invalidated, tunnels closed, TLS 
   assert.deepEqual(refused.data, wrong.data);
   const sent = f.messages.length;
   assert.deepEqual((await refused.client.call('/api/password-reset', 'POST', { email: a.user.email })).data, { ok: true });
-  assert.deepEqual((await refused.client.call('/api/signup', 'POST', { email: a.user.email, password: fakeSecret() })).data, { ok: true });
+  assert.deepEqual((await refused.client.call('/api/signup', 'POST', { email: a.user.email, password: fakeSecret(), accept_terms: true })).data, { ok: true });
   assert.equal(f.messages.length, sent);
   assert.equal((await b.client.call('/api/hostnames')).status, 200);
 
@@ -236,4 +236,36 @@ test('the portal refuses hostname create, verify, rotate and connect tokens for 
     assert.equal((await request(f.port, path, { method: 'POST', headers: bearer, body })).status, 401, path);
   }
   assert.equal(mutations(), before);
+});
+
+const linkToken = (message) => new URLSearchParams(new URL(message.link).hash.slice(1)).get('token');
+const suspendAt = (f, tid, at, resumed) => f.store.write('suspensions', { tenants: { [tid]: { at: new Date(at).toISOString(), reason: 'x', revoked_before: at,
+  ...(resumed ? { resumed_at: new Date(resumed).toISOString() } : {}) } } });
+
+test('reset links issued before a suspension stay dead after resume', async (t) => {
+  const f = await fixture(t);
+  const a = await f.seed();
+  await a.client.call('/api/password-reset', 'POST', { email: a.user.email });
+  const old = linkToken(f.messages.at(-1));
+  f.advance(1000);
+  suspendAt(f, tids[0], f.now(), f.now() + 1);
+  f.advance(1000);
+  const next = fakeSecret();
+  assert.equal((await a.client.call('/api/password-reset/confirm', 'POST', { token: old, password: next })).status, 401);
+  // A link issued after resume works.
+  await a.client.call('/api/password-reset', 'POST', { email: a.user.email });
+  assert.equal((await a.client.call('/api/password-reset/confirm', 'POST', { token: linkToken(f.messages.at(-1)), password: next })).status, 200);
+});
+
+test('signup does not reclaim or mail a suspended unverified open account', async (t) => {
+  const f = await fixture(t, { openSignup: true });
+  const body = { email: 'held@example.test', password: fakeSecret(), accept_terms: true };
+  await f.client.call('/api/signup', 'POST', body);
+  assert.equal(f.messages.length, 1);
+  const tid = f.store.read('accounts').tenants.find((x) => x.source === 'open').id;
+  f.advance(3600001);
+  suspendAt(f, tid, f.now());
+  await f.client.call('/api/me');
+  assert.deepEqual((await f.client.call('/api/signup', 'POST', body)).data, { ok: true });
+  assert.equal(f.messages.length, 1);
 });

@@ -91,7 +91,7 @@ export async function twoAccounts(t) {
     assert.equal(typeof inviteCode, 'string');
     const client = browser(h.server);
     await client.request('/api/me');
-    const signup = await client.request('/api/signup', { method: 'POST', body: { email, password, invite_code: inviteCode } });
+    const signup = await client.request('/api/signup', { method: 'POST', body: { email, password, invite_code: inviteCode, accept_terms: true } });
     assert.ok(signup.status >= 200 && signup.status < 300, 'signup with a freshly minted invite must succeed');
     const mail = h.messages.find((message) => message.to === email);
     assert.ok(mail, 'signup must send a verification link to the injected mailer');

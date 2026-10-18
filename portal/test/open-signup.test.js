@@ -15,7 +15,7 @@ async function open(t, config = {}) {
   const logs = [];
   const f = await fixture(t, { openSignup: true, logger: (entry) => logs.push(entry), ...config });
   const signup = async (email, extra = {}) => {
-    const result = await f.client.call('/api/signup', 'POST', { email, password: fakeSecret(), ...extra });
+    const result = await f.client.call('/api/signup', 'POST', { email, password: fakeSecret(), accept_terms: true, ...extra });
     assert.equal(result.status, 200);
     assert.deepEqual(result.data, { ok: true });
     return result;
@@ -52,7 +52,7 @@ test('domain helpers normalize IDN and trailing dots, list parents and approxima
 test('OPEN_SIGNUP off keeps invites required and /api/me reports open_signup false', async (t) => {
   const f = await fixture(t);
   assert.equal((await f.client.call('/api/me')).data.open_signup, false);
-  const result = await f.client.call('/api/signup', 'POST', { email: 'new@example.test', password: fakeSecret() });
+  const result = await f.client.call('/api/signup', 'POST', { email: 'new@example.test', password: fakeSecret(), accept_terms: true });
   assert.deepEqual(result.data, { ok: true });
   assert.equal(f.store.read('accounts', emptyAccounts()).users.length, 0);
   assert.equal(f.messages.length, 0);
@@ -134,16 +134,16 @@ test('the per-IP sign-up limit is persistent and configurable', async (t) => {
   const f = await open(t, { signupIpPerHour: 2 });
   await f.signup('a@example.test');
   await f.signup('b@example.test');
-  assert.equal((await f.client.call('/api/signup', 'POST', { email: 'c@example.test', password: fakeSecret() })).status, 429);
+  assert.equal((await f.client.call('/api/signup', 'POST', { email: 'c@example.test', password: fakeSecret(), accept_terms: true })).status, 429);
   assert.ok(Object.keys(f.store.read('rate_limits', {})).some((k) => k.startsWith('signup:')));
   // A restarted portal on the same state keeps the budget spent.
   const restarted = createApp({ dataDir: f.dataDir, now: f.now, edge: f.edge, mailer: { async send() {} }, config: { origin, openSignup: true, signupIpPerHour: 2 } });
   const client = browser(await listen(t, restarted));
   await client.call('/api/me');
-  assert.equal((await client.call('/api/signup', 'POST', { email: 'd@example.test', password: fakeSecret() })).status, 429);
+  assert.equal((await client.call('/api/signup', 'POST', { email: 'd@example.test', password: fakeSecret(), accept_terms: true })).status, 429);
   f.advance(3600000);
   await client.call('/api/me');
-  assert.equal((await client.call('/api/signup', 'POST', { email: 'd@example.test', password: fakeSecret() })).status, 200);
+  assert.equal((await client.call('/api/signup', 'POST', { email: 'd@example.test', password: fakeSecret(), accept_terms: true })).status, 200);
 });
 
 test('open tenants get the smaller connect-token budget', async (t) => {
@@ -204,7 +204,7 @@ test('createApp and server start validate open sign-up settings', async (t) => {
 
 test('flag-off signup IP limits reset after restart', async (t) => {
   const f = await fixture(t);
-  const body = { email: 'invite@example.test', password: fakeSecret() };
+  const body = { email: 'invite@example.test', password: fakeSecret(), accept_terms: true };
   for (let i = 0; i < 3; i++) assert.equal((await f.client.call('/api/signup', 'POST', body)).status, 200);
   assert.equal((await f.client.call('/api/signup', 'POST', body)).status, 429);
   assert.deepEqual(f.store.read('rate_limits', {}), {});
