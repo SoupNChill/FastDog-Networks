@@ -9,11 +9,11 @@ node scripts/mail-dns-check.js example.test --server 192.0.2.53 --expect include
 ```
 
 - Positional arguments after the domain and each `--server` are checked first, then the system resolver. Use both authoritative nameservers plus one public resolver to catch split answers.
-- `--selector` is the DKIM selector (default `x`). Use the one your provider shows in its DNS panel.
-- `--expect` (repeatable) is the SPF include or mechanism your provider requires; a bare host means `include:<host>`. If none of them are in the record, SPF is `FAIL`.
+- `--selector` is the DKIM selector (default `x`, no trailing dot). Use the one your provider shows in its DNS panel.
+- `--expect` (repeatable) is the SPF include or mechanism your provider requires; a bare host means `include:<host>`. SPF is `FAIL` unless at least one is pass-qualified (no qualifier or `+`) and appears before the first `all`; `-include:x`, `~include:x` or anything after `all` does not authorize the sender. An expected `redirect=` only counts when the record has no `all`.
 - The domain, servers and selector must be plain hostnames or IP addresses; anything else exits 1 before dig runs. A missing `dig` also exits 1. Otherwise the exit code is 0, including when checks fail. Read the lines.
 
-## Records a hosted mail provider (MXRoute-style) needs
+## Records a hosted mail provider needs
 
 Copy exact values from the provider's control panel; the names below are placeholders.
 
@@ -21,7 +21,7 @@ Copy exact values from the provider's control panel; the names below are placeho
 | --- | --- | --- | --- |
 | MX | `@` | `10 mx1.provider.example.` (plus any backup MX with a higher number) | FAIL if none or null MX `0 .` |
 | SPF (TXT) | `@` | `v=spf1 include:<provider spf host> -all` | Exactly one `v=spf1` record. WARN for `~all`/`?all`/`+all`, a missing `all`, or multiple SPF records |
-| DKIM (TXT) | `<selector>._domainkey` | `v=DKIM1; k=rsa; p=<base64 public key>` | FAIL if no record or empty `p=`. Estimates the RSA size from the key length; WARN under 1024 bits, 2048 recommended |
+| DKIM (TXT) | `<selector>._domainkey` | `v=DKIM1; k=rsa; p=<base64 public key>` | FAIL if no record, empty `p=` (revoked), invalid base64, a key Node cannot parse as RSA (SPKI or PKCS#1), an RSA key under 1024 bits, an `ed25519` key that is not 32 bytes, or any other `k=`. 2048-bit RSA recommended |
 | DMARC (TXT) | `_dmarc` | `v=DMARC1; p=quarantine; rua=mailto:<reports address>` | WARN for `p=none` (monitor only) or missing `rua=`; FAIL if `p=` is missing or invalid |
 
 Notes:

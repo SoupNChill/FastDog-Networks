@@ -2,6 +2,7 @@
 // Read-only mail DNS checker: evaluates `dig +short` output for MX, SPF, DKIM and DMARC.
 // Never changes DNS. Usage: node scripts/mail-dns-check.js <domain> [--selector x] [--server ip ...] [--expect include:x ...]
 import { execFile } from 'node:child_process';
+import { createPublicKey } from 'node:crypto';
 import { isIP } from 'node:net';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +20,8 @@ export function isHostname(value, minLabels = 2) {
   return labels.length >= minLabels && labels.every((l) => LABEL.test(l)) && !/^\d+$/.test(labels.at(-1));
 }
 export const isServer = (value) => isIP(value) !== 0 || isHostname(value);
-export const isSelector = (value) => isHostname(value, 1);
+// A trailing dot would build "x.._domainkey.<domain>", so selectors may not end in one.
+export const isSelector = (value) => typeof value === 'string' && !value.endsWith('.') && isHostname(value, 1);
 
 // dig +short prints ";; ..." diagnostics on timeout/SERVFAIL and blank lines for nothing.
 export const lines = (out) => String(out || '').split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith(';'));
@@ -46,14 +48,16 @@ export function checkSpf(out, expected = []) {
   const notes = [];
   if (spf.length > 1) notes.push(note('WARN', `${spf.length} SPF records (receivers treat this as permerror)`));
   const terms = spf[0].split(/\s+/).slice(1).map((t) => t.toLowerCase());
-  const all = terms.find((t) => /^[-~?+]?all$/.test(t));
+  const allAt = terms.findIndex((t) => /^[-~?+]?all$/.test(t));
+  const all = terms[allAt];
   if (all && all !== '-all') notes.push(note('WARN', `${all} is not a hard fail`));
   if (!all && !terms.some((t) => t.startsWith('redirect='))) notes.push(note('WARN', 'no all mechanism'));
   if (expected.length) {
-    const bare = terms.map((t) => t.replace(/^[-~?+]/, ''));
+    // Only pass-qualified (+ or none) mechanisms before the first all authorize senders; redirect= is ignored once all exists.
+    const reachable = (allAt < 0 ? terms : terms.slice(0, allAt)).map((t) => t.replace(/^\+/, ''));
+    const authorizes = (w) => (w.includes('=') ? allAt < 0 && terms.includes(w) : reachable.includes(w));
     const want = expected.map((e) => (e.includes(':') || e.includes('=') || /^(a|mx|ptr)$/i.test(e) ? e : `include:${e}`).toLowerCase());
-    const found = want.filter((w) => bare.includes(w));
-    if (!found.length) notes.push(note('FAIL', `none of the expected mechanisms present (${want.join(', ')})`));
+    if (!want.some(authorizes)) notes.push(note('FAIL', `none of the expected mechanisms authorize senders (${want.join(', ')}: missing, not pass-qualified, or after all)`));
   }
   return combine('SPF', notes, spf[0]);
 }
@@ -65,15 +69,23 @@ export function checkDkim(out, selector = 'x') {
   const t = tags(record);
   const p = (t.p || '').replace(/\s+/g, '');
   if (!p) return result(check, 'FAIL', 'empty p= (key missing or revoked)');
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(p)) return result(check, 'FAIL', 'p= is not valid base64');
-  const bytes = Math.floor(p.length * 3 / 4) - (p.match(/=*$/)[0].length);
+  const der = /^[A-Za-z0-9+/]+={0,2}$/.test(p) ? Buffer.from(p, 'base64') : null;
+  if (!der || der.toString('base64') !== p) return result(check, 'FAIL', 'p= is not valid base64');
   const k = (t.k || 'rsa').toLowerCase();
-  if (k !== 'rsa') return result(check, 'PASS', `k=${k}, ${bytes}-byte key`);
-  const bits = estimateRsaBits(bytes);
-  return result(check, bits < 1024 ? 'WARN' : 'PASS', `RSA ~${bits} bits${bits < 1024 ? ' (weak, use 2048)' : ''}`);
+  if (k === 'ed25519') {
+    if (der.length !== 32 || !publicKey(Buffer.concat([ED25519_SPKI, der]), 'spki')) return result(check, 'FAIL', `ed25519 p= must be a 32-byte key (got ${der.length} bytes)`);
+    return result(check, 'PASS', 'k=ed25519, 32-byte key');
+  }
+  if (k !== 'rsa') return result(check, 'FAIL', `unsupported k=${k} (expect rsa or ed25519)`);
+  // RFC 6376 publishes SubjectPublicKeyInfo; some signers publish a bare PKCS#1 RSAPublicKey.
+  const key = publicKey(der, 'spki') || publicKey(der, 'pkcs1');
+  if (key?.asymmetricKeyType !== 'rsa') return result(check, 'FAIL', 'p= is not a parseable RSA public key');
+  const bits = key.asymmetricKeyDetails.modulusLength;
+  // RFC 8301: verifiers must not accept RSA keys under 1024 bits.
+  return result(check, bits < 1024 ? 'FAIL' : 'PASS', `RSA ${bits} bits${bits < 1024 ? ' (receivers reject keys under 1024, use 2048)' : ''}`);
 }
-// SubjectPublicKeyInfo DER adds roughly 38 bytes of framing around the modulus.
-export const estimateRsaBits = (bytes) => Math.max(0, Math.round(((bytes - 38) * 8) / 512) * 512);
+const ED25519_SPKI = Buffer.from('302a300506032b6570032100', 'hex');
+const publicKey = (key, type) => { try { return createPublicKey({ key, format: 'der', type }); } catch { return null; } };
 
 export function checkDmarc(out) {
   const dmarc = txtRecords(out).filter((r) => /^v=DMARC1\s*(;|$)/i.test(r));
@@ -116,7 +128,8 @@ export function digQuery(server, run = execFile) {
   });
 }
 
-const USAGE = 'usage: mail-dns-check.js <domain> [--selector x] [--server ip|host ...] [--expect include:x ...]';
+const USAGE = 'usage: mail-dns-check.js <domain> [--selector x] [--server ip|host ...] [--expect include:x ...]\n'
+  + 'Read-only, but makes live DNS queries: run only in an operator-authorized online window.';
 
 export async function main(argv, { run = execFile, log = console.log, error = console.error } = {}) {
   let parsed;
