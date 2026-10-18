@@ -85,7 +85,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 
 ## Open after the Day 3 reviews (flags stay off)
 - MEDIUM (re-check): a tenant that controls its own authoritative DNS can answer conclusively once every few checks and so never reach the inconclusive cap. Consider a cumulative inconclusive ratio over a window instead of a streak.
-- MEDIUM (suspension): suspending a tenant does not yet remove its edge hosts, tunnels or credentials. Until that ships, the operator revokes them per host (runbooks/portal-invites.md).
+- DONE (#88, suspension): `portal/bin/tenant.js suspend` calls the edge suspend route (credentials, tunnels and TLS removed; hostnames reserved); `resume` keeps a revocation epoch so pre-suspension credentials never revive; `release` (refused while suspended) frees the reservations. The portal re-checks suspension before every create, verify, rotate and connect-token call.
 - MEDIUM (outbox) — DONE (open signup B1): startup/hourly TTL sweeps and a 10,000-file cap bound outbox retention; SMTP delivery leaves only redacted audit copies.
 - DONE (lane K): agent 0.1.1 sends Bearer headers for registration and the tunnel; offline coverage verifies credential-free logs. Existing proxy query redaction remains required.
 

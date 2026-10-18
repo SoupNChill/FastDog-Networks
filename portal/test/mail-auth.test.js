@@ -30,7 +30,9 @@ const resetToken = (message) => new URLSearchParams(new URL(message.message.matc
 for (const failure of ['recipient_cap', 'rate_cap', 'internal']) test('reset links survive replacement delivery: ' + failure, async (t) => {
   const f = setup(t, { maxPerHour: failure === 'rate_cap' ? 3 : 300 });
   const data = emptyAccounts();
-  data.users.push({ id: 'u', email: 'owner@example.test', auth_version: 1 });
+  // Reset requires a tenant that is not suspended (a user without one fails closed).
+  data.tenants.push({ id: 't_aaaaaaaaaaaaaaaaaaaa', status: 'active' });
+  data.users.push({ id: 'u', tenant_id: 't_aaaaaaaaaaaaaaaaaaaa', email: 'owner@example.test', auth_version: 1 });
   f.store.write('accounts', data);
   const request = () => f.call('/api/password-reset', { email: 'owner@example.test' });
   const count = failure === 'internal' ? 1 : 3;
@@ -59,7 +61,9 @@ for (const failure of ['recipient_cap', 'rate_cap', 'internal']) test('reset lin
 for (const failure of ['recipient_cap', 'rate_cap', 'internal']) test('full reset set survives three replacement requests: ' + failure, async (t) => {
   const f = setup(t, { maxPerHour: failure === 'rate_cap' ? 3 : 300 });
   const data = emptyAccounts();
-  data.users.push({ id: 'u', email: 'owner@example.test', auth_version: 1 });
+  // Reset requires a tenant that is not suspended (a user without one fails closed).
+  data.tenants.push({ id: 't_aaaaaaaaaaaaaaaaaaaa', status: 'active' });
+  data.users.push({ id: 'u', tenant_id: 't_aaaaaaaaaaaaaaaaaaaa', email: 'owner@example.test', auth_version: 1 });
   f.store.write('accounts', data);
   const request = () => f.call('/api/password-reset', { email: 'owner@example.test' });
   for (let i = 0; i < 3; i++) assert.equal((await request()).status, 200);

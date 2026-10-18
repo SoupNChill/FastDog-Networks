@@ -223,7 +223,7 @@ for (const trustedSource of [true, false]) {
 test('a throwing mailer never turns signup or reset into a 500 that reveals the account', async (t) => {
   const logs = [];
   const mailer = { send: async () => { throw new Error('Outbox full'); } };
-  const f = await fixture(t, { logger: (entry) => logs.push(entry) }, mailer);
+  const f = await fixture(t, { logger: (entry) => logs.push(entry) }, { mailer });
   const { user } = await f.seed();
   const known = await f.client.call('/api/password-reset', 'POST', { email: user.email });
   const unknown = await f.client.call('/api/password-reset', 'POST', { email: 'absent@example.test' });
@@ -243,7 +243,7 @@ test('known and unknown reset HTTP responses complete while SMTP delivery is sta
   t.after(() => release());
   const mailer = createSmtpMailer({ host: 'mail.example.test', user: 'u', pass: 'p', from: 'noreply@example.invalid',
     fallback: createFileMailer({ outboxDir: temporary(t) }), deliver: async () => { started = true; await pending; completed = true; } });
-  const f = await fixture(t, {}, mailer);
+  const f = await fixture(t, {}, { mailer });
   const { user } = await f.seed();
   const known = await f.client.call('/api/password-reset', 'POST', { email: user.email });
   await new Promise((resolve) => setImmediate(resolve));
@@ -261,7 +261,7 @@ for (const method of ['send', 'enqueue']) {
     const logs = [], messages = [];
     const mailer = { [method](message) { messages.push(message); throw new Error('Delivery failed'); } };
     if (method === 'enqueue') mailer.send = () => assert.fail('must prefer enqueue');
-    const f = await fixture(t, { openSignup: true, logger: (entry) => logs.push(entry) }, mailer);
+    const f = await fixture(t, { openSignup: true, logger: (entry) => logs.push(entry) }, { mailer });
     const body = { email: 'owner@example.test', password: fakeSecret(), accept_terms: true };
     const signup = () => f.client.call('/api/signup', 'POST', body);
     const first = await signup();
