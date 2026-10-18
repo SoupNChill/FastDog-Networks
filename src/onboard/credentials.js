@@ -2,6 +2,9 @@ import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypt
 import { readJson, writeJson, dataDir } from './json.js';
 import { normalizeHostname } from './hostname.js';
 
+// At most one persisted last_used_at update per credential per window.
+export const LAST_USED_WRITE_INTERVAL = 60000;
+
 export function tenantOwner(hostname, directory = dataDir()) {
   let host;
   try { host = normalizeHostname(hostname); } catch { return undefined; }
@@ -44,7 +47,11 @@ export function validCredential(token, hostname, directory = dataDir(), now = Da
     return stored.length === hash.length && timingSafeEqual(stored, hash);
   });
   if (!credential) return false;
-  credential.last_used_at = new Date(now()).toISOString();
+  // The decision above always uses a fresh read; only the last_used_at write is throttled.
+  const time = now();
+  const last = Date.parse(credential.last_used_at);
+  if (time >= last && time - last < LAST_USED_WRITE_INTERVAL) return true;
+  credential.last_used_at = new Date(time).toISOString();
   writeJson('agent-credentials.json', credentials, 0o600, directory);
   return true;
 }

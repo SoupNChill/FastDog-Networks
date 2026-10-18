@@ -66,7 +66,7 @@ Request: `{ "hostname": "App.Example.COM.", "hostname_limit": 3 }`
 }
 ```
 (`value` for CNAME is the configured `ATTACH_TARGET`.) `apex_note` is a string for 2-label names, else `null`.
-Errors: `400 invalid_hostname|reserved_hostname|invalid_limit`, `409 hostname_unavailable|hostname_limit_reached`, `429 rate_limited`.
+Errors: `400 invalid_hostname|reserved_hostname|invalid_limit`, `409 hostname_unavailable|hostname_limit_reached`, `429 rate_limited` (only when `CLAIM_CREATE_RATE_LIMIT` is a positive integer: that many create calls per tenant per minute, with `retry_after`; unset = no limit).
 
 ### GET `/tenants/:tid/hostnames`
 `200 { "hostnames": [ <hostname record> ... ] }`, only this tenant's non-expired records, sorted by `created_at`.
@@ -193,7 +193,7 @@ See `docs/decisions/2026-10-16-scoped-api-keys.md`. Session routes (CSRF, verifi
 
 ## 8. Error codes
 
-`unauthorized` 401 · `not_found` 404 · `hostname_not_found` 404 · `method_not_allowed` 405 · `invalid_hostname` 400 · `reserved_hostname` 400 · `invalid_limit` 400 · `invalid_tenant` 400 · `invalid_json` 400 · `payload_too_large` 413 · `hostname_unavailable` 409 · `hostname_limit_reached` 409 · `not_active` 409 · `rate_limited` 429 (with `retry_after` seconds) · `internal_error` 500 (generic, no detail). Errors never echo secrets or full upstream details.
+`unauthorized` 401 · `not_found` 404 · `hostname_not_found` 404 · `method_not_allowed` 405 · `invalid_hostname` 400 · `reserved_hostname` 400 · `invalid_limit` 400 · `invalid_tenant` 400 · `invalid_json` 400 (also a request that exceeds the 5 s internal timeout, unless `INTERNAL_TIMEOUT_CODES=1`) · `request_timeout` 408 and `gateway_timeout` 504 (only with `INTERNAL_TIMEOUT_CODES=1`: body incomplete vs. handler still running at 5 s) · `payload_too_large` 413 · `hostname_unavailable` 409 · `hostname_limit_reached` 409 · `not_active` 409 · `rate_limited` 429 (with `retry_after` seconds) · `internal_error` 500 (generic, no detail). Errors never echo secrets or full upstream details.
 
 ## 9. Logging (edge and portal)
 
