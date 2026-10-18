@@ -10,7 +10,7 @@ toggle.addEventListener('click', () => {
 try {
   await init();
   form('#signup', async (data) => {
-    await api('/api/signup', 'POST', data);
+    await api('/api/signup', 'POST', { ...data, accept_terms: document.querySelector('#accept-terms').checked });
     document.querySelector('#signup').reset();
     document.querySelector('#password').type = 'password';
     toggle.textContent = 'Show password';

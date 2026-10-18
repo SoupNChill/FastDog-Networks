@@ -7,15 +7,17 @@ This runbook does not authorize a deploy or the flip. The operator approves each
 - `OPEN_SIGNUP=1` lets anyone register without an invite. Any other value, or unset, keeps invite-only signup. Default: off.
 - An invite, when offered, always takes the invite path. A wrong invite never falls back to open signup.
 - Open accounts get a fixed `trial` tenant (`source: open`): 1 hostname, no API keys, 3 connect tokens per hour. Portal connect is allowed. Email verification is required before the first hostname, connect token or API key. Verification also sets the account password.
-- Mail goes to the file outbox (`<state-dir>/outbox`, or `OUTBOX_DIR`). That is the only transport in this release; `MAIL_TRANSPORT=file` is the default and real sending is not wired yet.
+- Mail goes to the file outbox (`<state-dir>/outbox`, or `OUTBOX_DIR`). That is the only transport in this release; `MAIL_TRANSPORT` is not read by `portal/server.js`, so any value is ignored and real sending is not wired yet.
 - The portal reads `OPEN_SIGNUP`, the limits and the disposable list at startup only. Every change needs a restart of `<portal-unit>`.
 - Signup answers are always the generic `{ "ok": true }`, whether an account was created or refused.
+- Every sign-up (invite or open) must send `accept_terms: true` from the Terms/Privacy checkbox; anything else is refused generically. The server stores its own document versions from `portal/src/terms.js`.
 
 ## Preflight
 
 - [ ] The portal release that contains open signup is deployed with the flag off and passes the deploy acceptance checks. `/api/me` reports `open_signup: false`.
 - [ ] Mail transport decided. With the file outbox, someone must hand-deliver verification links or new users cannot verify. Do not flip until delivery is agreed.
-- [ ] Legal pages: `site/terms/` and `site/privacy/` are still marked DRAFT. The owner must finalize and publish them before launch. Do not flip with draft pages.
+- [ ] Legal pages: `site/terms/` and `site/privacy/` are still marked DRAFT. The owner must finalize and publish them before launch. Do not flip with draft pages. When the final pages ship, bump `TERMS_VERSION` and `PRIVACY_VERSION` in `portal/src/terms.js` (currently `-draft`) in the same release, so stored acceptances name the published versions.
+- [ ] `SITE_ORIGIN` in the portal service environment is the real public site origin (`https://` origin, no path). If it is unset or invalid, the checkbox links point at `https://example.invalid`. Check the Terms and Privacy links on `/signup`.
 - [ ] Abuse limits reviewed (defaults shown): `SIGNUP_IP_PER_HOUR=3`, `SIGNUP_DOMAIN_PER_DAY=5`, `SIGNUP_BIGMAIL_PER_DAY=200`, `SIGNUP_GLOBAL_PER_DAY=100`. Trial values (`OPEN_SIGNUP_PLAN`, `OPEN_SIGNUP_HOSTNAME_LIMIT`, `OPEN_CONNECT_TOKENS_PER_HOUR`) are fixed; other values fail startup.
 - [ ] Alerting knows the log reason codes (structured JSON, `event: signup`, `source: open`):
   - `outcome: created` / `reclaimed`: account made, or an expired unverified one re-issued.
@@ -36,7 +38,7 @@ This runbook does not authorize a deploy or the flip. The operator approves each
    - Open the outbox link and set a password. Log in again with the new password; the old one no longer works.
    - Tenant shows `plan: trial`, `hostname_limit: 1`. A second hostname gets `hostname_limit_reached`. API key creation gets `plan_required`. The 4th connect token in an hour gets 429.
    - Logs carry reason codes only: no addresses, links or tokens.
-5. Record the synthetic test account and suspend it once the tenant CLI is available (see Kill switch).
+5. Record the synthetic test account. Suspending it is **blocked until the kill switch PR merges** (see Kill switch); until then it stays a working trial account.
 
 ## First hour
 
@@ -55,10 +57,10 @@ This runbook does not authorize a deploy or the flip. The operator approves each
 What happens to data:
 
 - Accounts created while open stay. They can log in, keep their hostnames, and keep the trial limits (1 hostname, no API keys, 3 connect tokens per hour). The limits come from the tenant, not the flag.
-- Pending (unverified) registrations: the user and trial tenant already exist. An unexpired verification link (up to one hour after registration) still completes verification after rollback, giving a working trial account. Registering the same address again sends no new link. After the link expires the account stays unverified and cannot add hostnames. To block pending ones at once, suspend those tenants.
+- Pending (unverified) registrations: the user and trial tenant already exist. An unexpired verification link (up to one hour after registration) still completes verification after rollback, giving a working trial account. Registering the same address again sends no new link. After the link expires the account stays unverified and cannot add hostnames. It is also locked out: re-issuing an expired registration only happens while `OPEN_SIGNUP=1`, so re-registering after rollback sends no link and the address cannot be reused. Recovery needs a re-flip, or the operator clearing the stale registration under the backup procedure. To block pending ones at once, suspend those tenants. That step is **blocked until the kill switch PR merges**; until then pending links stay usable for up to one hour.
 - Invites keep working as before.
 - Do not restore old state files to undo signups; see [rollback.md](rollback.md).
 
 ## Kill switch
 
-To stop a single abusive account without a full rollback, suspend its tenant with the tenant CLI (suspend / resume / release). Pending the kill switch PR: the CLI and its exact commands land separately. A suspended account's hostnames stay blocked for every other account until an admin explicitly releases them.
+To stop a single abusive account without a full rollback, suspend its tenant with the tenant CLI (suspend / resume / release). **Blocked until the kill switch PR merges**: no tenant CLI or admin release command exists in this tree yet, so this runbook is not complete without it. A suspended account's hostnames stay blocked for every other account until an admin explicitly releases them.

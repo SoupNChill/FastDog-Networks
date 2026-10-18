@@ -46,13 +46,13 @@ test('open verification secures the account and expired signup preserves its ten
   const email = 'owner@example.test', password = fakeSecret(), replacement = fakeSecret();
   const read = () => store.read('accounts', emptyAccounts());
   const linkToken = (mail) => new URLSearchParams(new URL(mail.link).hash.slice(1)).get('token');
-  await auth.handle('/api/signup', { email, password }, context);
+  await auth.handle('/api/signup', { email, password, accept_terms: true }, context);
   const tenant = read().tenants[0].id, old = linkToken(messages[0]);
   assert.equal(read().tenants[0].plan, 'trial');
   assert.equal(read().tenants[0].hostname_limit, 1);
   const session = sessions.create(read().users[0]);
   time += 3600001;
-  await auth.handle('/api/signup', { email, password }, context);
+  await auth.handle('/api/signup', { email, password, accept_terms: true }, context);
   assert.equal(read().tenants.length, 1);
   assert.equal(read().tenants[0].id, tenant);
   assert.equal(auth.identity(session), null);
@@ -67,7 +67,7 @@ test('open verification secures the account and expired signup preserves its ten
   assert.equal(await verifyPassword(replacement, read().users[0].password_hash), true);
   assert.equal(read().users[0].auth_version, 3);
   assert.equal(read().links.length, 0);
-  await auth.handle('/api/signup', { email, password }, context);
+  await auth.handle('/api/signup', { email, password, accept_terms: true }, context);
   assert.equal(messages.length, 2, 'verified account cannot be reclaimed');
 });
 

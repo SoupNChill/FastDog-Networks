@@ -148,7 +148,7 @@ All JSON, same-origin, `__Host-fd_session` cookie, `Origin` check and `x-fd-csrf
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/api/signup` | `{email, password, invite_code}` -> sends verification link; generic response |
+| POST | `/api/signup` | `{email, password, invite_code, accept_terms: true}` -> sends verification link; generic response. `accept_terms` must be JSON `true` (invite and open sign-up); otherwise nothing is created. The user record stores the server's current Terms/Privacy versions, acceptance time and a salted IP hash; client-supplied versions are ignored |
 | POST | `/api/verify-email` | `{token, password?}` (new password required for self-serve accounts) |
 | POST | `/api/login` / `/api/logout` | session create/destroy; identical failure for unknown email and wrong password |
 | POST | `/api/password-reset` and `/api/password-reset/confirm` | request / complete |

@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { start } from '../server.js';
 import { emptyAccounts, createStore } from '../src/store.js';
 import { createInvites } from '../src/invites.js';
+import { TERMS_VERSION } from '../src/terms.js';
 import { fakeSecret, browser, listen, origin, temporary, linkToken } from './helpers.js';
 
 // Loopback stand-in for the edge internal API that enforces hostname_limit like src/internal/claims.js.
@@ -65,7 +66,7 @@ test('OPEN_SIGNUP flip and rollback on one data dir: invite-only, open trial, th
   const boot = async (flag) => {
     const port = await freePort();
     const app = start({ STATE_DIRECTORY: dataDir, PORTAL_ORIGIN: origin, PORTAL_KEY: portalKey, EDGE_INTERNAL_URL: edge.url,
-      PORTAL_PORT: String(port), MAIL_TRANSPORT: 'file', ...(flag === undefined ? {} : { OPEN_SIGNUP: flag }) });
+      PORTAL_PORT: String(port), ...(flag === undefined ? {} : { OPEN_SIGNUP: flag }) });
     await once(app, 'listening');
     const client = browser(port);
     return { client, port, stop: () => new Promise((resolve) => { app.close(resolve); app.closeAllConnections(); }) };
@@ -77,8 +78,8 @@ test('OPEN_SIGNUP flip and rollback on one data dir: invite-only, open trial, th
     await c.call('/api/me');
     return { c, status: result.status };
   };
-  const signup = async (client, email, password = fakeSecret()) => {
-    const result = await client.call('/api/signup', 'POST', { email, password });
+  const signup = async (client, email, password = fakeSecret(), extra = { accept_terms: true }) => {
+    const result = await client.call('/api/signup', 'POST', { email, password, ...extra });
     assert.deepEqual([result.status, result.data], [200, { ok: true }], email);
   };
 
@@ -97,12 +98,17 @@ test('OPEN_SIGNUP flip and rollback on one data dir: invite-only, open trial, th
   await portal.client.call('/api/me');
   assert.equal((await portal.client.call('/api/me')).data.open_signup, true);
   const email = 'owner@example.test', firstPassword = fakeSecret(), password = fakeSecret();
+  // Without accept_terms === true the open registration is refused generically and creates nothing.
+  await signup(portal.client, 'noterms@example.test', fakeSecret(), { accept_terms: 'true' });
+  assert.equal(accounts().users.length, 0);
+  assert.deepEqual(mail('noterms@example.test'), []);
   await signup(portal.client, email, firstPassword);
   await signup(portal.client, 'pending@example.test');
   assert.deepEqual(reasons(), ['created', 'created']);
   assert.ok(!JSON.stringify(logs).includes('example.test'), 'logs carry reason codes only');
   const owner = accounts().users.find((u) => u.email === email);
   assert.equal(owner.email_verified_at, null);
+  assert.equal(owner.terms.tos_version, TERMS_VERSION);
   const tenant = accounts().tenants.find((x) => x.id === owner.tenant_id);
   assert.deepEqual({ ...tenant, id: undefined }, { id: undefined, name: '', plan: 'trial', hostname_limit: 1, status: 'active', source: 'open' });
   // Before verification: login works but no hostname, connect token or API key.
@@ -164,7 +170,7 @@ test('OPEN_SIGNUP flip and rollback on one data dir: invite-only, open trial, th
   assert.equal((await pending.c.call('/api/hostnames/pending.example.test/connect-token', 'POST')).status, 429);
   // Invites keep working after rollback.
   const code = createInvites({ dataDir }).mint({ email: 'invited@example.test' });
-  assert.equal((await portal.client.call('/api/signup', 'POST', { email: 'invited@example.test', password: fakeSecret(), invite_code: code })).status, 200);
+  assert.equal((await portal.client.call('/api/signup', 'POST', { email: 'invited@example.test', password: fakeSecret(), invite_code: code, accept_terms: true })).status, 200);
   assert.equal(accounts().users.filter((u) => u.email === 'invited@example.test').length, 1);
   assert.equal(accounts().tenants.find((x) => x.id === accounts().users.find((u) => u.email === 'invited@example.test').tenant_id).source, undefined);
   await portal.stop();

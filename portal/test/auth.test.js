@@ -85,12 +85,12 @@ test('invite signup is email-bound, generic, single use, and verifies one-time h
   const code = invites.mint({ email: 'new@example.com', plan: 'plan-from-invite', hostnameLimit: 9 });
   const password = fakeSecret();
   assert.ok(!readFileSync(join(f.dataDir, 'accounts.json'), 'utf8').includes(code));
-  const wrong = await f.client.call('/api/signup', 'POST', { email: 'other@example.com', password, invite_code: code });
+  const wrong = await f.client.call('/api/signup', 'POST', { email: 'other@example.com', password, invite_code: code, accept_terms: true });
   assert.equal(f.messages.length, 0);
-  const good = await f.client.call('/api/signup', 'POST', { email: 'NEW@example.com', password, invite_code: code });
+  const good = await f.client.call('/api/signup', 'POST', { email: 'NEW@example.com', password, invite_code: code, accept_terms: true });
   assert.deepEqual(good.data, wrong.data);
   assert.equal(f.messages.length, 1);
-  const repeated = await f.client.call('/api/signup', 'POST', { email: 'new@example.com', password, invite_code: code });
+  const repeated = await f.client.call('/api/signup', 'POST', { email: 'new@example.com', password, invite_code: code, accept_terms: true });
   assert.equal(repeated.status, good.status);
   assert.deepEqual(repeated.data, good.data);
   assert.equal(f.messages.length, 1);
@@ -118,8 +118,8 @@ test('expired and wrong invite codes have the same generic response and no accou
   const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email: 'new@example.com', expiresAt: f.now() + 1000 });
   f.advance(1000);
   const body = { email: 'new@example.com', password: fakeSecret() };
-  const a = await f.client.call('/api/signup', 'POST', { ...body, invite_code: code });
-  const b = await f.client.call('/api/signup', 'POST', { ...body, invite_code: fakeSecret() });
+  const a = await f.client.call('/api/signup', 'POST', { ...body, invite_code: code, accept_terms: true });
+  const b = await f.client.call('/api/signup', 'POST', { ...body, invite_code: fakeSecret(), accept_terms: true });
   assert.deepEqual(a.data, b.data);
   assert.equal(f.messages.length, 0);
   assert.equal(f.store.read('accounts').users.length, 0);
@@ -154,7 +154,7 @@ test('reset links expire, are single-use, revoke all sessions, and reject old pa
 test('verification links expire at one hour', async (t) => {
   const f = await fixture(t);
   const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email: 'new@example.com' });
-  await f.client.call('/api/signup', 'POST', { email: 'new@example.com', password: fakeSecret(), invite_code: code });
+  await f.client.call('/api/signup', 'POST', { email: 'new@example.com', password: fakeSecret(), invite_code: code, accept_terms: true });
   f.advance(3600000);
   await f.client.call('/api/me');
   assert.equal((await f.client.call('/api/verify-email', 'POST', { token: linkToken(f.messages[0]) })).status, 401);
@@ -174,7 +174,7 @@ test('concurrent signup and reset requests consume each one-time capability once
   const email = 'new@example.com';
   const password = fakeSecret();
   const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email });
-  const responses = await Promise.all([1, 2].map(() => f.client.call('/api/signup', 'POST', { email, password, invite_code: code })));
+  const responses = await Promise.all([1, 2].map(() => f.client.call('/api/signup', 'POST', { email, password, invite_code: code, accept_terms: true })));
   assert.ok(responses.every((response) => response.status === 200));
   assert.equal(f.store.read('accounts').users.length, 1);
   assert.equal(f.store.read('accounts').tenants.length, 1);
@@ -191,8 +191,8 @@ test('existing email with a fresh invite receives the generic signup response', 
   const { user } = await f.seed();
   const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email: user.email });
   const before = f.store.read('accounts');
-  const existing = await f.client.call('/api/signup', 'POST', { email: user.email, password: fakeSecret(), invite_code: code });
-  const unknown = await f.client.call('/api/signup', 'POST', { email: 'absent@example.test', password: fakeSecret(), invite_code: fakeSecret() });
+  const existing = await f.client.call('/api/signup', 'POST', { email: user.email, password: fakeSecret(), invite_code: code, accept_terms: true });
+  const unknown = await f.client.call('/api/signup', 'POST', { email: 'absent@example.test', password: fakeSecret(), invite_code: fakeSecret(), accept_terms: true });
   assert.equal(existing.status, 200);
   assert.equal(existing.status, unknown.status);
   assert.deepEqual(existing.data, unknown.data);

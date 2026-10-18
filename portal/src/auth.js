@@ -6,6 +6,7 @@ import { findInvite } from './invites.js';
 import { fail } from './errors.js';
 import { sessionCookie } from './sessions.js';
 import { createSignupGuard } from './signup-guard.js';
+import { termsRecord } from './terms.js';
 
 export function createAuth({ store, sessions, limits, now, mailer, config }) {
   const read = () => store.read('accounts', emptyAccounts());
@@ -38,7 +39,8 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
       const email = normalizeEmail(body.email);
       if (path === '/api/signup') {
         limits.take(`signup:${ip}`, config.openSignup ? config.signupIpPerHour : 3, 3600000, config.openSignup);
-        if (!email || !validPassword(body.password)) return send(200, generic);
+        // Terms acceptance is enforced here for invite and open sign-up alike; stored versions are the server's own.
+        if (!email || !validPassword(body.password) || body.accept_terms !== true) return send(200, generic);
         // Derive before checking the invite to keep invalid invites and existing accounts indistinguishable.
         const password_hash = await hashPassword(body.password);
         // Open sign-up applies only when no invite is offered; an invite always takes the invite path.
@@ -56,6 +58,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
           stale.password_hash = password_hash;
           stale.auth_version++;
           stale.signup_source = 'open';
+          stale.terms = termsRecord(store, ip, now());
           data.links = data.links.filter((item) => item.user_id !== stale.id);
           const url = link(data, stale, 'verify-email');
           store.write('accounts', data);
@@ -73,7 +76,8 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
           ? { id: tenantId(), name: '', plan: 'trial', hostname_limit: 1, status: 'active', source: 'open' }
           : { id: tenantId(), name: '', plan: invite.plan ?? config.defaultPlan,
             hostname_limit: invite.hostname_limit ?? config.defaultHostnameLimit, status: 'active' };
-        const user = { id: randomUUID(), tenant_id: tenant.id, email, password_hash, email_verified_at: null, auth_version: 1, ...(open ? { signup_source: 'open' } : {}) };
+        const user = { id: randomUUID(), tenant_id: tenant.id, email, password_hash, email_verified_at: null, auth_version: 1,
+          terms: termsRecord(store, ip, now()), ...(open ? { signup_source: 'open' } : {}) };
         data.tenants.push(tenant);
         data.users.push(user);
         if (invite) {
