@@ -1,3 +1,4 @@
+import { createSmtpMailer } from '../src/mailer-smtp.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -217,3 +218,23 @@ for (const trustedSource of [true, false]) {
     assert.equal((await attempt(22, '198.51.100.1')).status, 401);
   });
 }
+
+
+test('known and unknown reset HTTP responses complete while SMTP delivery is stalled', { timeout: 5000 }, async (t) => {
+  let release, started = false, completed = false;
+  const pending = new Promise((resolve) => { release = resolve; });
+  t.after(() => release());
+  const mailer = createSmtpMailer({ host: 'mail.example.test', user: 'u', pass: 'p', from: 'noreply@example.invalid',
+    fallback: createFileMailer({ outboxDir: temporary(t) }), deliver: async () => { started = true; await pending; completed = true; } });
+  const f = await fixture(t, {}, mailer);
+  const { user } = await f.seed();
+  const known = await f.client.call('/api/password-reset', 'POST', { email: user.email });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(started);
+  const unknown = await f.client.call('/api/password-reset', 'POST', { email: 'absent@example.test' });
+  assert.equal(known.status, 200);
+  assert.deepEqual(known.data, unknown.data);
+  assert.equal(completed, false);
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+});

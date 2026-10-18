@@ -3,12 +3,12 @@ import { pathToFileURL } from 'node:url';
 import { createApp } from './src/app.js';
 import { createEdgeClient } from './src/edge-client.js';
 import { createDomainClient } from './src/domain-client.js';
-import { createFileMailer, purgeOutbox } from './src/mailer-file.js';
+import { createFileMailer, scheduleOutboxPurge } from './src/mailer-file.js';
 import { createSmtpMailer } from './src/mailer-smtp.js';
 import { supportEmail } from './src/static.js';
 
 const logJson = (entry) => console.log(JSON.stringify(entry));
-// MAIL_TRANSPORT=file (default) queues private outbox files; smtp submits via STARTTLS and falls back to the outbox.
+// MAIL_TRANSPORT=file (default) queues private outbox files; smtp submits via STARTTLS and retains redacted audit records.
 // Errors are deliberately generic so configured values (including credentials) never reach logs.
 export function selectMailer(env, { outboxDir, logger = logJson, tlsOptions } = {}) {
   const transport = env.MAIL_TRANSPORT || 'file';
@@ -29,8 +29,7 @@ export function start(env = process.env) {
   const dataDir = resolve(env.STATE_DIRECTORY);
   const outboxDir = env.OUTBOX_DIR ? resolve(env.OUTBOX_DIR) : join(dataDir, 'outbox');
   const mailer = selectMailer(env, { outboxDir });
-  const purged = purgeOutbox(outboxDir);
-  if (purged) logJson({ event: 'outbox_purge', removed: purged });
+
   const app = createApp({ dataDir,
     edge: createEdgeClient({ baseUrl: env.EDGE_INTERNAL_URL || 'http://127.0.0.1:8789', portalKey: env.PORTAL_KEY }),
     domainSearch: createDomainClient({ baseUrl: env.DOMAIN_SEARCH_URL || 'http://127.0.0.1:8791' }),
@@ -39,6 +38,8 @@ export function start(env = process.env) {
       defaultPlan: env.DEFAULT_PLAN || 'assigned', defaultHostnameLimit: Number(env.DEFAULT_HOSTNAME_LIMIT || 3),
       logger: logJson },
   });
+  const purgeTimer = scheduleOutboxPurge(outboxDir);
+  app.once('close', () => clearInterval(purgeTimer));
   app.listen(port, '127.0.0.1');
   return app;
 }

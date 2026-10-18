@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { temporary, fakeSecret } from './helpers.js';
+import { createMailBudget } from '../src/mail-budget.js';
 import { digest } from '../src/tokens.js';
 
 const cli = fileURLToPath(new URL('../bin/mint-invite.js', import.meta.url));
@@ -43,4 +44,31 @@ test('mint-invite --send with invalid mail settings fails generically and mints 
     assert.ok(!result.stderr.includes(pass) && !result.stdout.includes(pass));
   }
   assert.ok(!existsSync(join(dir, 'accounts.json')));
+});
+
+
+test('mint-invite reports post-mint failure without code, email or usage text', (t) => {
+  const dir = temporary(t), outbox = join(dir, 'outbox');
+  mkdirSync(outbox);
+  createMailBudget({ directory: join(outbox, '.budget'), mailbox: 'mail.example.test:u', maxPerHour: 1 })('prior@example.test', 'invite');
+  const result = run(['--send', 'new@example.test'], { STATE_DIRECTORY: dir, PORTAL_ORIGIN: 'https://portal.example.test',
+    MAIL_TRANSPORT: 'smtp', SMTP_HOST: 'mail.example.test', SMTP_USER: 'u', SMTP_PASS: fakeSecret(), MAIL_MAX_PER_HOUR: '1' });
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /Invitation created but delivery failed/);
+  assert.ok(!result.stderr.includes('Usage:') && !result.stderr.includes('new@example.test'));
+  assert.equal(invites(dir).length, 1);
+});
+
+
+test('mint-invite reports an outbox write failure after minting without printing the code', (t) => {
+  const dir = temporary(t);
+  mkdirSync(join(dir, 'outbox', '.write-lock'), { recursive: true });
+  const result = run(['--send', 'new@example.test'], { STATE_DIRECTORY: dir, PORTAL_ORIGIN: 'https://portal.example.test' });
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /Invitation created but delivery failed/);
+  assert.ok(!result.stderr.includes('Usage:'));
+  assert.equal(invites(dir).length, 1);
+  assert.deepEqual(readdirSync(join(dir, 'outbox')), ['.write-lock']);
 });

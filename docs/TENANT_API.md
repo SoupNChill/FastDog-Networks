@@ -157,6 +157,14 @@ All JSON, same-origin, `__Host-fd_session` cookie, `Origin` check and `x-fd-csrf
 
 The portal derives `tenant_id` from the session only. It never accepts a tenant id or hostname-owner field from the browser. Rate limits (per section 3 of the plan): login 5 fails/15 min/account, 20/IP; signup 3/h/IP; verify 6/min/tenant; rotate 5/day.
 
+### Portal mail delivery
+
+`MAIL_TRANSPORT=file` remains the default private operator outbox. SMTP-backed signup and reset requests enqueue delivery in a bounded, private in-process queue (300 waiting messages); generic HTTP responses do not wait for SMTP completion. Queued messages are lost on process exit. SMTP audit records, including failures and rate caps, contain no plaintext links or invite codes. `mint-invite --send` waits for delivery and exits nonzero on SMTP failure, even if a redacted audit was saved; file transport succeeds only after saving the private message.
+
+The SMTP submission budget persists under `OUTBOX_DIR/.budget`, shared by portal and CLI using the same outbox and mailbox configuration. Attempts consume the hourly budget before connection, with three attempts per recipient per hour. Ten percent of capacity (for budgets of at least ten) is reserved for invites and password resets. Existing signup (3/hour/IP) and reset (10/15 minutes/IP, 3/15 minutes/account) limits remain. Budget contention or invalid state fails closed. All writers must use the same outbox; changing that directory starts a separate budget.
+
+Outbox files use mode 0600, expire after seven days with startup and hourly unreferenced cleanup, and are limited to 10,000 messages. Outbox writes and budget reservations use exclusive directory locks. If a crash leaves `.write-lock` or a `.budget/*.lock` directory, stop all mail writers before removing the stale lock; preserve budget JSON files. No mail credentials or recipient addresses are logged.
+
 ### Docker connect command
 
 EARLY, before DNS work, list in one message (a) curl calls to https://portal.DOMAIN and (b) the exact docker run line from the API, with the chosen absolute ENV_FILE path. The user does the one-time header-file setup at the start. Every API call, including the env-file fetch and status polling, is plain curl of the same shape, so a user who allows curl approves those calls once/up front. After DNS, the ONLY new command needing approval is the single docker run (plus one docker rm -f only on a reconnect name conflict). Nothing chained. Template:

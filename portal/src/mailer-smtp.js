@@ -1,6 +1,8 @@
 // Minimal SMTP submission client (RFC 5321/3207/4616): STARTTLS required, AUTH PLAIN, one message per connection.
-// Failures and the local hourly cap fall back to the file outbox; send() never throws and logs reason codes only.
+// SMTP failures retain only redacted audit records; delivery results and logs use reason codes only.
 import net from 'node:net';
+import { join } from 'node:path';
+import { createMailBudget } from './mail-budget.js';
 import tls from 'node:tls';
 import { randomUUID } from 'node:crypto';
 import { renderMail } from './mail-templates.js';
@@ -123,14 +125,28 @@ export function createSmtpMailer({ host, port = 2525, user, pass, from, replyTo,
   }
   const domain = from.split('@')[1];
   heloName ||= domain;
+  const budget = fallback.outboxDir && createMailBudget({ directory: join(fallback.outboxDir, '.budget'),
+    mailbox: `${host.toLowerCase()}:${user.toLowerCase()}`, maxPerHour, now });
   let sent = [];
+  const queue = [];
+  let running = false;
+  const drain = async () => {
+    while (queue.length) { try { await api.send(queue.shift()); } catch { log('lost', 'mail', 'internal'); } }
+    running = false;
+  };
   const log = (result, kind, reason) => { try { logger({ event: 'mail', kind, result, ...(reason ? { reason } : {}) }); } catch { /* logging must not break mail */ } };
   const toOutbox = async (message, reason) => {
     log('fallback', message.kind, reason);
-    try { await fallback.send({ ...message, status: `failed:${reason}` }); } catch { log('lost', message.kind, 'outbox_write_failed'); }
-    return { delivered: 'outbox', reason };
+    try { await fallback.send({ to: message.to, kind: message.kind, link: '[redacted]', status: `failed:${reason}` }); }
+    catch { log('lost', message.kind, 'outbox_write_failed'); return { delivered: 'failed', reason: 'outbox_write_failed' }; }
+    return { delivered: 'failed', reason };
   };
-  return {
+  const api = {
+    enqueue(message) {
+      if (queue.length >= 300) { log('lost', message.kind, 'queue_full'); return; }
+      queue.push({ ...message });
+      if (!running) { running = true; setImmediate(drain); }
+    },
     async send({ to, kind, link, code }) {
       const message = { to, kind, link, code };
       let rendered;
@@ -140,9 +156,10 @@ export function createSmtpMailer({ host, port = 2525, user, pass, from, replyTo,
         rendered = renderMail({ kind, link, code });
       } catch (error) { return toOutbox(message, error.reason || 'invalid_message'); }
       const current = now();
-      sent = sent.filter((at) => current - at < 3600000);
-      if (sent.length >= maxPerHour) return toOutbox(message, 'rate_cap');
-      sent.push(current);
+      sent = sent.filter((at) => current - at.at < 3600000);
+      const capped = budget ? budget(to, kind) : sent.filter((entry) => entry.to === to.toLowerCase()).length >= 3 ? 'recipient_cap' : sent.length >= maxPerHour ? 'rate_cap' : null;
+      if (capped) return toOutbox(message, capped);
+      if (!budget) sent.push({ at: current, to: to.toLowerCase() });
       try {
         const data = buildMessage({ from, to, replyTo, subject: rendered.subject, text: rendered.text,
           date: new Date(current).toUTCString(), messageId: `<${randomUUID()}@${domain}>` });
@@ -154,4 +171,5 @@ export function createSmtpMailer({ host, port = 2525, user, pass, from, replyTo,
       return { delivered: 'smtp' };
     },
   };
+  return api;
 }

@@ -9,6 +9,7 @@ import { sessionCookie } from './sessions.js';
 export function createAuth({ store, sessions, limits, now, mailer, config }) {
   const read = () => store.read('accounts', emptyAccounts());
   const generic = { ok: true };
+  const sendMail = (message) => mailer.enqueue ? mailer.enqueue(message) : mailer.send(message);
   function link(data, user, kind) {
     const raw = token();
     data.links = data.links.filter((item) => item.expires_at > now() && !(item.user_id === user.id && item.kind === kind));
@@ -46,7 +47,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         invite.tenant_id = tenant.id;
         const url = link(data, user, 'verify-email');
         store.write('accounts', data);
-        await mailer.send({ to: email, kind: 'verify-email', link: url });
+        await sendMail({ to: email, kind: 'verify-email', link: url });
         return send(200, generic);
       }
       if (path === '/api/login') {
@@ -76,7 +77,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         if (user) {
           const url = link(data, user, 'password-reset');
           store.write('accounts', data);
-          await mailer.send({ to: email, kind: 'password-reset', link: url });
+          await sendMail({ to: email, kind: 'password-reset', link: url });
         }
         return send(200, generic);
       }
