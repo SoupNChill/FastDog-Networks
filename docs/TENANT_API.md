@@ -249,3 +249,33 @@ The global admission budget is checked before reserving domain state; domain ref
 - `release` calls edge `POST /tenants/:tid/release` and is refused (exit 1, no edge call) while the account is suspended. Afterwards any account, including the original one, may add and verify the names again. Reservations never expire; only `release` frees them.
 
 All commands are idempotent, print a JSON summary without secrets and append to `admin_audit.json`.
+
+## Agent bootstrap (flagged off, AGENT_BOOTSTRAP_ENABLED)
+
+This additive contract is disabled unless the edge has `AGENT_BOOTSTRAP_ENABLED=1`. It does not change existing connect endpoints, snippets or the default agent image. Milestone 1 issues pending credentials only; candidate authentication and promotion are not yet available.
+
+The following internal endpoints require the existing portal key and loopback internal listener, with existing 16 KiB body and five-second limits. The hostname must belong to the active tenant for issuance and cancellation.
+
+| Method and path | Request and response |
+| --- | --- |
+| `POST /internal/v1/tenants/:tid/hostnames/:hostname/bootstraps` | JSON `{origin,deployment_id,issuer:{kind,id,authorization_generation},issuance_id}`. Returns `200` with `code`, canonical `origin`, `issuance_id`, `hostname`, `deployment_id`, `expires_at`, `status`. The code is returned once and expires in 15 minutes by edge time. |
+| `GET /internal/v1/tenants/:tid/hostnames/:hostname/bootstraps/:issuance_id` | Status and nonsecret IDs only. An unknown ID or ID under another tenant/hostname returns the same `404 bootstrap_not_found`. |
+| `DELETE /internal/v1/tenants/:tid/hostnames/:hostname/bootstraps` | Cancels pending codes, recovery responses and pending credentials; returns `{cancelled:true}`. |
+
+Issuance is idempotent on the full tenant/hostname/issuance-ID triple; repeats return status without the code and without another budget charge. A newer issuance cancels earlier unused codes. Issuance shares the five-per-day hostname rotation budget and also counts toward an eight-per-day absolute issuance ceiling. Budgets use UTC days. Refund accounting is deferred.
+
+`POST /_fastdog/agents/bootstrap/exchange` accepts only the canonical raw path, `Authorization: Bearer <code>`, and JSON `{hostname,origin,deployment_id,request_id,recipient_public_key,agent_version,proof}`. Maximum body size is 16 KiB and the handler deadline is five seconds. RSA-3072 SPKI PEM keys must use exponent 65537. `agent_version` must match `^\d{1,3}\.\d{1,3}\.\d{1,3}$`. Proof uses RSA-PSS/SHA-256 with 32-byte salt and the versioned length-prefixed transcript specified in [the implementation notes](AGENT_BOOTSTRAP_IMPL.md).
+
+Success is `200`, `Cache-Control: no-store`, with `{credential_id,hostname,origin,deployment_id,algorithm:"RSA-OAEP-256",encrypted_token,recovery_expires_at}`. The token is encrypted to the submitted key using the fixed protocol OAEP label. It is never returned in plaintext. The pending credential is bound immutably to that key and cannot authenticate on existing register/tunnel paths. The active credential and tunnel remain untouched. Matching retries return identical ciphertext until the 120-second activation deadline, including after the original code TTL. Revocation or ownership changes disable recovery.
+
+| Status | Error |
+| --- | --- |
+| 400 | `invalid_request` for malformed fields, version, origin or key |
+| 401 | `unauthorized` for unknown codes, binding mismatch or invalid proof; bindings are checked before used/expired classification |
+| 409 | `bootstrap_used` for a different request or key after redemption |
+| 410 | `bootstrap_expired` at the issuance or recovery deadline |
+| 429 | `rate_limited`, with `Retry-After` |
+| 503 | `bootstrap_unavailable` for issuer-check or storage uncertainty |
+| 404 / 405 / 413 | Disabled/wrong route, wrong method, oversized body |
+
+Attempt limits are 30/minute/direct-peer-IP before code lookup, 10/minute/known-code, 30/minute/claim and 300/minute globally, with at most 20,000 live entries and fail-closed admission at capacity. An injected issuer checker must return true for redemption and recovery; without a configured checker exchange fails closed with 503. Portal HMAC issuer verification is a later milestone.

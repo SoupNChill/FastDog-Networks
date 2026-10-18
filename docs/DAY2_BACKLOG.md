@@ -170,3 +170,5 @@ Operator-reported evidence for the homepage claim; logs live on the operator hos
 
 - MEDIUM — DONE (#87 mail review): preserve all three unexpired reset links when full and suppress further issuance until expiry or redemption; revoke all on redemption. Regressions cover three consecutive replacement requests under recipient/global caps and SMTP failure, plus delivery failures with available slots.
 - MEDIUM — DONE (#87 mail review): share signup/invite/SMTP email normalization, supporting ASCII dot-atom local parts and punycode domains, with verification/reset delivery regressions.
+
+- DONE (agent bootstrap M1 implementation): flagged edge issuance/exchange, encrypted pending-credential recovery, combined authentication snapshot and downgrade guard. See `AGENT_BOOTSTRAP_IMPL.md` for implementation and validation limits. Candidate promotion, agent/portal integration and operational enablement remain open.

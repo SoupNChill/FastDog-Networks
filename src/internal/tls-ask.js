@@ -1,7 +1,7 @@
 import { normalizeHostname, isReserved } from '../onboard/hostname.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readJson, dataDir, jsonRevision } from '../onboard/json.js';
+import { readJson, dataDir, jsonRevision, dataFile } from '../onboard/json.js';
 import { reservedSuffixes } from '../lib/config.js';
 import { attachTarget, altAttachTarget } from '../onboard/attach.js';
 import { isTestLabelHost, isGuardrailHost, testTenants } from './test-labels.js';
@@ -151,7 +151,7 @@ export function createTlsAsk(opts = {}) {
     nextCheck = time + 1000;
     const updated = files.map((file) => {
       try {
-        const stat = fs.statSync(path.join(directory, file));
+        const stat = fs.statSync(dataFile(file, directory));
         return `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}:${stat.ino}`;
       } catch (error) {
         if (error.code === 'ENOENT') return 'missing';

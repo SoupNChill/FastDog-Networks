@@ -1,3 +1,4 @@
+import { validAgentVersion } from './agent-version.js';
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { inc } from '../lib/metrics.js';
 import { validCredential, tenantOwner } from '../onboard/credentials.js';
@@ -62,6 +63,7 @@ export function registerAgent({ name, hostname, localUpstream, token, expectedTo
     ws: null,
     registeredAt: new Date().toISOString(),
     lastSeen: new Date().toISOString(),
+    dataDir, credentialAuth: !operator,
     tokenHash: createHash('sha256').update(token).digest(),
   };
   agents.set(id, record);
@@ -80,6 +82,9 @@ export function attachWs(agentId, ws, token) {
   if (!a || typeof token !== 'string') return false;
   const hash = createHash('sha256').update(token).digest();
   if (!timingSafeEqual(a.tokenHash, hash)) return false;
+  try {
+    if (a.credentialAuth && !validCredential(token, a.hostname, a.dataDir)) return false;
+  } catch { return false; }
   a.ws = ws;
   a.lastSeen = new Date().toISOString();
   return true;
@@ -92,7 +97,7 @@ export function touch(agentId) {
 
 export function setOriginStatus(agentId, { origin_reachable: reachable, origin_checked_at: checkedAt, agent_version: version } = {}) {
   const a = agents.get(agentId);
-  if (a && typeof version === 'string' && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(version)) a.agentVersion = version;
+  if (a && validAgentVersion(version)) a.agentVersion = version;
   if (!a || typeof reachable !== 'boolean') return;
   a.originReachable = reachable;
   const parsed = Date.parse(checkedAt);
