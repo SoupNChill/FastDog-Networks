@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID, randomBytes, generateKeyPairSync, sign, createHash, privateDecrypt, constants } from 'node:crypto';
 import { createBootstrap, exchangeTranscript, OAEP_LABEL, bootstrapHandler, bootstrapMiddleware, clientIp, EXCHANGE_PATH } from '../src/onboard/bootstrap.js';
-import { readJson, writeJson, atomicSnapshot, AUTH_LOCK } from '../src/onboard/json.js';
+import { readJson, writeJson, atomicSnapshot, AUTH_LOCK, LOCK_CEILING_MS } from '../src/onboard/json.js';
 import { issueCredential, validCredential } from '../src/onboard/credentials.js';
 import { createClaims } from '../src/internal/claims.js';
 import { createTlsAsk } from '../src/internal/tls-ask.js';
@@ -54,7 +54,8 @@ test('issuance is scoped, idempotent, hashed, cancels older codes and charges sh
   assert.equal(Date.parse(issued.expires_at) - f.options.now(), 900000);
   assert.equal(f.service.issue(tid, hostname, body).code, undefined);
   assert.equal(f.service.status(tid, hostname, body.issuance_id).code, undefined);
-  for (const [tenant, host, id] of [[other, hostname, body.issuance_id], [tid, 'other.example.test', body.issuance_id], [tid, hostname, randomUUID()]]) assert.throws(() => f.service.status(tenant, host, id), { status: 404, code: 'bootstrap_not_found' });
+  for (const [tenant, host] of [[other, hostname], [tid, 'other.example.test']]) assert.throws(() => f.service.status(tenant, host, body.issuance_id), { status: 404, code: 'hostname_not_found' });
+  assert.throws(() => f.service.status(tid, hostname, randomUUID()), { status: 404, code: 'bootstrap_not_found' });
   assert.throws(() => f.service.issue(other, hostname, body), { status: 404 });
   const newer = f.issue();
   await rejects(() => f.service.exchange(issued.code, f.request(issued.code, issued), 'ip'), 401);
@@ -113,7 +114,8 @@ test('issuer missing, false, throwing, and suspension during an in-flight check 
   const pending = f.service.exchange(issued.code, f.request(issued.code, issued), 'ip');
   createClaims(f.options, () => {}).suspendTenant(tid); resolve(true);
   await rejects(() => pending, 401);
-  assert.equal(f.service.status(tid, hostname, issued.issuance_id).status, 'cancelled');
+  assert.throws(() => f.service.status(tid, hostname, issued.issuance_id), { status: 404, code: 'hostname_not_found' });
+  assert.ok(readJson('agent-bootstrap.json', [], f.directory).codes.every((c) => c.cancelled));
 });
 
 test('cancel, rotate, detach and suspend remove recovery and revoke pending credentials', async (t) => {
@@ -136,8 +138,12 @@ test('persisted code limits, IP/global limits, Retry-After and capacity refuse a
   const g = fixture(t);
   for (let i = 0; i < 30; i++) await rejects(() => g.service.exchange('unknown', body, 'ip'), 401);
   await assert.rejects(() => g.service.exchange('unknown', body, 'ip'), (e) => e.status === 429 && e.retry_after === 60);
-  for (let i = 0; i < 269; i++) await rejects(() => g.service.exchange('unknown', body, `ip${i}`), 401);
-  await rejects(() => g.service.exchange('unknown', body, 'last'), 429);
+  // Per-IP rejections never consume global capacity: one flooding IP leaves 270 admissions for everyone else.
+  for (let i = 0; i < 500; i++) await rejects(() => g.service.exchange('unknown', body, 'ip'), 429);
+  for (let i = 0; i < 270; i++) await rejects(() => g.service.exchange('unknown', body, `ip${i}`), 401);
+  await assert.rejects(() => g.service.exchange('unknown', body, 'last'), (e) => e.status === 429 && e.retry_after === 60);
+  g.advance(60000);
+  await rejects(() => g.service.exchange('unknown', body, 'last'), 401);
   const h = fixture(t, { limiterCapacity: 2 });
   await rejects(() => h.service.exchange('unknown', body, 'a'), 401);
   await rejects(() => h.service.exchange('unknown', body, 'b'), 429);
@@ -294,6 +300,40 @@ test('trusted last-hop IP buckets are separate and external peers ignore forward
   assert.equal((await invoke(handler, { headers: { 'x-forwarded-for': '192.0.2.2' } })).status, 401);
 });
 
+test('loopback peers without forwarding share a small unattributed bucket separate from forwarded clients', async (t) => {
+  assert.equal(clientIp({ socket: { remoteAddress: '127.0.0.1' }, headers: {} }), null);
+  const f = fixture(t); const handler = bootstrapHandler(f.service);
+  for (let i = 0; i < 10; i++) assert.equal((await invoke(handler, { body: '{' })).status, 401);
+  assert.equal((await invoke(handler, { body: '{' })).status, 429);
+  assert.equal((await invoke(handler, { body: '{', headers: { 'x-forwarded-for': '127.0.0.1' } })).status, 401);
+  assert.equal((await invoke(handler, { body: '{', headers: { 'x-forwarded-for': '192.0.2.9' } })).status, 401);
+});
+
+test('limiter sweeps expired entries in insertion order and keeps the capacity cap', async (t) => {
+  const f = fixture(t, { limiterCapacity: 101 }); const body = {};
+  for (let i = 0; i < 100; i++) await rejects(() => f.service.exchange('unknown', body, `a${i}`), 401);
+  await rejects(() => f.service.exchange('unknown', body, 'late'), 429);
+  f.advance(60000);
+  // Each request sweeps a bounded prefix, so expired entries drain without a full scan and new clients are admitted.
+  for (let i = 0; i < 40; i++) await rejects(() => f.service.exchange('unknown', body, `b${i}`), 401);
+});
+
+test('status requires current hostname ownership', (t) => {
+  const f = fixture(t); const issued = f.issue();
+  writeJson('tenant_hostnames.json', readJson('tenant_hostnames.json', [], f.directory).map((r) => ({ ...r, tenant_id: other })), 0o600, f.directory);
+  assert.throws(() => f.service.status(tid, hostname, issued.issuance_id), { status: 404, code: 'hostname_not_found' });
+});
+
+test('flag-off reads and writes of non-auth files do no combined-state probing', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bootstrap-test-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const probe = t.mock.method(fs, 'existsSync');
+  writeJson('other.json', { a: 1 }, 0o600, directory);
+  assert.equal(probe.mock.callCount(), 0);
+  assert.deepEqual(readJson('other.json', null, directory), { a: 1 });
+  assert.deepEqual(probe.mock.calls.map((c) => path.basename(c.arguments[0])), ['other.json']);
+});
+
 test('exchange middleware preserves downstream routing off and scopes enabled authority exactly', async (t) => {
   for (const enabled of [false, true]) {
     const f = fixture(t, { bootstrapEnabled: enabled });
@@ -353,6 +393,31 @@ test('stale empty lock recovers while a live writer lock is preserved', (t) => {
   fs.writeFileSync(lock, String(process.pid));
   assert.throws(() => f.issue(), { status: 503 });
   assert.equal(fs.readFileSync(lock, 'utf8'), String(process.pid));
+});
+
+test('nonce locks reap dead or over-age holders and preserve fresh live ones', (t) => {
+  const f = fixture(t); const lock = path.join(f.directory, AUTH_LOCK);
+  const holder = (pid, created) => JSON.stringify({ pid, nonce: randomUUID(), created });
+  fs.writeFileSync(lock, holder(2147483647, Date.now()));
+  f.issue(); assert.ok(!fs.existsSync(lock));
+  const live = holder(process.pid, Date.now());
+  fs.writeFileSync(lock, live);
+  assert.throws(() => f.issue(), { status: 503 }); assert.equal(fs.readFileSync(lock, 'utf8'), live);
+  // A reused live pid cannot pin the lock beyond the ceiling.
+  fs.writeFileSync(lock, holder(process.pid, Date.now() - LOCK_CEILING_MS - 1));
+  f.issue(); assert.ok(!fs.existsSync(lock));
+});
+
+test('a lock released between the failed open and the read is retried, not reported unavailable', (t) => {
+  const f = fixture(t); const lock = path.join(f.directory, AUTH_LOCK);
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, nonce: randomUUID(), created: Date.now() }));
+  const read = fs.readFileSync; let raced = false;
+  t.mock.method(fs, 'readFileSync', function (file, ...rest) {
+    if (file === lock && !raced) { raced = true; fs.unlinkSync(lock); }
+    return read.call(this, file, ...rest);
+  });
+  f.issue();
+  assert.ok(raced); assert.ok(!fs.existsSync(lock));
 });
 
 test('unknown codes return uniform unauthorized even with malformed fields or keys', async (t) => {

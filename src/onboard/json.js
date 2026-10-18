@@ -5,19 +5,19 @@ import { randomUUID } from 'node:crypto';
 import { ROOT, env } from '../lib/config.js';
 
 export const dataDir = () => path.resolve(ROOT, env('DATA_DIR', 'data'));
-export const dataFile = (name, directory) => path.join(directory, combined(directory) && AUTH_FILES.includes(name) ? STATE : name);
+export const dataFile = (name, directory) => path.join(directory, AUTH_FILES.includes(name) && combined(directory) ? STATE : name);
 
 const revisions = new Map();
 export const jsonRevision = (name, directory = dataDir()) => revisions.get(path.resolve(directory, name)) ?? 0;
 
 export function readJson(name, fallback, directory = dataDir()) {
-  if (combined(directory) && AUTH_FILES.includes(name)) return structuredClone(snapshot(directory)[name] ?? fallback);
+  if (AUTH_FILES.includes(name) && combined(directory)) return structuredClone(snapshot(directory)[name] ?? fallback);
   const file = dataFile(name, directory);
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : fallback;
 }
 
 export function writeJson(name, data, mode = 0o644, directory = dataDir()) {
-  if (combined(directory) && AUTH_FILES.includes(name)) {
+  if (AUTH_FILES.includes(name) && combined(directory)) {
     return authTransaction(directory, () => {
       const current = transactions.get(path.resolve(directory));
       if (name === 'agent-credentials.json') for (const record of data) {
@@ -71,14 +71,14 @@ export function enableAuthState(directory = dataDir()) {
   if (!fs.existsSync(file)) {
     fs.mkdirSync(directory, { recursive: true });
     const lock = path.join(directory, AUTH_LOCK);
-    const fd = acquireLock(lock);
+    const release = acquireLock(lock);
     try {
       if (!fs.existsSync(file)) {
         const initial = { version: 1 };
         for (const name of AUTH_FILES) initial[name] = readJson(name, [], directory);
         atomicSnapshot(file, initial);
       }
-    } finally { fs.closeSync(fd); fs.unlinkSync(lock); }
+    } finally { release(); }
   }
   snapshot(directory);
   enabled.add(path.resolve(directory));
@@ -88,9 +88,9 @@ export function authTransaction(directory, fn) {
   const key = path.resolve(directory);
   if (transactions.has(key)) return fn();
   const lock = path.join(directory, AUTH_LOCK);
-  let fd;
-  try { fd = acquireLock(lock); } catch { throw Object.assign(new Error('bootstrap_unavailable'), { status: 503, code: 'bootstrap_unavailable' }); }
-  try { transactions.set(key, snapshot(directory)); } catch (e) { fs.closeSync(fd); fs.unlinkSync(lock); throw e; }
+  let release;
+  try { release = acquireLock(lock); } catch { throw Object.assign(new Error('bootstrap_unavailable'), { status: 503, code: 'bootstrap_unavailable' }); }
+  try { transactions.set(key, snapshot(directory)); } catch (e) { release(); throw e; }
   try {
     const result = fn();
     if (result?.then) throw new Error('asynchronous_auth_transaction');
@@ -100,32 +100,47 @@ export function authTransaction(directory, fn) {
       for (const name of AUTH_FILES) { const file = path.resolve(directory, name); revisions.set(file, (revisions.get(file) ?? 0) + 1); }
     }
     return result;
-  } finally { transactions.delete(key); fs.closeSync(fd); fs.unlinkSync(lock); }
+  } finally { transactions.delete(key); release(); }
 }
 
+// Transactions are synchronous and short; any lock older than this is abandoned even if its pid was reused.
+export const LOCK_CEILING_MS = 30000;
+function createLock(lock) {
+  const content = JSON.stringify({ pid: process.pid, nonce: randomUUID(), created: Date.now() });
+  const fd = fs.openSync(lock, 'wx', 0o600);
+  fs.writeFileSync(fd, content);
+  return { fd, content };
+}
+function staleLock(lock, raw) {
+  let holder;
+  try { holder = JSON.parse(raw); } catch { /* Empty or partially written lock: age decides. */ }
+  if (typeof holder === 'number') holder = { pid: holder };
+  const created = Number.isFinite(holder?.created) ? holder.created : fs.statSync(lock).mtimeMs;
+  if (Date.now() - created > LOCK_CEILING_MS) return true;
+  if (!Number.isSafeInteger(holder?.pid) || holder.pid <= 0) return false;
+  try { process.kill(holder.pid, 0); return false; } catch (err) { return err.code === 'ESRCH'; }
+}
 function acquireLock(lock) {
-  try {
-    const fd = fs.openSync(lock, 'wx', 0o600);
-    fs.writeFileSync(fd, String(process.pid));
-    return fd;
-  } catch (e) {
-    if (e.code !== 'EEXIST') throw e;
-    const stat = fs.statSync(lock);
-    const pid = Number(fs.readFileSync(lock, 'utf8'));
-    let stale = !Number.isSafeInteger(pid) || pid <= 0;
-    if (stale) stale = Date.now() - stat.mtimeMs > 60000;
-    else { try { process.kill(pid, 0); } catch (err) { stale = err.code === 'ESRCH'; } }
-    if (!stale) throw e;
-    // A hard-link claim serializes recovery; never unlink a replacement writer's lock.
-    const claim = `${lock}.reap`;
-    fs.linkSync(lock, claim);
-    try {
-      const current = fs.statSync(lock), claimed = fs.statSync(claim);
-      if (current.ino !== stat.ino || claimed.ino !== stat.ino) throw e;
-      fs.unlinkSync(lock);
-      const fd = fs.openSync(lock, 'wx', 0o600);
-      fs.writeFileSync(fd, String(process.pid));
-      return fd;
-    } finally { fs.unlinkSync(claim); }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let held;
+    try { held = createLock(lock); } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      let raw;
+      try { raw = fs.readFileSync(lock, 'utf8'); if (!staleLock(lock, raw)) throw e; } catch (err) { if (err.code === 'ENOENT') continue; throw err; }
+      // A hard-link claim serializes recovery; reap only the exact lock (by nonce) that was judged stale.
+      const claim = `${lock}.reap`;
+      try { fs.linkSync(lock, claim); } catch (err) { if (err.code === 'ENOENT') continue; throw err; }
+      try {
+        if (fs.readFileSync(claim, 'utf8') !== raw) throw e;
+        fs.unlinkSync(lock);
+      } finally { fs.unlinkSync(claim); }
+      held = createLock(lock);
+    }
+    return () => {
+      fs.closeSync(held.fd);
+      // Never remove a lock that recovery has handed to another writer.
+      try { if (fs.readFileSync(lock, 'utf8') === held.content) fs.unlinkSync(lock); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    };
   }
+  throw Object.assign(new Error('lock_busy'), { code: 'EEXIST' });
 }

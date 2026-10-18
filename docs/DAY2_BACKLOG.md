@@ -174,3 +174,5 @@ Operator-reported evidence for the homepage claim; logs live on the operator hos
 - DONE (agent bootstrap M1 implementation): flagged edge issuance/exchange, encrypted pending-credential recovery, combined authentication snapshot and downgrade guard. See `AGENT_BOOTSTRAP_IMPL.md` for implementation and validation limits. Candidate promotion, agent/portal integration and operational enablement remain open.
 
 - DONE (agent bootstrap M1 review fixes): trusted proxy IP budgets, legacy flag-off upgrade/routing parity, authority-scoped exchange, transactional retention and 10,000-record cap, stale-lock recovery, constant-time digest comparisons, idle recovery purge and uniform unknown-code errors.
+
+- DONE (agent bootstrap M1 second review): per-IP buckets admit before the global bucket is charged; O(1) amortised limiter sweeps within the 20,000 cap; unattributed loopback bucket; nonce-checked writer locks with a 30 s age ceiling and ENOENT retry; owner-checked issuance status; no combined-state probing for non-auth files.

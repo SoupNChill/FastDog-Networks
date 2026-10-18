@@ -11,7 +11,8 @@ export const OAEP_LABEL = Buffer.from('fastdog-agent-bootstrap-v1');
 export function clientIp(req) {
   const peer = req.socket.remoteAddress;
   if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(peer)) return peer;
-  return req.headers['x-forwarded-for']?.split(',').at(-1).trim() || peer;
+  // A loopback peer without forwarding is unattributed; it shares one small bucket rather than the proxy address.
+  return req.headers['x-forwarded-for']?.split(',').at(-1).trim() || null;
 }
 const FILE = 'agent-bootstrap.json';
 const hash = (value) => createHash('sha256').update(value).digest('hex');
@@ -47,14 +48,17 @@ export function createBootstrap(opts = {}) {
   const directory = opts.dataDir ?? dataDir(); const now = opts.now ?? Date.now;
   const audience = opts.bootstrapAudience ?? process.env.AGENT_BOOTSTRAP_AUDIENCE;
   if (enabled) enableAuthState(directory);
-  const anonymous = {};
+  // Maps keep insertion order, which is expiry order because every window is 60s; sweeps stop at the first live entry.
+  const anonymous = new Map();
+  let persistedSize = enabled ? Object.keys(state(directory).limits).length : 0;
   const capacity = Math.min(opts.limiterCapacity ?? 20000, 20000);
-  function limit(table, key, maximum, other = {}) {
-    const time = now();
-    for (const k of Object.keys(table)) if (table[k].until <= time) delete table[k];
-    for (const k of Object.keys(other)) if (other[k].until <= time) delete other[k];
-    if (!table[key] && Object.keys(table).length + Object.keys(other).length >= capacity) throw error(429, 'rate_limited', 60);
-    const entry = table[key] ??= { count: 0, until: time + 60000 };
+  function limit(table, key, maximum, otherSize) {
+    const time = now(); let budget = 64;
+    for (const [k, v] of table) { if (v.until > time || budget-- <= 0) break; table.delete(k); }
+    let entry = table.get(key);
+    if (entry && entry.until <= time) { table.delete(key); entry = undefined; }
+    if (!entry && table.size + otherSize >= capacity) throw error(429, 'rate_limited', 60);
+    if (!entry) table.set(key, entry = { count: 0, until: time + 60000 });
     if (entry.count >= maximum) throw error(429, 'rate_limited', Math.max(1, Math.ceil((entry.until - time) / 1000)));
     entry.count++;
   }
@@ -79,6 +83,7 @@ export function createBootstrap(opts = {}) {
     if (retained.length !== s.codes.length) { s.codes = retained; changed = true; }
     for (const host of Object.keys(s.budgets)) if (s.budgets[host].day < Math.floor(time / 86400000)) { delete s.budgets[host]; changed = true; }
     for (const key of Object.keys(s.limits)) if (s.limits[key].until <= time) { delete s.limits[key]; changed = true; }
+    persistedSize = Object.keys(s.limits).length;
     for (const c of codes) if (c.activate_by && now() >= c.activate_by && c.response) { delete c.response; changed = true; }
     for (const c of pending) if (c.status === 'pending' && now() >= c.activate_by && !c.revoked_at) { c.revoked_at = new Date(now()).toISOString(); changed = true; }
     if (changed) { save(directory, s); writeJson('agent-credentials.json', credentials, 0o600, directory); }
@@ -126,14 +131,15 @@ export function createBootstrap(opts = {}) {
       });
     },
     status(tid, host, id) {
-      gate(); const c = state(directory).codes.find((c) => c.tenant_id === tid && c.hostname === host && c.issuance_id === id);
+      gate(); owner(tid, host); const c = state(directory).codes.find((c) => c.tenant_id === tid && c.hostname === host && c.issuance_id === id);
       if (!c) throw error(404, 'bootstrap_not_found'); return present(c);
     },
     cancel(tid, host) { gate(); return authTransaction(directory, () => { owner(tid, host); cancelBootstraps(directory, tid, host, now()); return { cancelled: true }; }); },
     admit(ip) {
       if (!enabled) throw error(404, 'not_found');
-      const persistedLimits = state(directory).limits;
-      limit(anonymous, 'global', 300, persistedLimits); limit(anonymous, `ip:${ip}`, 30, persistedLimits);
+      // Narrow buckets first: a rejected client must never consume shared global capacity.
+      if (ip == null) limit(anonymous, 'unattributed', 10, persistedSize); else limit(anonymous, `ip:${ip}`, 30, persistedSize);
+      limit(anonymous, 'global', 300, persistedSize);
     },
     async exchange(code, body, ip, signal, admitted = false) {
       if (!enabled) throw error(404, 'not_found');
@@ -144,9 +150,9 @@ export function createBootstrap(opts = {}) {
       authTransaction(directory, () => {
         const s = state(directory); c = s.codes.find((c) => equalHash(c.code_hash, digest));
         if (!c) return;
-        let failure;
-        try { limit(s.limits, `code:${digest}`, 10, anonymous); limit(s.limits, `claim:${c.tenant_id}:${c.hostname}`, 30, anonymous); } catch (e) { failure = e; }
-        save(directory, s);
+        let failure; const limits = new Map(Object.entries(s.limits));
+        try { limit(limits, `code:${digest}`, 10, anonymous.size); limit(limits, `claim:${c.tenant_id}:${c.hostname}`, 30, anonymous.size); } catch (e) { failure = e; }
+        s.limits = Object.fromEntries(limits); persistedSize = limits.size; save(directory, s);
         if (failure) c = { failure };
       });
       if (c?.failure) throw c.failure;
