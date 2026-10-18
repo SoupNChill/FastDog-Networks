@@ -7,6 +7,8 @@ import { createClaims } from '../src/internal/claims.js';
 import { createTlsAsk, registeredDomain } from '../src/internal/tls-ask.js';
 import { writeJson } from '../src/onboard/json.js';
 import { tempDir } from './helpers/temp-dir.js';
+import { listen } from './helpers/http.js';
+import net from 'node:net';
 
 const TENANT_A = 't_aaaaaaaaaaaaaaaaaaaa';
 const TENANT_B = 't_bbbbbbbbbbbbbbbbbbbb';
@@ -39,7 +41,7 @@ function setup(t, overrides = {}) {
     return res;
   }
   const status = async (domain, options) => (await ask(domain, options)).statusCode;
-  return { ask, status, save, claim, logs, directory, advance: (ms = 60000) => { time += ms; } };
+  return { ask, status, save, claim, logs, directory, server, advance: (ms = 60000) => { time += ms; } };
 }
 
 // Direct function harness for budget rules (no HTTP layer).
@@ -114,6 +116,43 @@ test('TLS ask rejects non-loopback and any forwarded header, including empty hea
     for (const value of ['', '127.0.0.1']) assert.equal((await h.ask(undefined, { headers: { [name]: value } })).statusCode, 404);
   }
   for (const address of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) assert.equal((await h.ask(undefined, { address })).statusCode, 200);
+});
+
+test('TLS ask refuses raw spoofed client-IP headers over a real loopback socket, any case, empty or repeated', async (t) => {
+  const h = setup(t);
+  h.save([h.claim('app.example.test')]);
+  const server = await listen(t, h.server);
+  const raw = (headers) => new Promise((resolve, reject) => {
+    const socket = net.connect(server.address().port, '127.0.0.1');
+    let text = '';
+    socket.on('data', (chunk) => { text += chunk; });
+    socket.on('error', reject);
+    socket.on('end', () => resolve(Number(text.match(/^HTTP\/1\.1 (\d{3})/)?.[1])));
+    socket.end(`GET /tls/ask?domain=app.example.test HTTP/1.1\r\nHost: 127.0.0.1\r\n${headers.map((line) => `${line}\r\n`).join('')}Connection: close\r\n\r\n`);
+  });
+  assert.equal(await raw([]), 200);
+  for (const spoof of [['X-Forwarded-For:'], ['X-Forwarded-For: '], ['Forwarded:'], ['X-Real-IP:'], ['X-Real-IP: ::1'],
+    ['X-Forwarded-For: 127.0.0.1'], ['X-FORWARDED-FOR: 127.0.0.1'], ['x-forwarded-for: 127.0.0.1, 192.0.2.1'],
+    ['Forwarded: for=127.0.0.1'], ['FORWARDED: for="[::1]"'], ['X-Forwarded-Server: 127.0.0.1'], ['X-Forwarded-For: 127.0.0.1', 'X-Forwarded-For: ::1'],
+    ['Via:'], ['CF-Connecting-IP: 127.0.0.1']]) {
+    assert.equal(await raw(spoof), 404, spoof.join(' | '));
+  }
+});
+
+test('TLS ask: loopback-looking spoof values never stand in for a non-loopback peer, and refusals cost no budget', async (t) => {
+  const h = setup(t, { checksPerMinute: 5 });
+  h.save([h.claim('app.example.test')]);
+  for (const address of ['192.0.2.1', '::ffff:192.0.2.1']) {
+    for (const headers of [{}, { 'x-forwarded-for': '127.0.0.1' }, { forwarded: 'for=127.0.0.1' }, { 'x-real-ip': '::1' }, { 'x-forwarded-for': '' }]) {
+      assert.equal(await h.status(undefined, { address, headers }), 404, `${address} ${JSON.stringify(headers)}`);
+    }
+  }
+  // 40 refused spoofs for distinct unknown names would exhaust the 5/minute check cap if they reached the handler.
+  for (let i = 0; i < 40; i++) assert.equal(await h.status(`s${i}.example.test`, { headers: { 'x-forwarded-for': '' } }), 404);
+  assert.deepEqual(h.logs.slice(-40), Array(40).fill({ status: 404 }), 'refused before the handler: no reason, no hostname');
+  const trusted = [];
+  for (let i = 0; i < 6; i++) trusted.push(await h.status(`u${i}.example.test`));
+  assert.deepEqual(trusted, [404, 404, 404, 404, 404, 429], 'only trusted asks spend the check cap');
 });
 
 test('TLS ask approval set: static allow-list is normalized and the only way to approve reserved names', (t) => {
