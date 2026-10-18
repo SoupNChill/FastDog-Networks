@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fixture, fakeSecret, request, tids } from './helpers.js';
 import { createEdgeClient } from '../src/edge-client.js';
+import { createSuspensions } from '../src/suspensions.js';
+import { lock } from '../bin/tenant.js';
 import { internalHarness } from '../../test/helpers/internal.js';
 
 const cli = fileURLToPath(new URL('../bin/tenant.js', import.meta.url));
@@ -268,4 +270,75 @@ test('signup does not reclaim or mail a suspended unverified open account', asyn
   await f.client.call('/api/me');
   assert.deepEqual((await f.client.call('/api/signup', 'POST', body)).data, { ok: true });
   assert.equal(f.messages.length, 1);
+});
+
+test('resume after a failed edge suspend retries the edge first and refuses while it still fails', async (t) => {
+  const s = await setup(t);
+  const bad = { ...s.env, PORTAL_KEY: fakeSecret() };
+  assert.equal((await run(bad, 'suspend', tids[0], '--reason', 'abuse report')).code, 2);
+  assert.equal(s.f.store.read('suspensions').tenants[tids[0]].edge_ok, false);
+  assert.ok(s.edgeFile('agent-credentials.json').some((c) => c.tenant_id === tids[0]));
+  // Refusal: the edge suspend still fails, so the portal suspension stays and nothing is cleared.
+  const refused = await run(bad, 'resume', tids[0], '--reason', 'resolved');
+  assert.equal(refused.code, 2);
+  assert.match(refused.stderr, /stays suspended/);
+  assert.deepEqual([refused.json.changed, refused.json.edge], [false, 'failed']);
+  assert.equal(s.f.store.read('suspensions').tenants[tids[0]].resumed_at, undefined);
+  s.catchUp();
+  assert.equal((await s.login(s.a.user, s.a.password)).status, 401);
+  // Retry: resume re-runs the edge suspend, which revokes the old agent credentials, then clears.
+  const resumed = await run(s.env, 'resume', tids[0], '--reason', 'resolved');
+  assert.equal(resumed.code, 0, resumed.stderr);
+  assert.deepEqual([resumed.json.changed, resumed.json.edge, resumed.json.hostnames_suspended], [true, 'ok', 1]);
+  assert.equal(s.edgeFile('agent-credentials.json').some((c) => c.tenant_id === tids[0]), false);
+  assert.equal(await s.ask(), 404);
+  assert.equal(s.f.store.read('suspensions').tenants[tids[0]].edge_ok, true);
+  assert.deepEqual(s.f.store.read('admin_audit', []).map((e) => [e.action, e.changed, e.edge]),
+    [['suspend', true, 'failed'], ['resume', false, 'failed'], ['resume', true, 'ok']]);
+  // After a successful suspend, resume does not need the edge.
+  assert.equal((await run(s.env, 'suspend', tids[0], '--reason', 'again')).code, 0);
+  const calls = s.h.logs.length;
+  assert.equal((await run(bad, 'resume', tids[0], '--reason', 'resolved')).code, 0);
+  assert.equal(s.h.logs.length, calls);
+});
+
+test('verify-email refuses a suspended open account', async (t) => {
+  const f = await fixture(t, { openSignup: true });
+  await f.client.call('/api/signup', 'POST', { email: 'held@example.test', password: fakeSecret(), accept_terms: true });
+  const token = linkToken(f.messages.at(-1));
+  const tid = f.store.read('accounts').tenants.find((x) => x.source === 'open').id;
+  // Epoch before the link was issued, so only the suspension itself can refuse it.
+  suspendAt(f, tid, f.now() - 1000);
+  const before = f.store.read('accounts').users.find((u) => u.tenant_id === tid);
+  assert.equal((await f.client.call('/api/verify-email', 'POST', { token, password: fakeSecret() })).status, 401);
+  const after = f.store.read('accounts').users.find((u) => u.tenant_id === tid);
+  assert.deepEqual([after.email_verified_at, after.auth_version, after.password_hash], [before.email_verified_at, before.auth_version, before.password_hash]);
+  // The same link works once the suspension is gone (resumed with an epoch before the link).
+  suspendAt(f, tid, f.now() - 1000, f.now() - 500);
+  assert.equal((await f.client.call('/api/verify-email', 'POST', { token, password: fakeSecret() })).status, 200);
+});
+
+test('a suspensions.json with the wrong shape fails closed', async (t) => {
+  const f = await fixture(t);
+  const a = await f.seed();
+  assert.equal((await a.client.call('/api/hostnames')).status, 200);
+  for (const value of [{}, { tenants: [] }, { tenants: null }, [], { tenants: { [tids[0]]: 'x' } }]) {
+    f.store.write('suspensions', value);
+    assert.throws(() => createSuspensions(f.store).has(tids[0]), /Invalid suspensions/);
+    assert.notEqual((await a.client.call('/api/hostnames')).status, 200, JSON.stringify(value));
+  }
+});
+
+test('the CLI lock admits one command at a time and takes over a lock left by a dead process', async (t) => {
+  const s = await setup(t);
+  const unlock = await lock(s.f.dataDir);
+  assert.equal(await lock(s.f.dataDir, 200), null);
+  unlock();
+  const again = await lock(s.f.dataDir, 200);
+  assert.ok(again);
+  again();
+  writeFileSync(join(s.f.dataDir, 'tenant-cli.lock'), '2147483646');
+  const result = await run(s.env, 'suspend', tids[0], '--reason', 'abuse report');
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(existsSync(join(s.f.dataDir, 'tenant-cli.lock')), false);
 });

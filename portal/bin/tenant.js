@@ -1,8 +1,11 @@
 // Operator kill switch: node portal/bin/tenant.js suspend|resume|release <tenant_id|email> --reason "<text>".
 // Writes only suspensions.json and admin_audit.json; the running server reads suspensions.json and ends
 // sessions, API keys and connect tokens on their next use. Resume keeps the suspension's revocation
-// epoch, so credentials issued before it never come back. Release (only after resume) frees the
+// epoch, so credentials issued before it never come back, and first re-runs a failed edge suspend. Release (only after resume) frees the
 // tenant's administratively reserved hostnames on the edge. Never prints the portal key or any token.
+import { openSync, writeSync, closeSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { createStore, emptyAccounts } from '../src/store.js';
 import { createSuspensions } from '../src/suspensions.js';
@@ -33,12 +36,33 @@ function resolveTenant(accounts, suspensions, target) {
 
 const hostnameCount = (result) => (Array.isArray(result?.hostnames) ? result.hostnames.length
   : Number.isInteger(result?.hostnames) ? result.hostnames : Number.isInteger(result?.suspended) ? result.suspended : null);
+// One command at a time per state directory, so concurrent runs cannot lose a read-modify-write of
+// suspensions.json or admin_audit.json. A lock left by a process that no longer exists is taken over.
+export async function lock(dir, waitMs = 15000) {
+  const file = join(dir, 'tenant-cli.lock');
+  for (const until = Date.now() + waitMs; ;) {
+    try { const fd = openSync(file, 'wx', 0o600); writeSync(fd, String(process.pid)); closeSync(fd); return () => rmSync(file, { force: true }); }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+    let pid = NaN;
+    try { pid = Number(readFileSync(file, 'utf8')); } catch {}
+    try { if (Number.isInteger(pid) && pid > 0) process.kill(pid, 0); } catch (error) { if (error.code === 'ESRCH') { rmSync(file, { force: true }); continue; } }
+    if (Date.now() > until) return null;
+    await sleep(100);
+  }
+}
+
 const edgeClient = (env) => createEdgeClient({ baseUrl: env.EDGE_INTERNAL_URL || 'http://127.0.0.1:8789', portalKey: env.PORTAL_KEY });
 
 export async function main(argv, env, out) {
   const args = parse(argv);
   if (!args || !env.STATE_DIRECTORY) { out.stderr(usage); return 1; }
   const store = createStore(env.STATE_DIRECTORY);
+  const unlock = await lock(env.STATE_DIRECTORY);
+  if (!unlock) { out.stderr('Another tenant command is running; retry when it finishes\n'); return 1; }
+  try { return await locked(args, env, out, store); } finally { unlock(); }
+}
+
+async function locked(args, env, out, store) {
   const suspensions = createSuspensions(store);
   const accounts = store.read('accounts', emptyAccounts());
   const tid = resolveTenant(accounts, suspensions, args.target);
@@ -53,7 +77,7 @@ export async function main(argv, env, out) {
   if (args.action === 'suspend') {
     const changed = !suspensions.has(tid);
     // revoked_before: every credential issued up to now stays invalid, even after resume.
-    if (changed) suspensions.set(tid, { at, reason: args.reason, revoked_before: now });
+    if (changed) suspensions.set(tid, { at, reason: args.reason, revoked_before: now, edge_ok: false });
     // The server revokes these on next use; the CLI never writes their files.
     Object.assign(summary, { changed, pending_revocation: {
       sessions: store.read('sessions', []).filter((s) => users.has(s.user_id) && s.expires_at > now).length,
@@ -63,14 +87,28 @@ export async function main(argv, env, out) {
     // Always call the edge, so re-running suspend retries a failed edge call. The edge route is idempotent.
     try {
       const result = await edgeClient(env).suspendTenant(tid);
+      if (suspensions.get(tid)?.edge_ok !== true) suspensions.update(tid, { edge_ok: true });
       Object.assign(summary, { edge: 'ok', hostnames_suspended: hostnameCount(result) });
     } catch {
       Object.assign(summary, { edge: 'failed', hostnames_suspended: null, note: 'Portal suspension is in place. Re-run suspend to retry the edge.' });
       code = 2;
     }
   } else if (args.action === 'resume') {
-    Object.assign(summary, { changed: suspensions.clear(tid, at),
-      note: 'Portal access restored; credentials issued before the suspension stay revoked. Hostnames stay reserved on the edge until release; the customer then re-adds and re-verifies each one.' });
+    // Resuming before the edge suspend succeeded would leave the old agent credentials, tunnels and claims
+    // live. Retry the edge suspend first and clear only once it is recorded ok.
+    if (suspensions.has(tid) && suspensions.get(tid).edge_ok !== true) {
+      try {
+        const result = await edgeClient(env).suspendTenant(tid);
+        suspensions.update(tid, { edge_ok: true });
+        Object.assign(summary, { edge: 'ok', hostnames_suspended: hostnameCount(result) });
+      } catch {
+        Object.assign(summary, { changed: false, edge: 'failed', note: 'Still suspended: the edge suspend has not succeeded. Fix edge reachability and re-run resume.' });
+        out.stderr('Edge suspend not confirmed; tenant stays suspended\n');
+        code = 2;
+      }
+    }
+    if (!code) Object.assign(summary, { changed: suspensions.clear(tid, at),
+      note:'Portal access restored; credentials issued before the suspension stay revoked. Hostnames stay reserved on the edge until release; the customer then re-adds and re-verifies each one.' });
   } else {
     try {
       const result = await edgeClient(env).releaseTenant(tid);

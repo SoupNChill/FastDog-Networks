@@ -324,7 +324,7 @@ test('reset handler returns generic responses before queued SMTP finishes', { ti
   // Reset requires a tenant that is not suspended (a user without one fails closed).
   const data = { tenants: [{ id: 't_aaaaaaaaaaaaaaaaaaaa', status: 'active' }],
     users: [{ id: 'user-1', tenant_id: 't_aaaaaaaaaaaaaaaaaaaa', email: 'known@example.test' }], links: [] };
-  const auth = createAuth({ store: { read: () => data, write() {} }, limits: { take() {} }, now: Date.now,
+  const auth = createAuth({ store: { read: (name, fallback) => (name === 'accounts' ? data : fallback), write() {} }, limits: { take() {} }, now: Date.now,
     mailer: mail, config: { origin: 'https://portal.example.test' } });
   const context = { ip: '127.0.0.1', send: (status, body) => ({ status, body }) };
   try {

@@ -105,7 +105,8 @@ writes only `suspensions.json` and `admin_audit.json`, and the server reads
 connect tokens are refused and revoked on next use, login fails generically and
 password reset sends nothing. `suspend` then calls the edge to suspend every
 hostname; if that fails the portal suspension stays, the summary says
-`edge:"failed"`, the exit code is 2, and re-running retries. All commands are
+`edge:"failed"`, the exit code is 2, and re-running retries (`resume` also retries
+it first and refuses until it succeeds). Commands run one at a time under a lock file. All commands are
 idempotent and print a JSON summary of counts, never secrets. `resume` restores
 sign-in only: every session, key and token issued before the suspension stays
 invalid (used or not), and hostnames stay reserved on the edge and no other

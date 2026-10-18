@@ -163,7 +163,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         const entry = findLink(data, body, 'verify-email');
         if (!entry) throw fail('unauthorized');
         const user = data.users.find((u) => u.id === entry.user_id);
-        if (!user) throw fail('unauthorized');
+        if (!user || suspended(data, user)) throw fail('unauthorized');
         if (user.signup_source === 'open' || data.tenants.some((t) => t.id === user.tenant_id && t.source === 'open')) {
           if (!password_hash) throw fail('unauthorized');
           user.password_hash = password_hash;
