@@ -152,3 +152,23 @@ test('automatic verification suppresses overlapping manual requests', async () =
   await running;
   assert.equal(posts, 1);
 });
+
+
+test('open verification waits for a new password and sends it only on submission', async () => {
+  const calls = [], submit = {}, next = { hidden: true };
+  const password = { value: 'synthetic-password-value', parentElement: { hidden: true } };
+  const node = { querySelector: (selector) => selector.startsWith('input') ? password : submit };
+  let manual;
+  await run('verify-email', {
+    api: async (...args) => calls.push(args), init: async () => ({ tenant: { id: 'tenant-example' } }),
+    form: (_, callback) => { manual = callback; }, message() {},
+    location: { hash: '#token=example-token&setup=1', pathname: '/verify-email' },
+    history: { replaceState() {} }, document: { querySelector: (id) => id === '#continue' ? next : node },
+  });
+  assert.equal(calls.length, 0);
+  assert.equal(password.parentElement.hidden, false);
+  assert.equal(password.required, true);
+  await manual();
+  assert.deepEqual(calls, [['/api/verify-email', 'POST', { token: 'example-token', password: password.value }]]);
+  assert.equal(next.href, '/login');
+});

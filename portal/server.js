@@ -17,6 +17,10 @@ export function start(env = process.env) {
     mailer: createFileMailer({ outboxDir }),
     config: { origin: env.PORTAL_ORIGIN, edgeUrl: env.PORTAL_EDGE_URL, docsUrl: env.PORTAL_DOCS_URL, outboxDir, trustProxy: env.TRUST_PROXY === '1',
       defaultPlan: env.DEFAULT_PLAN || 'assigned', defaultHostnameLimit: Number(env.DEFAULT_HOSTNAME_LIMIT || 3),
+      openSignup: env.OPEN_SIGNUP === '1', openSignupPlan: env.OPEN_SIGNUP_PLAN || 'trial',
+      openSignupHostnameLimit: Number(env.OPEN_SIGNUP_HOSTNAME_LIMIT || 1), openConnectTokensPerHour: Number(env.OPEN_CONNECT_TOKENS_PER_HOUR || 3),
+      signupIpPerHour: Number(env.SIGNUP_IP_PER_HOUR || 3), signupDomainPerDay: Number(env.SIGNUP_DOMAIN_PER_DAY || 5),
+      signupBigmailPerDay: Number(env.SIGNUP_BIGMAIL_PER_DAY || 200), signupGlobalPerDay: Number(env.SIGNUP_GLOBAL_PER_DAY || 100),
       logger: (entry) => console.log(JSON.stringify(entry)) },
   });
   app.listen(port, '127.0.0.1');

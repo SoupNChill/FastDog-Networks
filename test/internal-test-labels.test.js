@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createClaims } from '../src/internal/claims.js';
 import { createTlsAsk } from '../src/internal/tls-ask.js';
 import { editTestTenants, isTestLabelHost, testTenants } from '../src/internal/test-labels.js';
-import { ENFORCE_DENYLIST } from '../verdict/src/config/hosts.js';
+import { ENFORCE_DENYLIST, defaultHostConfig } from '../verdict/src/config/hosts.js';
 import { writeJson, readJson } from '../src/onboard/json.js';
 import { tempDir } from './helpers/temp-dir.js';
 
@@ -238,6 +238,44 @@ test('e2e labels under a denylisted attach domain are claimable and ask-approved
     assert.equal(create(tester, refused), 'reserved_hostname', refused);
     assert.equal(create(normal, refused), 'reserved_hostname', refused);
     assert.equal(ask(refused).status, 404, refused);
+  }
+});
+
+test('e2e labels under a guardrail apex stay out of Verdict enforce and forward_auth generation', async (t) => {
+  // Verdict's denylist is exact-name, so these labels rely on never being configured for enforce.
+  const apex = ENFORCE_DENYLIST.find((guard) => ENFORCE_DENYLIST.some((h) => h.endsWith(`.${guard}`) && h !== `www.${guard}`));
+  const prodTarget = `attach.${apex}`;
+  const host = `e2e-abc.${apex}`;
+  const dataDir = tempDir(t);
+  const txt = new Map();
+  const claims = createClaims({ dataDir, attachTarget: prodTarget, altAttachTarget: `edge.${apex}`, edgePublicIp: '192.0.2.1',
+    resolver: { async resolveCname() { return [prodTarget]; }, async resolve4() { return []; }, async resolveTxt(name) { return txt.get(name) ?? []; } },
+    now: () => Date.UTC(2026, 0, 1) }, () => {});
+  writeJson('test_tenants.json', [tester], 0o600, dataDir);
+  const created = claims.create(tester, { hostname: host, hostname_limit: 5 }).body;
+  txt.set(created.dns.txt.name, [[created.dns.txt.value]]);
+  assert.equal((await claims.verify(tester, host)).status, 'active');
+  // Activation writes edge state only: no Verdict host config or Caddy snippet appears.
+  assert.deepEqual(fs.readdirSync(dataDir).filter((name) => /hosts\.json$|\.caddy$/.test(name) && name !== 'tunnel_hosts.json'), []);
+  assert.deepEqual(defaultHostConfig(host), { host, enable: false, mode: 'off', fail: 'open', difficulty: 16 });
+
+  const dir = tempDir(t);
+  const hostsFile = path.join(dir, 'hosts.json');
+  const outDir = path.join(dir, 'out');
+  const script = fileURLToPath(new URL('../verdict/scripts/caddy-apply-hosts.js', import.meta.url));
+  const generate = (hosts) => {
+    fs.writeFileSync(hostsFile, JSON.stringify({ hosts }));
+    execFileSync(process.execPath, [script], { cwd: dir, env: { PATH: process.env.PATH, VERDICT_HOSTS_FILE: hostsFile, VERDICT_CADDY_SNIPPET_DIR: outDir }, stdio: 'pipe' });
+    const written = fs.readdirSync(outDir);
+    assert.equal(written.length, 1);
+    return fs.readFileSync(path.join(outDir, written[0]), 'utf8');
+  };
+  const enforced = 'enforced.example.test';
+  for (const config of [undefined, { enable: true, mode: 'shadow' }, { enable: false, mode: 'off' }, { enable: false, mode: 'shadow' }]) {
+    const out = generate({ [enforced]: { enable: true, mode: 'enforce' }, ...(config ? { [host]: config } : {}) });
+    assert.equal(out.split('forward_auth ').length - 1, 1, 'control: the synthetic enforce host is generated');
+    assert.match(out, new RegExp(`^${enforced.replaceAll('.', '\\.')} \\{`, 'm'));
+    assert.ok(!out.includes(host), JSON.stringify(config));
   }
 });
 

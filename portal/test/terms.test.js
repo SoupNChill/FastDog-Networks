@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInvites } from '../src/invites.js';
+import { emptyAccounts } from '../src/store.js';
 import { renderHtml } from '../src/static.js';
 import { TERMS_VERSION, PRIVACY_VERSION, siteOrigin, termsUrls } from '../src/terms.js';
 import { fixture, fakeSecret, request } from './helpers.js';
@@ -79,4 +80,44 @@ test('IP hashes differ between installs', async (t) => {
     hashes.push(f.store.read('accounts').users[0].terms.ip_hash);
   }
   assert.notEqual(hashes[0], hashes[1]);
+});
+
+test('open sign-up enforces acceptance server-side and generically, including for reclaims', async (t) => {
+  const f = await fixture(t, { openSignup: true, signupIpPerHour: 20 });
+  const email = 'open@example.test';
+  for (const accept_terms of [undefined, false, 'on', 'true', 1]) {
+    const result = await f.client.call('/api/signup', 'POST', { email, password: fakeSecret(), accept_terms });
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.data, { ok: true });
+  }
+  assert.equal(f.store.read('accounts', emptyAccounts()).users.length, 0);
+  assert.deepEqual(f.messages, []);
+  assert.deepEqual((await f.client.call('/api/signup', 'POST', { email, password: fakeSecret(), accept_terms: true })).data, { ok: true });
+  const created = f.store.read('accounts').users[0];
+  assert.equal(created.terms.tos_version, TERMS_VERSION);
+  assert.equal(created.terms.accepted_at, new Date(f.now()).toISOString());
+  // An expired unverified registration is reclaimed only with acceptance, which is then recorded afresh.
+  f.advance(3600001);
+  await f.client.call('/api/me');
+  assert.deepEqual((await f.client.call('/api/signup', 'POST', { email, password: fakeSecret() })).data, { ok: true });
+  assert.equal(f.messages.length, 1);
+  assert.equal(f.store.read('accounts').users[0].terms.accepted_at, created.terms.accepted_at);
+  await f.client.call('/api/signup', 'POST', { email, password: fakeSecret(), accept_terms: true });
+  assert.equal(f.messages.length, 2);
+  const [reclaimed] = f.store.read('accounts').users;
+  assert.equal(reclaimed.terms.accepted_at, new Date(f.now()).toISOString());
+  assert.equal(reclaimed.terms.privacy_version, PRIVACY_VERSION);
+});
+
+test('stored versions come from the server, never from client-supplied fields', async (t) => {
+  const f = await fixture(t);
+  const email = 'new@example.test';
+  const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email });
+  await f.client.call('/api/signup', 'POST', { email, password: fakeSecret(), invite_code: code, accept_terms: true,
+    tos_version: 'client', privacy_version: 'client', accepted_at: '1999-01-01T00:00:00.000Z', ip_hash: 'client',
+    terms: { tos_version: 'client', privacy_version: 'client' } });
+  const { terms } = f.store.read('accounts').users[0];
+  assert.deepEqual({ ...terms, ip_hash: undefined }, { tos_version: TERMS_VERSION, privacy_version: PRIVACY_VERSION,
+    accepted_at: new Date(f.now()).toISOString(), ip_hash: undefined });
+  assert.match(terms.ip_hash, /^[a-f0-9]{64}$/);
 });
