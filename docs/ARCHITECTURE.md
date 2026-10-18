@@ -77,6 +77,8 @@ Portal state is 0600 under a 0700 directory. Edge JSON uses atomic file replacem
 | `INTERNAL_ENABLED` | Off; exactly `1` starts the tenant listener; validates separate `PORTAL_KEY` and loopback bind |
 | `TLS_ASK_ENABLED` | Off; exactly `1` enables ask with internal listener; keep off pending operational review; denied asks are metered and the owner index is cached |
 | `RECHECK_ENABLED` | Off; exactly `1` schedules active routing checks every six hours with internal listener; keep off pending Day 3 review; bounded inconclusive streaks and outage detection are implemented |
+| `INTERNAL_TIMEOUT_CODES` | Off (internal timeouts answer legacy `400 invalid_json`); exactly `1` returns `408 request_timeout` for an incomplete body or `504 gateway_timeout` for a slow handler. Enable together with a portal that maps those codes |
+| `CLAIM_CREATE_RATE_LIMIT` | Unset/`0` = off; a positive integer caps claim creates per tenant per minute (`429 rate_limited` with `retry_after`); at most 10000 tenant windows in memory |
 | `COREDNS_SYNC_ENABLED` | False; opt-in Node sync after onboarding; **does not disable shell script local writes** |
 | `COREDNS_SYNC_DRY_RUN` | False; set true explicitly for validation without zone writes/reloads |
 | `COREDNS_SYNC_STRICT` | Off; makes onboarding CLI sync failure affect exit status |

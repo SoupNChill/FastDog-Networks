@@ -305,6 +305,34 @@ test('incomplete request is terminated within five seconds', async (t) => {
   assert.ok(Date.now() - started < 6500);
 });
 
+test('INTERNAL_TIMEOUT_CODES off keeps 400 invalid_json; on returns 408 for a stalled body and 504 for a stalled handler', async (t) => {
+  let hang;
+  const siteProbes = { testSite: () => new Promise((resolve) => { hang = resolve; }) };
+  const legacy = await setup(t);
+  const f = await setup(t, { timeoutCodes: true, siteProbes });
+  await f.activate();
+  const stalledBody = (fixture) => new Promise((resolve) => {
+    const req = http.request({ host: '127.0.0.1', port: fixture.port, path: prefix(), method: 'POST', headers: {
+      'x-fastdog-portal-key': fixture.portalKey, 'content-length': 100,
+    } }, (res) => {
+      let raw = '';
+      res.on('data', (chunk) => { raw += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body: raw ? JSON.parse(raw) : null }));
+    });
+    req.on('error', () => resolve({ status: 0 }));
+    req.write('{');
+  });
+  const started = Date.now();
+  const [off, body, handler] = await Promise.all([stalledBody(legacy), stalledBody(f),
+    f.request(`${prefix()}/app.example.com/test`, 'POST')]);
+  hang?.({ ok: true });
+  assert.deepEqual(off, { status: 400, body: { error: 'invalid_json' } });
+  assert.deepEqual(body, { status: 408, body: { error: 'request_timeout' } });
+  assert.equal(handler.status, 504);
+  assert.deepEqual(handler.body, { error: 'gateway_timeout' });
+  assert.ok(Date.now() - started < 6500);
+});
+
 
 test('chunked body limit and exact 16 KiB boundary', async (t) => {
   const f = await setup(t);
