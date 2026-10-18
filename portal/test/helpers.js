@@ -106,7 +106,9 @@ export function fakeEdge() {
   };
   return { edge, records, calls };
 }
-export async function fixture(t, config = {}) {
+// options.edge replaces the fake edge (for example a real edge client against a loopback internal server);
+// options.mailer replaces the recording mailer.
+export async function fixture(t, config = {}, options = {}) {
   const dataDir = temporary(t);
   const store = createStore(dataDir);
   let clock = Date.parse('2026-01-01T00:00:00Z');
@@ -114,7 +116,7 @@ export async function fixture(t, config = {}) {
   const messages = [];
   const searches = [];
   const fake = fakeEdge();
-  const app = createApp({ dataDir, now, edge: fake.edge, mailer: { async send(message) { messages.push(message); } },
+  const app = createApp({ dataDir, now, edge: options.edge ?? fake.edge, mailer: options.mailer || { async send(message) { messages.push(message); } },
     domainSearch: { async search(q, ip) { searches.push([q, ip]); return { results: [] }; } }, config: { origin, ...config } });
   const port = await listen(t, app);
   const client = browser(port);

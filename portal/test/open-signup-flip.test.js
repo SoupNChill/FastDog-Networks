@@ -9,6 +9,7 @@ import { start } from '../server.js';
 import { emptyAccounts, createStore } from '../src/store.js';
 import { createInvites } from '../src/invites.js';
 import { TERMS_VERSION } from '../src/terms.js';
+import { main as tenantCli } from '../bin/tenant.js';
 import { fakeSecret, browser, listen, origin, temporary, linkToken } from './helpers.js';
 
 // Loopback stand-in for the edge internal API that enforces hostname_limit like src/internal/claims.js.
@@ -21,6 +22,8 @@ function loopbackEdge(t, portalKey) {
     for await (const part of req) parts.push(part);
     const body = parts.length ? JSON.parse(Buffer.concat(parts).toString('utf8')) : {};
     if (req.headers['x-fastdog-portal-key'] !== portalKey) return reply(res, 401, { error: 'unauthorized' });
+    const kill = req.method === 'POST' && req.url.match(/^\/internal\/v1\/tenants\/(t_[a-z2-7]{20})\/suspend$/);
+    if (kill) return reply(res, 200, { hostnames: [...claims.values()].filter((c) => c.tid === kill[1]).map((c) => (c.status = 'suspended', c.hostname)) });
     const m = req.url.match(/^\/internal\/v1\/tenants\/(t_[a-z2-7]{20})\/hostnames(?:\/([^/]+)(?:\/(verify))?)?$/);
     if (!m) return reply(res, 404, { error: 'not_found' });
     const [, tid, host, action] = m;
@@ -168,6 +171,11 @@ test('OPEN_SIGNUP flip and rollback on one data dir: invite-only, open trial, th
   assert.equal((await pending.c.call('/api/hostnames/pending.example.test/verify', 'POST')).status, 200);
   for (let i = 0; i < 3; i++) assert.equal((await pending.c.call('/api/hostnames/pending.example.test/connect-token', 'POST')).status, 201);
   assert.equal((await pending.c.call('/api/hostnames/pending.example.test/connect-token', 'POST')).status, 429);
+  // Kill switch: suspending an open account ends its session and refuses login with the generic 401.
+  const quiet = { stdout: () => {}, stderr: () => {} };
+  assert.equal(await tenantCli(['suspend', 'pending@example.test', '--reason', 'flip test'], { STATE_DIRECTORY: dataDir, PORTAL_KEY: portalKey, EDGE_INTERNAL_URL: edge.url }, quiet), 0);
+  assert.equal((await pending.c.call('/api/hostnames')).status, 401);
+  assert.equal((await login(portal.port, 'pending@example.test', pendingPassword)).status, 401);
   // Invites keep working after rollback.
   const code = createInvites({ dataDir }).mint({ email: 'invited@example.test' });
   assert.equal((await portal.client.call('/api/signup', 'POST', { email: 'invited@example.test', password: fakeSecret(), invite_code: code, accept_terms: true })).status, 200);

@@ -1,3 +1,4 @@
+import { createSmtpMailer } from '../src/mailer-smtp.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -215,5 +216,64 @@ for (const trustedSource of [true, false]) {
     assert.equal((await attempt(21, '198.51.100.2')).status, trustedSource ? 401 : 429);
     f.advance(900001);
     assert.equal((await attempt(22, '198.51.100.1')).status, 401);
+  });
+}
+
+
+test('a throwing mailer never turns signup or reset into a 500 that reveals the account', async (t) => {
+  const logs = [];
+  const mailer = { send: async () => { throw new Error('Outbox full'); } };
+  const f = await fixture(t, { logger: (entry) => logs.push(entry) }, { mailer });
+  const { user } = await f.seed();
+  const known = await f.client.call('/api/password-reset', 'POST', { email: user.email });
+  const unknown = await f.client.call('/api/password-reset', 'POST', { email: 'absent@example.test' });
+  assert.equal(known.status, 200);
+  assert.deepEqual([known.status, known.data], [unknown.status, unknown.data]);
+  const code = createInvites({ dataDir: f.dataDir, now: f.now }).mint({ email: 'new@example.test' });
+  const signup = await f.client.call('/api/signup', 'POST', { email: 'new@example.test', password: fakeSecret(), invite_code: code, accept_terms: true });
+  assert.ok(logs.some((entry) => entry.kind === 'verify-email' && entry.reason === 'send_failed'));
+  assert.deepEqual([signup.status, signup.data], [unknown.status, unknown.data]);
+  assert.ok(logs.some((entry) => entry.event === 'mail' && entry.kind === 'password-reset' && entry.reason === 'send_failed'));
+  assert.ok(!JSON.stringify(logs).includes(user.email));
+});
+
+test('known and unknown reset HTTP responses complete while SMTP delivery is stalled', { timeout: 5000 }, async (t) => {
+  let release, started = false, completed = false;
+  const pending = new Promise((resolve) => { release = resolve; });
+  t.after(() => release());
+  const mailer = createSmtpMailer({ host: 'mail.example.test', user: 'u', pass: 'p', from: 'noreply@example.invalid',
+    fallback: createFileMailer({ outboxDir: temporary(t) }), deliver: async () => { started = true; await pending; completed = true; } });
+  const f = await fixture(t, {}, { mailer });
+  const { user } = await f.seed();
+  const known = await f.client.call('/api/password-reset', 'POST', { email: user.email });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(started);
+  const unknown = await f.client.call('/api/password-reset', 'POST', { email: 'absent@example.test' });
+  assert.equal(known.status, 200);
+  assert.deepEqual(known.data, unknown.data);
+  assert.equal(completed, false);
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
+for (const method of ['send', 'enqueue']) {
+  test(`throwing ${method} keeps open signup and reclamation generic`, async (t) => {
+    const logs = [], messages = [];
+    const mailer = { [method](message) { messages.push(message); throw new Error('Delivery failed'); } };
+    if (method === 'enqueue') mailer.send = () => assert.fail('must prefer enqueue');
+    const f = await fixture(t, { openSignup: true, logger: (entry) => logs.push(entry) }, { mailer });
+    const body = { email: 'owner@example.test', password: fakeSecret(), accept_terms: true };
+    const signup = () => f.client.call('/api/signup', 'POST', body);
+    const first = await signup();
+    const duplicate = await signup();
+    f.advance(3600001);
+    await f.client.call('/api/me');
+    const reclaimed = await signup();
+    for (const result of [first, duplicate, reclaimed]) assert.deepEqual([result.status, result.data], [200, { ok: true }]);
+    assert.equal(messages.length, 2);
+    assert.ok(messages.every((message) => message.kind === 'verify-email'));
+    assert.deepEqual(logs.filter((entry) => entry.event === 'signup').map((entry) => entry.outcome), ['created', 'refused', 'reclaimed']);
+    assert.equal(logs.filter((entry) => entry.reason === 'send_failed').length, 2);
+    assert.ok(!JSON.stringify(logs).includes(body.email));
   });
 }
