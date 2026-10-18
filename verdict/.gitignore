@@ -14,3 +14,4 @@ run-codex*.sh
 
 # Temporary review tooling (never part of the application)
 .advsec-tools/
+.advsec-*/

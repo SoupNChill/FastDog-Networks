@@ -392,13 +392,12 @@
     }
   },
   "site/index.html": {
-    "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
+    "reason": "Reviewed legacy homepage lines plus the replacement hero and assistant-section support link; the two new hashes retain existing brand/support references, each once.",
     "lines": {
       "d1a05adc45df6264c75edc77562e36ee9dec560081aff863333a84d3950c170f": 1,
       "17d677cec6a85b721f163d776a90c7f1b810413854d0f32477405da7a90eb61d": 1,
       "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
       "4f0095887aad7fd917d2e425a0b4fefe83f19d83390c16378571893d6c9a82ce": 1,
-      "279ffc13afcfca2314283ef8266be3ebc99b7291430d408b5a3761831be4eb2d": 1,
       "9e29c6120c2eb1b08ea64149eb0ef167d41d04dcdde4281546a369beb3f697fb": 1,
       "a53c41882217f67e635b5ebae6d8dc1737b7fa0ef698405f2cf3536985744687": 2,
       "07fed5e93de1334460a4c6bedc00fb87475b6751d6c2171ca937f05e457aea5e": 1,
@@ -407,7 +406,9 @@
       "7095b954b83d490144453d9c401e4713c350ff7386df432f39cfb0d4a0f9c634": 1,
       "f48a38d461be87b40ac9eb682b6f4faebf086d6349711c162ec3d2143dc3b540": 1,
       "7f0b95caab2949a7c2c890ee90a95d81e4d90f19a46b0847cbc20f2644d03812": 1,
-      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1
+      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1,
+      "c12450a354fb68557b176cf97803572ce3de713873b211be2d20a9d3e3886f12": 1,
+      "2a5039a6be78dde2834b198b8e106b666ed045107a3a0e5808d79f0a784a81e8": 1
     }
   },
   "site/js/domain-search.js": {
@@ -639,7 +640,8 @@
     "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
     "lines": {
       "e2a743fd756c30e6ef39c8152c3be45eb59419105d0b9a4a9dc9c14725f274bb": 1,
-      "9c451a0bd4555c7a3de456298119d0af19212078d0c6593ee4ec7867ce62fd95": 1,
+      "b43f4125bc1f9f6bfd42a9c1c9510c7b5347b53dc8e5cff86e2f31346b5f5cef": 1,
+      "5f7dd2e10f2449df5ff69de6a8ac1af22dc84e28796ddf000906316d1ba9d007": 1,
       "b1a234931c194cf35322c19cc26b67b3999d36382ff5a4084d02bedaa052f2a6": 1,
       "f685209e0be56e2ebd095ebf7e9d72c8e21f35072e3a9917fcdb0e2df9a0ab6c": 1,
       "73d416990b15690b1ac834913ab79ca8ba27aabecc77239afc12af4ebccdecf0": 1,
