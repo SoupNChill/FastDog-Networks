@@ -23,11 +23,11 @@ for (const page of pages) {
     assert.match(html, /<footer class="footer wrap">/);
     assert.doesNotMatch(html, /gradient|<style|<script|[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
     assert.doesNotMatch(html, /\$\d/, 'prices live on the pricing page only');
-    for (const [, address] of html.matchAll(/mailto:([^"?]+)/g)) assert.match(address, /@example\.invalid$/);
+    for (const [, address] of html.matchAll(/mailto:([^\x22?]+)/g)) assert.match(address, /@example\.invalid$/);
   });
 
   test(`${page} internal links resolve to site files`, () => {
-    const hrefs = [...read(page).matchAll(/(?:href|src|srcset)="(\/[^"]*)"/g)].map(([, href]) => href);
+    const hrefs = [...read(page).matchAll(/(?:href|src|srcset)=\x22(\/[^\x22]*)\x22/g)].map(([, href]) => href);
     assert.ok(hrefs.length > 0);
     for (const href of hrefs) assert.ok(resolves(href), href);
     for (const target of ['/terms/', '/privacy/', '/faq/']) assert.ok(hrefs.includes(target), target);
@@ -45,6 +45,18 @@ test('legal pages cover the required topics', () => {
   const questions = faq.match(/<dt>/g).length;
   assert.ok(questions >= 8 && questions <= 10, String(questions));
   for (const topic of ['/docs/', 'CNAME', 'log', 'delete my account', '/edge/#pricing', 'help']) assert.ok(faq.includes(topic), topic);
+});
+
+test('privacy and FAQ describe retention, logging and email delivery as implemented', () => {
+  const privacy = read('privacy/index.html');
+  for (const claim of ['Terms acceptance (planned)', 'Sign-up does not record this yet', 'private outbox', 'Automatic deletion is not built yet',
+    '24 hours', 'not cleared on a timer', 'limited by count, not by time', 'planned but not in place yet', 'once we connect one']) assert.ok(privacy.includes(claim), claim);
+  for (const stale of ['on a short schedule', 'minutes to hours', 'request headers such as the user agent, IP']) assert.ok(!privacy.includes(stale), stale);
+  const faq = read('faq/index.html');
+  for (const claim of ['does not store them', 'remove both if you leave']) assert.ok(faq.includes(claim), claim);
+  assert.ok(!faq.includes('status and user agent'));
+  const terms = read('terms/index.html');
+  assert.ok(terms.includes('stay blocked for every other account until we review them and release them'));
 });
 
 test('docs subpage footer links the legal pages', () => {

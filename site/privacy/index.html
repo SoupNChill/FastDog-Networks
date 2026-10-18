@@ -30,10 +30,11 @@
 <section class="section" id="collect"><h2>1. What we collect</h2>
 <dl>
 <dt>Account details</dt><dd>Your email address and a one-way hash of your password. We never store your password itself.</dd>
-<dt>Terms acceptance</dt><dd>Which version of these documents you accepted, when, and a salted hash of the IP address you used. Not the IP address itself.</dd>
-<dt>IP addresses</dt><dd>Kept briefly in rate limits (to stop abuse such as password guessing) and in access logs for the portal and the edge.</dd>
+<dt>Terms acceptance (planned)</dt><dd>When open sign-up launches, we will record which version of these documents you accepted, when, and a salted hash of the IP address you used. Not the IP address itself. Sign-up does not record this yet.</dd>
+<dt>IP addresses</dt><dd>Kept in rate limits (to stop abuse such as password guessing), in Verdict bot-decision logs, and in shortened form (last part removed) in web server access logs where we turn them on.</dd>
 <dt>Hostnames</dt><dd>The hostnames you attach, their DNS check results, and the origin address your agent forwards to.</dd>
-<dt>Request metadata</dt><dd>For traffic through the edge: time, hostname, path, status code, response time, request headers such as the user agent, IP address and network (ASN). We use it for logs, status pages and bot scoring. We do not store request or response bodies.</dd>
+<dt>Request metadata</dt><dd>For bot scoring, Verdict looks at its IP address, network (ASN), path and headers such as the user agent. It stores only a decision log: time, IP address, path without the query string, and the decision. Web server access logs, where turned on, keep the method, path without the query string, status code, response time and a shortened IP address; headers and cookies are removed. Portal logs keep only the method, route pattern, status and response time. For API keys we keep an audit list of key ID, route pattern, method, status and time. We do not store request or response bodies, and we keep your email address out of logs.</dd>
+<dt>Outgoing emails</dt><dd>Sign-in emails (address verification and password reset) are written to a private outbox on our server: your email address, the message type and the link.</dd>
 <dt>Messages</dt><dd>Emails you send us and our replies.</dd>
 </dl>
 </section>
@@ -51,18 +52,22 @@
 <section class="section" id="retention"><h2>3. How long we keep it</h2>
 <ul>
 <li>Account details and terms acceptance: while your account exists, then deleted, except where we must keep billing records by law.</li>
-<li>Rate-limit entries: minutes to hours, then they expire.</li>
-<li>Access logs and request metadata: rotated and deleted on a short schedule (TODO: confirm the exact period before launch).</li>
+<li>Rate-limit entries: each one stops counting when its window ends, from one minute up to 24 hours for daily limits such as agent credential rotation. Ended entries are deleted the next time that limiter is used, so an idle entry can stay stored for longer.</li>
+<li>Verdict decision logs: cleared once the oldest entry is 7 days old or the log reaches 5 MiB. The check runs when the next decision is written, so a log that gets no new traffic is not cleared on a timer.</li>
+<li>Web server access logs: rolled over at 5 MiB; at most five old files are kept, and old files are removed after 7 days when the log next rolls over.</li>
+<li>API key audit list: the latest 1,000 entries per account. It is limited by count, not by time.</li>
+<li>Outbox emails: removed by hand by our operator. Automatic deletion is not built yet.</li>
+<li>Guaranteed time-based deletion for all of the logs above is planned but not in place yet (TODO: set the exact periods before launch).</li>
 <li>Email messages: as long as needed to handle your request.</li>
 </ul>
 </section>
 
 <section class="section" id="processors"><h2>4. Who processes it for us</h2>
-<p>We use a small number of providers to run FastDog: hosting providers for our servers and an email provider for sign-in and service emails. When paid billing starts, a payment processor will handle card details; we will not see or store full card numbers. Each provider only gets the data it needs to do its job.</p>
+<p>We use a small number of providers to run FastDog: hosting providers for our servers and, once we connect one, an email provider for sign-in and service emails. Today sign-in emails go to the private outbox described above and are not sent through an email provider. When paid billing starts, a payment processor will handle card details; we will not see or store full card numbers. Each provider only gets the data it needs to do its job.</p>
 <!-- TODO(owner): confirm and list sub-processors by name, purpose and region before launch. -->
 <ul>
 <li>Hosting: TODO, list before launch.</li>
-<li>Email delivery: TODO, list before launch.</li>
+<li>Email delivery: none yet (private outbox); TODO, list the provider if one is connected before launch.</li>
 <li>Payments: TODO, list when billing goes live.</li>
 </ul>
 </section>
@@ -76,7 +81,7 @@
 </section>
 
 <section class="section" id="security"><h2>7. Security</h2>
-<p>We use HTTPS everywhere, hash passwords and API keys, keep secrets out of logs and limit who can reach production systems. No system is perfectly secure; if a breach affects your data, we will tell you.</p>
+<p>We use HTTPS everywhere, hash passwords, API keys and agent credentials, keep secrets out of logs and limit who can reach production systems. No system is perfectly secure; if a breach affects your data, we will tell you.</p>
 </section>
 
 <section class="section" id="changes"><h2>8. Changes</h2>
