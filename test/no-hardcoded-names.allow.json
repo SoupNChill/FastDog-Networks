@@ -417,6 +417,12 @@
       "0066a50e7c0130b17f2bd39f6f470c2a867e31970ff7eb94349f7b1b954a2315": 1
     }
   },
+  "site/privacy/index.html": {
+    "reason": "Approved public Privacy contact; exempt only the exact contact line.",
+    "lines": {
+      "bc6defe9a78bc7b520ea9b969971fd13fa131879ed7a23668e18d228c0a20bde": 1
+    }
+  },
   "site/verdict/index.html": {
     "reason": "Pre-existing legacy content found when expanding to all tracked files; only these original lines are exempt.",
     "lines": {

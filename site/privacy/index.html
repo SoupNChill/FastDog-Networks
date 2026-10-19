@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <meta name="theme-color" content="#222831">
-  <title>Privacy Policy (draft) — FastDog Networks</title>
-  <meta name="description" content="Draft Privacy Policy for FastDog Networks. Not yet in effect.">
+  <title>Privacy Policy — FastDog Networks</title>
+  <meta name="description" content="Privacy Policy for FastDog Networks.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -21,7 +21,7 @@
   <nav aria-label="Main navigation"><a href="/edge/">Edge</a><a href="/domains/">Domains</a><a href="/verdict/">Verdict</a><a href="/docs/">Docs</a></nav>
 </header>
 <main id="main" class="wrap docs">
-<section class="product-hero"><div><span class="eyebrow">Legal</span><h1>Privacy Policy</h1><p class="hero-lede"><strong>DRAFT. Not yet in effect.</strong> This draft is published for review. It does not apply to anyone until we replace it with a final version.</p><p class="small-note">Version 2026-10-17-draft</p></div></section>
+<section class="product-hero"><div><span class="eyebrow">Legal</span><h1>Privacy Policy</h1><p class="hero-lede">How FastDog Networks collects, uses, and keeps personal data when you use the service.</p><p class="small-note">Version 2026-10-19</p></div></section>
 
 <section class="section" id="summary"><h2>In short</h2>
 <p>We collect what we need to run the service and keep it safe. We do not sell your data. We do not use it for advertising.</p>
@@ -31,10 +31,10 @@
 <dl>
 <dt>Account details</dt><dd>Your email address and a one-way hash of your password. We never store your password itself.</dd>
 <dt>Terms acceptance (planned)</dt><dd>When open sign-up launches, we will record which version of these documents you accepted, when, and a salted hash of the IP address you used. Not the IP address itself. Sign-up does not record this yet.</dd>
-<dt>IP addresses</dt><dd>Kept in rate limits (to stop abuse such as password guessing), in Verdict bot-decision logs, and in shortened form (last part removed) in web server access logs where we turn them on.</dd>
+<dt>IP addresses</dt><dd>Kept in rate limits (to stop abuse such as password guessing), in Verdict bot-decision logs, in our DNS servers' lookup logs, and in shortened form (last part removed) in web server access logs where we turn them on.</dd>
 <dt>Hostnames</dt><dd>The hostnames you attach, their DNS check results, and the origin address your agent forwards to.</dd>
-<dt>Request metadata</dt><dd>For bot scoring, Verdict looks at its IP address, network (ASN), path and headers such as the user agent. It stores only a decision log: time, IP address, path without the query string, and the decision. Web server access logs, where turned on, keep the method, path without the query string, status code, response time and a shortened IP address; headers and cookies are removed. Portal logs keep only the method, route pattern, status and response time. For API keys we keep an audit list of key ID, route pattern, method, status and time. We do not store request or response bodies, and we keep your email address out of logs.</dd>
-<dt>Outgoing emails</dt><dd>Sign-in emails (address verification and password reset) are written to a private outbox on our server: your email address, the message type and the link.</dd>
+<dt>Request metadata</dt><dd>For bot scoring, Verdict looks at its IP address, network (ASN), path and headers such as the user agent. It stores only a decision log: time, IP address, path without the query string, and the decision. Web server access logs, where turned on, keep the method, path without the query string, status code, response time and a shortened IP address; headers and cookies are removed. Portal logs keep only the method, route pattern, status and response time. System service logs record service events and errors. Our DNS servers also log each lookup they answer: the requesting IP address, the name and record type asked for, and the result. For API keys we keep an audit list of key ID, route pattern, method, status and time. We do not store request or response bodies, and we keep your email address out of logs.</dd>
+<dt>Outgoing emails</dt><dd>Sign-in emails (address verification and password reset) are sent through our email provider. We also keep a short record of each in a private outbox on our server: your email address, the message type and whether it was sent.</dd>
 <dt>Messages</dt><dd>Emails you send us and our replies.</dd>
 </dl>
 </section>
@@ -52,23 +52,19 @@
 <section class="section" id="retention"><h2>3. How long we keep it</h2>
 <ul>
 <li>Account details and terms acceptance: while your account exists, then deleted, except where we must keep billing records by law.</li>
-<li>Rate-limit entries: each one stops counting when its window ends, from one minute up to 24 hours for daily limits such as agent credential rotation. Ended entries are deleted the next time that limiter is used, so an idle entry can stay stored for longer.</li>
-<li>Verdict decision logs: cleared once the oldest entry is 7 days old or the log reaches 5 MiB. The check runs when the next decision is written, so a log that gets no new traffic is not cleared on a timer.</li>
-<li>Web server access logs: rolled over at 5 MiB; at most five old files are kept, and old files are removed after 7 days when the log next rolls over.</li>
-<li>API key audit list: the latest 1,000 entries per account. It is limited by count, not by time.</li>
-<li>Outbox emails: removed by hand by our operator. Automatic deletion is not built yet.</li>
-<li>Guaranteed time-based deletion for all of the logs above is planned but not in place yet (TODO: set the exact periods before launch).</li>
-<li>Email messages: as long as needed to handle your request.</li>
+<li>Operational logs (rate limits, Verdict decision logs, web server access logs, portal and system logs, DNS lookup logs, and API key audit entries): deleted automatically. Many are gone within 30 days, and some much sooner: rate-limit windows last from one minute up to 24 hours, Verdict's decisions file keeps about 7 days, rolled access-log files for most hostnames are deleted about 7 days after they roll over, and the API key audit list is also capped at the latest 1,000 entries per account. Web server access logs, portal logs, system logs and DNS lookup logs can take longer, as explained below.</li>
+<li>Records of emails the portal sends (the outbox): deleted automatically after about 7 days.</li>
+<li>Email messages: as long as we need them to handle your request and any follow-up.</li>
 </ul>
+<p>Deletion runs automatically through scheduled cleanup and log rotation. Web server access logs, portal logs, system logs and DNS lookup logs are stored in files that are deleted a set time after each file rolls over: about 7 days for most hostnames' access logs, and about 30 days for a few of our own sites' access logs and for portal, system and DNS lookup logs. Because access-log files roll over only when they fill up, and portal, system and DNS lookup log files only when they fill up or reach their time limit, entries in these logs can be kept for more than 30 days, especially on a quiet site. Backups are deleted by a weekly cleanup once they are more than 30 days old, except that we keep the most recent backup of each kind and any backup needed to roll back a change, so data in those copies can last longer.</p>
 </section>
 
 <section class="section" id="processors"><h2>4. Who processes it for us</h2>
-<p>We use a small number of providers to run FastDog: hosting providers for our servers and, once we connect one, an email provider for sign-in and service emails. Today sign-in emails go to the private outbox described above and are not sent through an email provider. When paid billing starts, a payment processor will handle card details; we will not see or store full card numbers. Each provider only gets the data it needs to do its job.</p>
-<!-- TODO(owner): confirm and list sub-processors by name, purpose and region before launch. -->
+<p>We use cloud hosting providers and our email provider to run FastDog. When paid plans launch, a payment processor will handle card details; we will not see or store full card numbers. Each provider only gets the data it needs to do its job.</p>
 <ul>
-<li>Hosting: TODO, list before launch.</li>
-<li>Email delivery: none yet (private outbox); TODO, list the provider if one is connected before launch.</li>
-<li>Payments: TODO, list when billing goes live.</li>
+<li>Hosting: cloud hosting providers for our servers.</li>
+<li>Email delivery: our email provider sends sign-in emails.</li>
+<li>Payments: a payment processor will be added when paid plans launch.</li>
 </ul>
 </section>
 
@@ -89,8 +85,7 @@
 </section>
 
 <section class="section" id="contact"><h2>9. Contact</h2>
-<!-- TODO(operator): replace the placeholder support address before launch. -->
-<p>Privacy questions and requests: email <a href="mailto:support@example.invalid?subject=Privacy">support@example.invalid</a>. See also our <a href="/terms/">Terms of Service</a> and <a href="/faq/">FAQ</a>.</p>
+<p>Privacy questions and requests: email <a href="mailto:support@fastdognetworks.com?subject=Privacy">support@fastdognetworks.com</a>. See also our <a href="/terms/">Terms of Service</a> and <a href="/faq/">FAQ</a>.</p>
 </section>
 </main>
 <footer class="footer wrap"><picture><source srcset="/logos/lockup-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/lockup-light.svg" width="180" height="110" alt="FastDog Networks. Fast by Design."></picture><div><span>DNS · tunnel · TLS</span><span>© FastDog Networks</span><span><a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="/faq/">FAQ</a></span><a class="footer-link" href="/docs/">Docs</a></div></footer>
