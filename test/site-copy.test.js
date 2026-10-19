@@ -13,6 +13,8 @@ for (const page of ['edge/index.html', 'index.html']) {
     const expected = `<p class="small-note">Add your hostname yourself: <a href="https://portal.${host}/signup">sign up in the portal</a> and add it there. Need help? Email <a href="mailto:support@${host}?subject=Attach%20a%20hostname">support@${host}</a> and we reply the same business day.</p>`;
     assert.ok(html.includes(expected));
     assert.doesNotMatch(html, /goes through us/);
+    assert.ok(html.includes(`<p class="guarantee-start">How to start: <a href="https://portal.${host}/signup">sign up in the portal</a> and add your hostname. For guided setup, email`));
+    assert.doesNotMatch(html, /How to start: email/);
   });
 }
 

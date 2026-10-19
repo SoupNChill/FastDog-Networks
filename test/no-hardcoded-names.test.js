@@ -22,7 +22,7 @@ const hostnameLegacy = [
   'test/add-customer-host.test.js', 'test/agent-installer.test.js', 'test/assistant-docs.test.js', 'test/attach.test.js',
   'test/caddy-snippet.test.js', 'test/control-auth.test.js', 'test/deny-names.json', 'test/dns.test.js', 'test/edge.test.js',
   'test/enable-on-demand-tls.test.js', 'test/fixtures/caddy-adapted-live-fdctl.json', 'test/fixtures/caddy-adapted-live-full.json',
-  'test/helpers/fixtures.js', 'test/helpers/name-scanner.js', 'test/helpers/offline.cjs', 'test/homepage-hero.test.js',
+  'test/helpers/fixtures.js', 'test/helpers/name-scanner.js', 'test/helpers/offline.cjs',
   'test/no-hardcoded-names.allow.json', 'test/no-hardcoded-names.test.js', 'test/ns-cut-checklist.test.js',
   'test/site-status.test.js', 'test/sync-coredns.test.js', 'test/test-guards.test.js', 'test/tls-ask.test.js',
 ];
