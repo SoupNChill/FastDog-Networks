@@ -23,5 +23,8 @@ export function createEdgeClient({ baseUrl = 'http://127.0.0.1:8789', portalKey,
     suspendTenant: (tid) => call(`${tenant(tid)}/suspend`, 'POST'),
     // Admin release: drops the tenant's administrative reservations so the hostnames can be claimed again.
     releaseTenant: (tid) => call(`${tenant(tid)}/release`, 'POST'),
+    // Trial pause (portal/src/trials.js): the edge serves a paused page; nothing is removed. Both are idempotent.
+    pauseTenant: (tid) => call(`${tenant(tid)}/pause`, 'POST'),
+    unpauseTenant: (tid) => call(`${tenant(tid)}/unpause`, 'POST'),
   };
 }

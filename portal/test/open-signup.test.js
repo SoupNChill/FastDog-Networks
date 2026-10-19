@@ -66,7 +66,8 @@ test('open sign-up creates an unverified trial tenant with one hostname and logs
   assert.equal(users.length, 1);
   assert.equal(users[0].email, 'new@example.test');
   assert.equal(users[0].email_verified_at, null);
-  assert.deepEqual({ ...tenants[0], id: undefined }, { id: undefined, name: '', plan: 'trial', hostname_limit: 1, status: 'active', source: 'open' });
+  assert.deepEqual({ ...tenants[0], id: undefined, created_at: undefined }, { id: undefined, name: '', plan: 'trial', hostname_limit: 1, status: 'active', source: 'open', created_at: undefined });
+  assert.equal(tenants[0].created_at, new Date(f.now()).toISOString());
   assert.deepEqual(f.messages.map((m) => [m.to, m.kind]), [['new@example.test', 'verify-email']]);
   assert.deepEqual(f.reasons(), ['created']);
   assert.ok(!JSON.stringify(f.logs).includes('example.test'));

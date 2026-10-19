@@ -108,6 +108,18 @@ export function createClaims(opts, changed) {
     for (const c of credentials) if (c.tenant_id === tid && c.claim_hostname === host && !c.revoked_at) c.revoked_at = new Date(now()).toISOString();
     write('agent-credentials.json', credentials);
   }
+  function setPaused(tid, paused) {
+    const state = readJson('paused_tenants.json', { tenants: {} }, directory);
+    if (!state || typeof state !== 'object' || !state.tenants || typeof state.tenants !== 'object' || Array.isArray(state.tenants)) throw fail(500, 'internal_error');
+    const changes = Object.hasOwn(state.tenants, tid) !== paused;
+    if (changes) {
+      if (paused) state.tenants[tid] = { at: new Date(now()).toISOString() };
+      else delete state.tenants[tid];
+      write('paused_tenants.json', state);
+      changed();
+    }
+    return { tenant_id: tid, paused, changed: changes, hostnames: claims().filter((c) => c.tenant_id === tid && c.status === 'active').length };
+  }
   let rechecking = false;
   async function recheckActiveClaims({ now: time = now(), resolver: lookup = resolver, failuresBeforeDemote = 3,
     inconclusiveBeforeFailure = opts.inconclusiveBeforeFailure ?? 8,
@@ -298,6 +310,11 @@ export function createClaims(opts, changed) {
       }
       return { tenant_id: tid, released: released.length };
     },
+    // Trial pause (docs/decisions/2026-10-19-trial-pause.md): a tenant-level flag in paused_tenants.json only.
+    // Claims, credentials and tunnel hosts are untouched and TLS ask keeps answering, so the edge can
+    // serve the paused page over HTTPS and unpausing restores the site as it was.
+    pauseTenant(tid) { return setPaused(tid, true); },
+    unpauseTenant(tid) { return setPaused(tid, false); },
     delete(tid, host) {
       const records = claims();
       const record = find(records, tid, host);

@@ -113,11 +113,13 @@ test('OPEN_SIGNUP flip and rollback on one data dir: invite-only, open trial, th
   assert.equal(owner.email_verified_at, null);
   assert.equal(owner.terms.tos_version, TERMS_VERSION);
   const tenant = accounts().tenants.find((x) => x.id === owner.tenant_id);
-  assert.deepEqual({ ...tenant, id: undefined }, { id: undefined, name: '', plan: 'trial', hostname_limit: 1, status: 'active', source: 'open' });
+  assert.deepEqual({ ...tenant, id: undefined, created_at: undefined }, { id: undefined, name: '', plan: 'trial', hostname_limit: 1, status: 'active', source: 'open', created_at: undefined });
+  assert.ok(Number.isFinite(Date.parse(tenant.created_at)));
   // Before verification: login works but no hostname, connect token or API key.
   let session = await login(portal.port, email, firstPassword);
   assert.equal(session.status, 200);
-  assert.deepEqual((await session.c.call('/api/me')).data.tenant, { id: tenant.id, plan: 'trial', hostname_limit: 1 });
+  assert.deepEqual({ ...(await session.c.call('/api/me')).data.tenant, trial: undefined }, { id: tenant.id, plan: 'trial', hostname_limit: 1, trial: undefined });
+  assert.equal((await session.c.call('/api/me')).data.tenant.trial.started_at, tenant.created_at);
   assert.equal((await session.c.call('/api/me')).data.email_verified, false);
   assert.equal((await session.c.call('/api/hostnames', 'POST', { hostname: 'app.example.test' })).status, 401);
   assert.deepEqual(edge.creates, []);
@@ -154,7 +156,8 @@ test('OPEN_SIGNUP flip and rollback on one data dir: invite-only, open trial, th
   // The account created while open keeps its login, hostname and trial limits.
   session = await login(portal.port, email, password);
   assert.equal(session.status, 200);
-  assert.deepEqual((await session.c.call('/api/me')).data.tenant, { id: tenant.id, plan: 'trial', hostname_limit: 1 });
+  assert.deepEqual({ ...(await session.c.call('/api/me')).data.tenant, trial: undefined }, { id: tenant.id, plan: 'trial', hostname_limit: 1, trial: undefined });
+  assert.equal((await session.c.call('/api/me')).data.tenant.trial.started_at, tenant.created_at);
   assert.deepEqual((await session.c.call('/api/hostnames')).data.hostnames.map((h) => [h.hostname, h.status]), [['app.example.test', 'active']]);
   assert.equal((await session.c.call('/api/hostnames', 'POST', { hostname: 'second.example.test' })).data.error, 'hostname_limit_reached');
   assert.equal((await session.c.call('/api/keys', 'POST', { scopes: ['status:read'], password })).data.error, 'plan_required');
@@ -165,7 +168,7 @@ test('OPEN_SIGNUP flip and rollback on one data dir: invite-only, open trial, th
   assert.equal((await portal.client.call('/api/verify-email', 'POST', { token: linkToken(mail('pending@example.test')[0]), password: pendingPassword })).status, 200);
   const pending = await login(portal.port, 'pending@example.test', pendingPassword);
   assert.equal(pending.status, 200);
-  assert.deepEqual({ ...(await pending.c.call('/api/me')).data.tenant, id: undefined }, { id: undefined, plan: 'trial', hostname_limit: 1 });
+  assert.deepEqual({ ...(await pending.c.call('/api/me')).data.tenant, id: undefined, trial: undefined }, { id: undefined, plan: 'trial', hostname_limit: 1, trial: undefined });
   assert.equal((await pending.c.call('/api/hostnames', 'POST', { hostname: 'pending.example.test' })).status, 201);
   assert.equal((await pending.c.call('/api/hostnames', 'POST', { hostname: 'more.example.test' })).data.error, 'hostname_limit_reached');
   assert.equal((await pending.c.call('/api/hostnames/pending.example.test/verify', 'POST')).status, 200);
