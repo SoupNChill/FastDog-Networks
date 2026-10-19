@@ -163,7 +163,8 @@ function attachCandidate(agentId, ws, token, proof) {
   return issuerVerdict(record.issuer, (verdict) => {
     let alive = false;
     try { alive = verdict === 'valid' && candidates.get(c.credentialId) === c && candidateLive(c.dataDir, c.credentialId, clock); } catch { /* Fail closed. */ }
-    if (!alive) return false;
+    // A socket closed during the issuer check must not replace an attached candidate.
+    if (!alive || !connected(ws)) return false;
     if (c.ws && c.ws !== ws) closeSocket(c.ws);
     c.ws = ws; c.ready = false;
     c.lastSeen = new Date().toISOString();

@@ -292,3 +292,52 @@ test('flag off: no bootstrap route, page, script or response field exists; the r
   // Nothing reached the edge's bootstrap routes.
   assert.deepEqual(s.f.store.read('agent_bootstraps', []), []);
 });
+
+test('concurrent issuance serializes each hostname and enforces hourly and daily reissue budgets', async (t) => {
+  const store = createStore(temporary(t)); let time = Date.parse('2026-03-01T00:00:00Z');
+  const now = () => time; let calls = 0; const active = new Set();
+  const edge = { getHostname: async () => ({ status: 'active' }), getBootstrap: async () => ({ status: 'pending' }),
+    async issueBootstrap(_tid, hostname) {
+      assert.equal(active.has(hostname), false, 'one in-flight issuance per hostname');
+      active.add(hostname); calls++;
+      await new Promise((resolve) => setImmediate(resolve));
+      active.delete(hostname);
+      return { origin: upstream, expires_at: new Date(time + 900000).toISOString() };
+    } };
+  const service = createAgentBootstrap({ store, edge, limits: createRateLimits(now, store), now });
+  const issue = (hostname) => service.issue({ tid: tids[0], hostname, origin: upstream, principal: 'user-0',
+    issuer: { kind: 'session', id: 's', authorization_generation: 1 } });
+  const batch = async (hosts, successes) => {
+    const before = calls;
+    const results = await Promise.allSettled(hosts.map(issue));
+    assert.equal(results.filter((r) => r.status === 'fulfilled').length, successes);
+    for (const r of results.filter((r) => r.status === 'rejected')) assert.equal(r.reason.code, 'rate_limited');
+    assert.equal(calls - before, successes, 'refusals never mutate the edge');
+  };
+  await batch(Array(6).fill(host), 4); // First issuance plus three hourly replacements.
+  time += 3600000;
+  await batch(Array(3).fill(host), 3); // Two more replacements: five today.
+  time += 3600000;
+  const hosts = ['a.example.test', 'b.example.test', 'c.example.test'];
+  await batch(hosts, 3);
+  await batch(hosts.flatMap((h) => [h, h]), 1); // Only the sixth daily replacement passes.
+});
+
+test('unresolved requested and uncertain reservations consume reissue budgets after restart', async (t) => {
+  for (const state of ['requested', 'uncertain']) {
+    const store = createStore(temporary(t)); const time = Date.parse('2026-03-01T00:00:00Z'); const now = () => time;
+    store.write('agent_bootstraps', [{ issuance_id: randomUUID(), tenant_id: tids[0], hostname: host,
+      created_at: new Date(time).toISOString(), state }]);
+    let calls = 0;
+    const edge = { getHostname: async () => ({ status: 'active' }),
+      getBootstrap: async () => { throw new Error('unavailable'); },
+      issueBootstrap: async () => { calls++; throw new Error('unavailable'); } };
+    const service = createAgentBootstrap({ store, edge, limits: createRateLimits(now, store), now });
+    const issue = () => service.issue({ tid: tids[0], hostname: host, origin: upstream, principal: 'user-0',
+      issuer: { kind: 'session', id: 's', authorization_generation: 1 } });
+    const results = await Promise.allSettled(Array.from({ length: 5 }, issue));
+    assert.equal(calls, 3);
+    assert.equal(results.filter((r) => r.reason.code === 'rate_limited').length, 2);
+    assert.equal(store.read('agent_bootstraps').filter((r) => r.state === 'requested').length, state === 'requested' ? 1 : 0);
+  }
+});

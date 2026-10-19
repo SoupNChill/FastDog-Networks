@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import http from 'node:http';
 import { randomUUID, randomBytes, generateKeyPairSync, sign, createHash, privateDecrypt, constants } from 'node:crypto';
 import WebSocket from 'ws';
 import { createBootstrap, exchangeTranscript, OAEP_LABEL } from '../src/onboard/bootstrap.js';
@@ -31,7 +32,7 @@ test('flag-on edge: legacy agents ignore proofs; candidates register and attach 
   Object.assign(process.env, { NODE_ENV: 'test', AGENT_TOKEN: operator, DATA_DIR: directory, INTERNAL_ENABLED: '0', BILLING_ENABLED: 'false', AGENT_BOOTSTRAP_ENABLED: '1', AGENT_BOOTSTRAP_AUDIENCE: audience,
     AGENT_BOOTSTRAP_ISSUER_CHECK_URL: issuers.url, AGENT_BOOTSTRAP_ISSUER_CHECK_KEY: issuers.secret });
   const service = createBootstrap({ bootstrapEnabled: true, bootstrapAudience: audience, dataDir: directory, issuerCheck: async () => true });
-  const { server } = await import('../src/edge/server.js?bootstrap=1');
+  const { server, resolveUpstream } = await import('../src/edge/server.js?bootstrap=1');
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const sockets = [];
   t.after(async () => {
@@ -79,9 +80,55 @@ test('flag-on edge: legacy agents ignore proofs; candidates register and attach 
 
   const wsTarget = `/_fastdog/tunnel?agentId=${reg.id}&candidate=1`;
   assert.equal((await tunnel(wsTarget, token)).code, 4401);
+  // Use node:http so the virtual Host is sent explicitly on every supported Node version.
+  ws.on('message', (raw) => {
+    const frame = JSON.parse(raw);
+    if (frame.type === 'http_req') ws.send(JSON.stringify({ type: 'http_res', id: frame.id, status: 200,
+      headers: {}, bodyBase64: Buffer.from('still serving').toString('base64') }));
+  });
+  const serving = async () => {
+    const route = resolveUpstream(hostname);
+    assert.equal(route.kind, 'tunnel');
+    assert.equal(route.agent.id, legacyId);
+    assert.equal(route.agent.ws.readyState, WebSocket.OPEN);
+    const result = await new Promise((resolve, reject) => {
+      const req = http.get(`http://${base}/`, { headers: { host: hostname } }, (res) => {
+        let body = ''; res.setEncoding('utf8'); res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+        res.on('error', reject);
+      });
+      req.on('error', reject);
+    });
+    assert.deepEqual(result, { status: 200, body: 'still serving' });
+  };
+  await serving();
+  // Hold the authenticated issuer response while a candidate sends an invalid, unmasked frame.
+  const handler = issuers.server.listeners('request')[0];
+  issuers.server.removeListener('request', handler);
+  let releaseIssuer, entered;
+  const checking = new Promise((resolve) => { entered = resolve; });
+  issuers.server.once('request', (req, res) => {
+    releaseIssuer = () => handler(req, res);
+    entered();
+  });
+  const malformed = new WebSocket(`ws://${base}${wsTarget}`, { headers: {
+    authorization: `Bearer ${token}`, [PROOF_HEADER]: proof({ method: 'GET', target: wsTarget, credentialId }),
+  } });
+  sockets.push(malformed);
+  await once(malformed, 'open');
+  await checking;
+  const malformedClosed = once(malformed, 'close');
+  malformed._socket.write(Buffer.from([0x81, 0x00]));
+  await malformedClosed;
+  // The shared edge and its existing tunnel continue serving while authorization is still pending.
+  assert.equal((await fetch(`http://${base}/health`)).status, 200);
+  await serving();
+  releaseIssuer();
+  issuers.server.on('request', handler);
   const held = await tunnel(wsTarget, token, { [PROOF_HEADER]: proof({ method: 'GET', target: wsTarget, credentialId }) });
   assert.deepEqual(held.frames.map((f) => f.type), ['welcome', 'candidate_status']);
   assert.equal(held.frames[1].state, 'held');
+  await serving();
   assert.equal(readJson('agent-credentials.json', [], directory).find((r) => r.id === credentialId).status, 'held');
   // The live legacy agent keeps the host.
   const agents = await (await fetch(`http://${base}/_fastdog/agents`, { headers: { 'x-fastdog-token': operator } })).json();

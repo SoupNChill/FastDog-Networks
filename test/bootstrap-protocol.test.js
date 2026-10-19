@@ -470,3 +470,46 @@ test('startup migration recovers an abandoned lock', (t) => {
   assert.ok(fs.existsSync(path.join(f.directory, 'agent-auth-state.json')));
   assert.ok(!fs.existsSync(path.join(f.directory, AUTH_LOCK)));
 });
+
+test('revokeAgent rolls back at crash points and refuses a competing writer without partial revocation', async (t) => {
+  const f = fixture(t);
+  const issued = f.issue();
+  await f.service.exchange(issued.code, f.request(issued.code, issued), 'ip');
+  assert.ok(readJson('agent-bootstrap.json', {}, f.directory).codes.some((c) => c.response));
+  const snapshot = path.join(f.directory, 'agent-auth-state.json');
+  const before = fs.readFileSync(snapshot, 'utf8');
+  const unchanged = () => assert.ok(fs.readFileSync(snapshot, 'utf8') === before, 'all auth state remains unchanged');
+  let crash = true, closed = 0;
+  const claims = createClaims({ ...f.options, registry: { closeHost(host) {
+    assert.equal(host, hostname);
+    assert.ok(fs.existsSync(path.join(f.directory, AUTH_LOCK)), 'outer transaction holds the writer lock');
+    unchanged(); // Nested cancellation and credential writes must not commit separately.
+    if (crash) throw new Error('simulated_crash');
+    closed++;
+  } } }, () => {});
+  assert.throws(() => claims.revokeAgent(tid, hostname), /simulated_crash/);
+  unchanged();
+  crash = false;
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (to === snapshot) throw new Error('simulated_commit_crash');
+    return rename(from, to);
+  });
+  assert.throws(() => claims.revokeAgent(tid, hostname), /simulated_commit_crash/);
+  t.mock.restoreAll();
+  unchanged();
+  assert.ok(!fs.readdirSync(f.directory).some((name) => name.endsWith('.tmp')));
+  const lock = path.join(f.directory, AUTH_LOCK);
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, nonce: randomUUID(), created: Date.now() }));
+  const previousClosed = closed;
+  assert.throws(() => claims.revokeAgent(tid, hostname), { status: 503, code: 'bootstrap_unavailable' });
+  unchanged(); assert.equal(closed, previousClosed);
+  fs.unlinkSync(lock);
+  assert.deepEqual(claims.revokeAgent(tid, hostname), { hostname, revoked: true });
+  assert.equal(closed, previousClosed + 1);
+  assert.ok(!fs.existsSync(lock), 'nested transactions complete and release the lock');
+  assert.ok(readJson('agent-credentials.json', [], f.directory).every((c) => c.revoked_at));
+  const state = readJson('agent-bootstrap.json', {}, f.directory);
+  assert.ok(state.codes.every((c) => c.cancelled && !c.response));
+  assert.equal(f.service.status(tid, hostname, issued.issuance_id).status, 'cancelled');
+});

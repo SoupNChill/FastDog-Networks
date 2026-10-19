@@ -337,7 +337,7 @@ export function createClaims(opts, changed) {
       return claims().some((c) => c.hostname === host && c.status === 'active') || legacy(host)?.status === 'active';
     },
   };
-  for (const name of ['create', 'rotate', 'suspendTenant', 'releaseTenant', 'delete']) {
+  for (const name of ['create', 'rotate', 'revokeAgent', 'suspendTenant', 'releaseTenant', 'delete']) {
     const fn = api[name]; api[name] = (...args) => authTransaction(directory, () => fn(...args));
   }
   return api;

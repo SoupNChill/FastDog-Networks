@@ -249,9 +249,16 @@ wss.on('connection', (ws, req) => {
   const { candidate, proof } = agentAuthContext(req, { enabled: bootstrap.enabled, audience: bootstrap.audience });
   const token = candidate ? agentToken(req, undefined) : agentToken(req, queryToken || req.headers['x-fastdog-token']);
 
+  // Guard the socket before an asynchronous candidate issuer check can yield.
+  if (bootstrap.enabled) {
+    ws.on('close', () => detachWs(agentId, ws));
+    ws.on('error', () => { detachWs(agentId, ws); ws.terminate(); });
+  }
+
   const attached = agentId && (bootstrap.enabled ? attachWs(agentId, ws, token, { candidate, proof }) : attachWs(agentId, ws, token));
   const proceed = (ok) => {
     if (!agentId || !ok) {
+      if (bootstrap.enabled) detachWs(agentId, ws);
       ws.close(4401, 'unauthorized');
       return;
     }
@@ -264,8 +271,10 @@ wss.on('connection', (ws, req) => {
     if (candidate) { const ready = candidateReady(agentId, ws); if (typeof ready?.then === 'function') ready.catch(() => {}); }
 
     watchTunnel(ws, agentId);
-    ws.on('close', () => detachWs(agentId, ws));
-    ws.on('error', () => detachWs(agentId, ws));
+    if (!bootstrap.enabled) {
+      ws.on('close', () => detachWs(agentId, ws));
+      ws.on('error', () => detachWs(agentId, ws));
+    }
   };
   // Candidate upgrades await the authenticated issuer recheck; legacy upgrades stay synchronous.
   if (typeof attached?.then === 'function') attached.then(proceed, () => proceed(false));

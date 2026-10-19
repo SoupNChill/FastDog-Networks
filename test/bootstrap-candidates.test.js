@@ -423,6 +423,14 @@ test('an asynchronous issuer check makes candidate paths asynchronous and is awa
   const ws = socket();
   const attaching = attachWs(reg.id, ws, c.token, { candidate: true, proof: f.wsProof(c, reg.id) });
   release(); assert.equal(await attaching, true);
+  // A replacement that closes during authorization must not displace the attached socket.
+  const abandoned = socket();
+  const replacing = attachWs(reg.id, abandoned, c.token, { candidate: true, proof: f.wsProof(c, reg.id) });
+  abandoned.readyState = 3;
+  detachWs(reg.id, abandoned);
+  assert.equal(ws.closed, null);
+  release(); assert.equal(await replacing, false);
+  assert.equal(ws.closed, null);
   const ready = candidateReady(reg.id, ws);
   assert.equal(typeof ready.then, 'function'); assert.equal(f.record(c.id).status, 'pending');
   assert.equal(candidateReady(reg.id, ws), 'busy');

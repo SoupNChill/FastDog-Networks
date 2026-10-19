@@ -60,6 +60,7 @@ const DEFINITIVE = new Set(['hostname_not_found', 'not_active', 'rate_limited', 
   'administratively_suspended', 'agent_bootstrap_unavailable']);
 
 export function createAgentBootstrap({ store, edge, limits, now = Date.now }) {
+  const issuing = new Map();
   const all = () => store.read('agent_bootstraps', []).filter((r) => Date.parse(r.created_at) > now() - DAY);
   const save = (records) => store.write('agent_bootstraps', records);
   const update = (id, patch) => { const records = all(); const r = records.find((x) => x.issuance_id === id); if (r) { Object.assign(r, patch); save(records); } };
@@ -68,54 +69,63 @@ export function createAgentBootstrap({ store, edge, limits, now = Date.now }) {
   const view = (r) => ({ issuance_id: r.issuance_id, issuer_kind: r.issuer_kind, deployment_id: r.deployment_id, created_at: r.created_at,
     expires_at: r.expires_at ?? null, state: r.state });
   // The newest issuance that may still authorize something at the edge.
-  const live = (tid, host) => mine(tid, host).find((r) => r.state === 'issued' && Date.parse(r.created_at) > now() - ISSUANCE_HORIZON_MS);
+  const live = (tid, host) => mine(tid, host).find((r) => ['issued', 'requested', 'uncertain'].includes(r.state) && Date.parse(r.created_at) > now() - ISSUANCE_HORIZON_MS);
   function markCancelled(tid, host) {
     const records = all(); let changed = false;
     for (const r of records) if (r.tenant_id === tid && r.hostname === host && r.state === 'issued') { r.state = 'cancelled'; changed = true; }
     if (changed) save(records);
   }
+  async function issue({ tid, hostname, origin, issuer, principal, charge = () => {}, unsuspended = (t) => t }) {
+    const claim = await edge.getHostname(tid, hostname);
+    if (claim.status !== 'active') throw fail('not_active');
+    // Cancel-by-reissue: 3/hour and 6/day per principal across hostnames, refused before any edge mutation.
+    const previous = live(tid, hostname);
+    if (previous && (previous.state !== 'issued' || Date.parse(previous.expires_at) > now())) {
+      let status = 'pending';
+      try { if (previous.state === 'issued') status = (await edge.getBootstrap(tid, hostname, previous.issuance_id)).status; } catch { /* Uncertain counts as pending. */ }
+      if (status === 'pending') {
+        limits.take(`bootstrap-reissue-hour:${principal}`, 3, 3600000, true);
+        try { limits.take(`bootstrap-reissue-day:${principal}`, 6, DAY, true); }
+        catch (error) { limits.refund(`bootstrap-reissue-hour:${principal}`, true); throw error; }
+      }
+    }
+    charge();
+    const record = { issuance_id: randomUUID(), deployment_id: randomUUID(), tenant_id: tid, hostname, issuer_kind: issuer.kind,
+      issuer_id: issuer.id, principal, created_at: new Date(now()).toISOString(), state: 'requested' };
+    const records = [...all(), record];
+    // Bounded per hostname (the edge allows at most 8 issuances a day, so live records are never dropped).
+    const drop = new Set(records.filter((r) => r.tenant_id === tid && r.hostname === hostname).reverse().slice(KEEP_PER_HOST));
+    save(records.filter((r) => !drop.has(r)));
+    let issued;
+    try {
+      issued = await edge.issueBootstrap(unsuspended(tid), hostname, { origin, deployment_id: record.deployment_id, issuance_id: record.issuance_id, issuer });
+    } catch (error) {
+      if (DEFINITIVE.has(error.code)) { update(record.issuance_id, { state: 'failed' }); throw error; }
+      // Outcome unknown: the raw code is unrecoverable, so look the issuance up and revoke an orphan. Never retry.
+      let state = 'uncertain';
+      try {
+        await edge.getBootstrap(tid, hostname, record.issuance_id);
+        await edge.cancelBootstraps(tid, hostname);
+        state = 'orphan_cancelled';
+      } catch (lookup) { if (lookup.code === 'agent_bootstrap_not_found') state = 'failed'; }
+      update(record.issuance_id, { state });
+      // An issuance that may have committed keeps the caller's reservation (a used token is not revived).
+      throw Object.assign(error, { uncertain: state !== 'failed' });
+    }
+    update(record.issuance_id, { state: 'issued', expires_at: issued.expires_at });
+    return { issuance_id: record.issuance_id, code: issued.code, hostname, origin: issued.origin, deployment_id: record.deployment_id, expires_at: issued.expires_at };
+  }
   return {
     // `issuer` {kind,id,authorization_generation}; `principal` is the human behind it (cancel-by-reissue limits);
     // `charge()` takes the caller's existing command budgets (it runs only after the reissue limits pass).
-    async issue({ tid, hostname, origin, issuer, principal, charge = () => {}, unsuspended = (t) => t }) {
-      const claim = await edge.getHostname(tid, hostname);
-      if (claim.status !== 'active') throw fail('not_active');
-      // Cancel-by-reissue: 3/hour and 6/day per principal across hostnames, refused before any edge mutation.
-      const previous = live(tid, hostname);
-      if (previous && Date.parse(previous.expires_at) > now()) {
-        let status = 'pending';
-        try { status = (await edge.getBootstrap(tid, hostname, previous.issuance_id)).status; } catch { /* Uncertain counts as pending. */ }
-        if (status === 'pending') {
-          limits.take(`bootstrap-reissue-hour:${principal}`, 3, 3600000, true);
-          try { limits.take(`bootstrap-reissue-day:${principal}`, 6, DAY, true); }
-          catch (error) { limits.refund(`bootstrap-reissue-hour:${principal}`, true); throw error; }
-        }
-      }
-      charge();
-      const record = { issuance_id: randomUUID(), deployment_id: randomUUID(), tenant_id: tid, hostname, issuer_kind: issuer.kind,
-        issuer_id: issuer.id, principal, created_at: new Date(now()).toISOString(), state: 'requested' };
-      const records = [...all(), record];
-      // Bounded per hostname (the edge allows at most 8 issuances a day, so live records are never dropped).
-      const drop = new Set(records.filter((r) => r.tenant_id === tid && r.hostname === hostname).reverse().slice(KEEP_PER_HOST));
-      save(records.filter((r) => !drop.has(r)));
-      let issued;
-      try {
-        issued = await edge.issueBootstrap(unsuspended(tid), hostname, { origin, deployment_id: record.deployment_id, issuance_id: record.issuance_id, issuer });
-      } catch (error) {
-        if (DEFINITIVE.has(error.code)) { update(record.issuance_id, { state: 'failed' }); throw error; }
-        // Outcome unknown: the raw code is unrecoverable, so look the issuance up and revoke an orphan. Never retry.
-        let state = 'uncertain';
-        try {
-          await edge.getBootstrap(tid, hostname, record.issuance_id);
-          await edge.cancelBootstraps(tid, hostname);
-          state = 'orphan_cancelled';
-        } catch (lookup) { if (lookup.code === 'agent_bootstrap_not_found') state = 'failed'; }
-        update(record.issuance_id, { state });
-        // An issuance that may have committed keeps the caller's reservation (a used token is not revived).
-        throw Object.assign(error, { uncertain: state !== 'failed' });
-      }
-      update(record.issuance_id, { state: 'issued', expires_at: issued.expires_at });
-      return { issuance_id: record.issuance_id, code: issued.code, hostname, origin: issued.origin, deployment_id: record.deployment_id, expires_at: issued.expires_at };
+    // Keep the host reserved through the edge reply and any orphan reconciliation.
+    async issue(input) {
+      const key = JSON.stringify([input.tid, input.hostname]);
+      const previous = issuing.get(key) ?? Promise.resolve();
+      const pending = previous.catch(() => {}).then(() => issue(input));
+      issuing.set(key, pending);
+      try { return await pending; }
+      finally { if (issuing.get(key) === pending) issuing.delete(key); }
     },
     async list(tid, hostname) {
       await edge.getHostname(tid, hostname);
