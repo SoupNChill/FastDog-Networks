@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-import { stat, appendFile, mkdir } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { dirname } from 'node:path';
 import { loadHostingAsns, asnDb } from '../src/asn/lookup.js';
-import { scoreAccessLogLine } from '../src/shadow/score.js';
+import { scoreAccessLogLine, createShadowWriter } from '../src/shadow/score.js';
 
 import { createCountStore, createCustomerTail, excludedHosts } from '../src/shadow/customer.js';
 
@@ -13,7 +12,7 @@ const logPaths = (process.env.VERDICT_SHADOW_LOGS ?? '/var/log/caddy/access-apex
   .split(',').map(s => s.trim()).filter(Boolean);
 const outFile = process.env.VERDICT_SHADOW_FILE || 'data/shadow.jsonl';
 const asnFile = process.env.VERDICT_ASN_FILE || '';
-const maxBytes = Number(process.env.VERDICT_SHADOW_MAX_BYTES || 10 * 1024 * 1024);
+const maxBytes = Number(process.env.VERDICT_SHADOW_MAX_BYTES ?? 10 * 1024 * 1024);
 const pollMs = Math.max(500, Number(process.env.VERDICT_SHADOW_POLL_MS || 2000));
 
 const hosting = loadHostingAsns();
@@ -30,22 +29,8 @@ if (customerDir && countsFile) {
   await store.load();
   customer = createCustomerTail({ logDir: customerDir, store, hosting, exclude: excludedHosts() });
 }
-if (logPaths.length) await mkdir(dirname(outFile), { recursive: true });
 const offsets = new Map();
-let outSize = 0;
-try { outSize = (await stat(outFile)).size; } catch { outSize = 0; }
-
-async function writeRow(row) {
-  const line = JSON.stringify(row) + '\n';
-  const n = Buffer.byteLength(line);
-  if (maxBytes && outSize + n > maxBytes) {
-    const { truncate } = await import('node:fs/promises');
-    await truncate(outFile, 0);
-    outSize = 0;
-  }
-  await appendFile(outFile, line, { mode: 0o600 });
-  outSize += n;
-}
+const writeRow = createShadowWriter(outFile, { maxBytes });
 
 async function consume(path) {
   let size = 0;
@@ -65,6 +50,7 @@ async function consume(path) {
 
 console.log(JSON.stringify({ shadow_tail: true, logs: logPaths, out: logPaths.length ? outFile : null, customer: Boolean(customer) }));
 for (;;) {
+  if (logPaths.length) await writeRow.trim();
   for (const p of logPaths) {
     try { await consume(p); } catch (e) { console.error('tail_error', p, e.message); }
   }

@@ -1,3 +1,4 @@
+import { pruneShadowSummaries } from './retention.js';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -83,5 +84,6 @@ export async function writeShadowSummary(shadowFile, outDir = 'data') {
   await mkdir(outDir, { recursive: true });
   const out = join(outDir, `shadow-summary-${day.replace(/-/g, '')}.json`);
   await writeFile(out, JSON.stringify(summary, null, 2), { mode: 0o600 });
+  await pruneShadowSummaries(outDir);
   return { out, summary };
 }

@@ -159,3 +159,22 @@ timeout; slow responses drain after the measured launch interval.
 - Proxy/origin-bearing bootstrap requests are rejected unless bootstrap is explicitly opted in. Seed keys locally before publishing; retain the public proxy's key-creation denial.
 - JSON requests are capped at 256 KiB, 32 levels and 10,000 traversed values; individual headers at 8 KiB (Node also caps aggregate headers). Rate/velocity/DNS cache state and pending decision-log work are bounded. Under saturated log queues, new decision log records are dropped while metrics continue.
 - `scripts/caddy-apply-hosts.js` generates snippets only. `--apply` now fails before writes; automatic shell execution, imports, reloads and live probes have been removed. Review generated snippets and perform validation/reload through your normal operator workflow. Do not directly import the generated output directory into a live config.
+
+### First-party shadow retention
+
+`shadow-tail.js` and `createShadowWriter` retain timestamped `shadow.jsonl` rows for
+30 days by default. `VERDICT_SHADOW_MAX_AGE_DAYS` overrides this; `SHADOW_RETENTION_DAYS`
+is an alias used when the primary variable is unset. Invalid or empty values use
+30 days; values below 7 are clamped to 7 for false-positive watch history.
+Expired or malformed/undated rows are removed by atomic 0600 replacement, checked
+on startup and at most once per minute while the tailer runs (including idle polls).
+`VERDICT_SHADOW_MAX_BYTES` defaults to 10 MiB; 0 disables the size cap. Before an
+append exceeds the cap, age trimming runs first, then oldest timestamps are dropped
+until the new row fits. The size cap may evict rows younger than seven days when
+necessary. A single oversized row is skipped without evicting history.
+
+Daily summary writes prune `shadow-summary-YYYYMMDD.json` using the same retention
+setting and the UTC date in each filename. I/O failures warn and remain fail-open;
+failed trims can temporarily exceed retention/size limits until storage recovers.
+Use one writer process per shadow file; writes within a writer are serialized.
+Decision-log retention is unchanged.
