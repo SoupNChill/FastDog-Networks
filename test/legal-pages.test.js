@@ -83,19 +83,19 @@ test('legal pages cover the required topics', () => {
   }
   const faq = read('faq/index.html');
   const questions = faq.match(/<dt>/g).length;
-  assert.ok(questions >= 8 && questions <= 10, String(questions));
+  assert.equal(questions, 11);
   for (const topic of ['/docs/', 'CNAME', 'log', 'delete my account', '/edge/#pricing', 'help']) assert.ok(faq.includes(topic), topic);
 });
 
 test('privacy and FAQ describe retention, logging and email delivery as implemented', () => {
   const privacy = read('privacy/index.html');
-  for (const claim of ['Terms acceptance (planned)', 'Sign-up does not record this yet', 'private outbox',
+  for (const claim of ['<dt>Terms acceptance</dt>', 'we record which versions of the Terms of Service and this Privacy Policy you accepted', 'private outbox',
     'deleted automatically. Many are gone within 30 days', 'system logs and DNS lookup logs are stored in files', 'Our DNS servers also log each lookup they answer', 'entries in these logs can be kept for more than 30 days', '24 hours',
     'sent through our email provider', 'most recent backup of each kind', 'any backup needed to roll back a change',
     'payment processor will be added when paid plans launch', 'cloud hosting providers and our email provider']) {
     assert.ok(privacy.includes(claim), claim);
   }
-  for (const stale of ['on a short schedule', 'minutes to hours', 'request headers such as the user agent, IP',
+  for (const stale of ['(planned)', 'does not record this yet', 'on a short schedule', 'minutes to hours', 'request headers such as the user agent, IP',
     'TODO(owner)', 'planned but not in place yet', 'DRAFT. Not yet in effect.',
     'not fully in place', 'once connected', 'not yet sent through the email provider', 'aim to delete', 'no longer than we reasonably need']) {
     assert.ok(!privacy.includes(stale), stale);
@@ -109,10 +109,19 @@ test('privacy and FAQ describe retention, logging and email delivery as implemen
   assert.ok(outgoing.includes('whether it was sent'));
   assert.doesNotMatch(outgoing, /\bthe link\b/);
   const faq = read('faq/index.html');
-  for (const claim of ['does not store them', 'remove both if you leave']) assert.ok(faq.includes(claim), claim);
+  for (const claim of ['does not store them', 'remove both if you leave', 'DNS servers’ lookup logs',
+    'the requesting IP address, the name and record type asked for, and the result', 'Logs are deleted automatically',
+    'Many are gone within 30 days', 'some are kept longer', 'Is there a free trial?', '7-day free trial with 1 hostname',
+    'don’t need a card', 'On day 8 we pause the hostname', 'We don’t delete it']) assert.ok(faq.includes(claim), claim);
   assert.ok(!faq.includes('status and user agent'));
+  assert.doesNotMatch(faq, /(all|every) logs?[^.]*within 30 days/i);
+  assert.match(faq, /<dt>Is there a free trial\?<\/dt><dd>[^\n]+<\/dd>\n<dt>How much does it cost\?<\/dt>/);
   const terms = read('terms/index.html');
   assert.ok(terms.includes('stay blocked for every other account until we review them and release them'));
+  for (const claim of ['Domain registration is billed separately. You can cancel at any time.', 'To ask for a refund, email support at the address under <a href="#contact">Contact</a>',
+    'we handle refund requests case by case.']) assert.ok(terms.includes(claim), claim);
+  for (const stale of ['setup promise', 'fees already paid are not refunded']) assert.ok(!terms.includes(stale), stale);
+  assert.doesNotMatch(terms, /refunds? (are|is|will be) (guaranteed|always)|refund[^.]*within \d+ (business )?days/i, 'no new money promise');
 });
 
 test('docs subpage footer links the legal pages', () => {
