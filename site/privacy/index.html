@@ -52,11 +52,11 @@
 <section class="section" id="retention"><h2>3. How long we keep it</h2>
 <ul>
 <li>Account details and terms acceptance: while your account exists, then deleted, except where we must keep billing records by law.</li>
-<li>Operational logs (rate limits, Verdict decision logs, web server access logs, portal logs, and API key audit entries): kept for at most 30 days, then deleted. Some of these rotate or expire sooner in normal operation (for example rate-limit windows from one minute up to 24 hours, Verdict and access-log files that roll over by size, and an API key audit list capped at the latest 1,000 entries per account). Those shorter windows do not extend past 30 days.</li>
+<li>Operational logs (rate limits, Verdict decision logs, web server access logs, portal logs, and API key audit entries): we aim to delete them within 30 days. Some rotate or expire sooner in normal operation (for example rate-limit windows from one minute up to 24 hours, Verdict and access-log files that roll over by size, and an API key audit list capped at the latest 1,000 entries per account). Others are bounded by size or entry count rather than by a clock.</li>
 <li>Outbox emails: removed by hand by our operator. Automatic deletion is not built yet; we treat them under the same 30-day target.</li>
 <li>Email messages: as long as needed to handle your request, and no longer than we reasonably need.</li>
 </ul>
-<p>We aim to delete operational logs within 30 days. Exact deletion timing can depend on the next write or rollover for a given log, so idle files may sit until that happens; we do not promise instantaneous deletion the moment the window ends.</p>
+<p>We aim to delete operational logs within 30 days. Exact deletion timing can depend on the next write or rollover for a given log, so idle files may sit until that happens. Guaranteed time-based deletion for every log type is not fully in place yet.</p>
 </section>
 
 <section class="section" id="processors"><h2>4. Who processes it for us</h2>

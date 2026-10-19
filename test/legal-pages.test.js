@@ -72,7 +72,7 @@ test('legal pages cover the required topics', () => {
 test('privacy and FAQ describe retention, logging and email delivery as implemented', () => {
   const privacy = read('privacy/index.html');
   for (const claim of ['Terms acceptance (planned)', 'Sign-up does not record this yet', 'private outbox',
-    'Automatic deletion is not built yet', '24 hours', 'at most 30 days',
+    'Automatic deletion is not built yet', '24 hours', 'aim to delete them within 30 days',
     'payment processor will be added when paid plans launch', 'cloud hosting providers and our email provider']) {
     assert.ok(privacy.includes(claim), claim);
   }
