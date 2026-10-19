@@ -17,6 +17,7 @@ import { closeCandidates, confirmCandidate, getAgentByHost } from '../src/contro
 import { startAgent, currentOriginStatus } from '../agent/index.js';
 import { readState } from '../agent/state.js';
 import { generateKey } from '../agent/protocol.js';
+import { issuerCheckFixture } from './helpers/issuer-check.js';
 
 const tid = 't_aaaaaaaaaaaaaaaaaaaa', hostname = 'app.example.test', audience = 'https://edge.example.test';
 // The agent's own generator, run before any timed step (state tests cover in-volume generation itself).
@@ -58,7 +59,10 @@ test('agent <-> edge: exchange, candidate register, held WS with notice, owner c
 
   const active = issueCredential({ tenant_id: tid, hostname }, directory);
   writeJson('tenant_hostnames.json', [{ tenant_id: tid, hostname, status: 'active', txt_value: randomBytes(8).toString('hex'), verified_at: new Date().toISOString(), created_at: new Date().toISOString(), credential_id: active.id }], 0o600, directory);
-  Object.assign(process.env, { NODE_ENV: 'test', AGENT_TOKEN: operator, DATA_DIR: directory, INTERNAL_ENABLED: '0', BILLING_ENABLED: 'false', AGENT_BOOTSTRAP_ENABLED: '1', AGENT_BOOTSTRAP_AUDIENCE: audience });
+  // Candidate registration, upgrade and promotion recheck the issuer through the authenticated portal listener.
+  const issuers = await issuerCheckFixture(t);
+  Object.assign(process.env, { NODE_ENV: 'test', AGENT_TOKEN: operator, DATA_DIR: directory, INTERNAL_ENABLED: '0', BILLING_ENABLED: 'false', AGENT_BOOTSTRAP_ENABLED: '1', AGENT_BOOTSTRAP_AUDIENCE: audience,
+    AGENT_BOOTSTRAP_ISSUER_CHECK_URL: issuers.url, AGENT_BOOTSTRAP_ISSUER_CHECK_KEY: issuers.secret });
   const { server } = await import('../src/edge/server.js?agent-e2e=1');
   const edgePort = await listen(server);
   const service = createBootstrap({ bootstrapEnabled: true, bootstrapAudience: audience, dataDir: directory, issuerCheck: async () => true, registry: { closeCandidates, confirmCandidate } });
@@ -73,7 +77,7 @@ test('agent <-> edge: exchange, candidate register, held WS with notice, owner c
     for (const socket of sockets) socket.terminate();
     service.close();
     for (const s of [server, exchange, app]) { s.closeAllConnections?.(); await new Promise((resolve) => s.close(resolve)); }
-    for (const name of ['AGENT_BOOTSTRAP_ENABLED', 'AGENT_BOOTSTRAP_AUDIENCE', 'AGENT_TOKEN', 'DATA_DIR']) delete process.env[name];
+    for (const name of ['AGENT_BOOTSTRAP_ENABLED', 'AGENT_BOOTSTRAP_AUDIENCE', 'AGENT_TOKEN', 'DATA_DIR', 'AGENT_BOOTSTRAP_ISSUER_CHECK_URL', 'AGENT_BOOTSTRAP_ISSUER_CHECK_KEY']) delete process.env[name];
     fs.rmSync(directory, { recursive: true, force: true }); fs.rmSync(stateDir, { recursive: true, force: true });
   });
 
@@ -115,7 +119,11 @@ test('agent <-> edge: exchange, candidate register, held WS with notice, owner c
   assert.equal(currentOriginStatus().credential_mode, 'key_bound');
 
   // Owner confirmation with the fingerprint the agent logged promotes it; the old socket is closed.
-  assert.deepEqual(service.confirm(tid, hostname, state.credential_id, { key_fingerprint: state.key_fingerprint }), { promoted: true, credential_id: state.credential_id });
+  // Promotion awaits the authenticated issuer recheck (candidate register and upgrade already used it).
+  const checksBefore = issuers.seen.length;
+  assert.ok(checksBefore >= 2);
+  assert.deepEqual(await service.confirm(tid, hostname, state.credential_id, { key_fingerprint: state.key_fingerprint }), { promoted: true, credential_id: state.credential_id });
+  assert.equal(issuers.seen.length, checksBefore + 1);
   await within(oldClosed, 'old agent socket close');
   await until(() => readState(stateDir).promoted, 'persisted promotion');
   assert.equal(currentOriginStatus().bootstrap_status, 'promoted');

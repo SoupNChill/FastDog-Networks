@@ -6,6 +6,7 @@ import { lengthPrefixed } from '../control/agent-proof.js';
 import { validOrigin } from './bootstrap-origin.js';
 import { normalizeHostname } from './hostname.js';
 import { validAgentVersion } from '../control/agent-version.js';
+import { issuerCheckFromEnv } from './issuer-check.js';
 
 export const EXCHANGE_PATH = '/_fastdog/agents/bootstrap/exchange';
 export const OAEP_LABEL = Buffer.from('fastdog-agent-bootstrap-v1');
@@ -47,6 +48,8 @@ export function createBootstrap(opts = {}) {
   const directory = opts.dataDir ?? dataDir(); const now = opts.now ?? Date.now;
   const audience = opts.bootstrapAudience ?? process.env.AGENT_BOOTSTRAP_AUDIENCE;
   if (enabled) enableAuthState(directory);
+  // Factories inject a checker; production builds the authenticated portal client from env. None means fail closed.
+  const issuerCheck = opts.issuerCheck ?? (enabled ? issuerCheckFromEnv(process.env) : undefined);
   // Maps keep insertion order, which is expiry order because every window is 60s; sweeps stop at the first live entry.
   const anonymous = new Map();
   let persistedSize = enabled ? Object.keys(state(directory).limits).length : 0;
@@ -108,7 +111,7 @@ export function createBootstrap(opts = {}) {
   if (enabled) authTransaction(directory, expire);
   const closeCandidates = (host) => { try { opts.registry?.closeCandidates?.(host); } catch { /* Durable revocation already rejects them. */ } };
   return {
-    enabled, audience,
+    enabled, audience, issuerCheck,
     close() { clearInterval(sweep); },
     issue(tid, host, body) {
       gate();
@@ -157,10 +160,14 @@ export function createBootstrap(opts = {}) {
       if (!record) throw error(404, 'candidate_not_found');
       if (typeof body?.key_fingerprint !== 'string' || !equalHash(body.key_fingerprint, record.key_fingerprint) || record.status !== 'held' || record.revoked_at) throw error(409, 'candidate_mismatch');
       if (typeof opts.registry?.confirmCandidate !== 'function') throw error(503, 'bootstrap_unavailable');
+      // The registry rechecks issuer eligibility before promoting; with an asynchronous checker the outcome is a promise.
+      const finish = (outcome) => {
+        if (outcome === 'promoted') return { promoted: true, credential_id: id };
+        if (outcome === 'unavailable' || outcome === 'busy') throw error(503, 'bootstrap_unavailable');
+        throw error(409, 'candidate_mismatch');
+      };
       const outcome = opts.registry.confirmCandidate(id, body.key_fingerprint);
-      if (outcome === 'promoted') return { promoted: true, credential_id: id };
-      if (outcome === 'unavailable') throw error(503, 'bootstrap_unavailable');
-      throw error(409, 'candidate_mismatch');
+      return typeof outcome?.then === 'function' ? outcome.then(finish) : finish(outcome);
     },
     admit(ip) {
       if (!enabled) throw error(404, 'not_found');
@@ -209,10 +216,10 @@ export function createBootstrap(opts = {}) {
         } else if (now() >= current.expires_at) throw error(410, 'bootstrap_expired');
       }
       classify(c);
-      if (typeof opts.issuerCheck !== 'function') throw error(503, 'bootstrap_unavailable');
+      if (typeof issuerCheck !== 'function') throw error(503, 'bootstrap_unavailable');
       let authorized;
       let timer;
-      try { authorized = await Promise.race([opts.issuerCheck(structuredClone(c.issuer), { signal }), new Promise((_, reject) => {
+      try { authorized = await Promise.race([issuerCheck(structuredClone(c.issuer), { signal }), new Promise((_, reject) => {
         timer = setTimeout(() => reject(error(503, 'bootstrap_unavailable')), 5000);
       })]); } catch { throw error(503, 'bootstrap_unavailable'); } finally { clearTimeout(timer); }
       if (authorized === false) throw error(401, 'unauthorized');
@@ -225,7 +232,9 @@ export function createBootstrap(opts = {}) {
         const { token, record } = generateCredential({ tenant_id: c.tenant_id, hostname: c.hostname }, now);
         const activateBy = now() + 120000;
         // The bound public key verifies later register/WS proofs; hold_until bounds an unpromoted candidate to one hour.
-        Object.assign(record, { status: 'pending', key_fingerprint: keyFingerprint, public_key: der.toString('base64'), activate_by: activateBy, hold_until: now() + 3600000 });
+        // The issuer (kind, ID, generation only) is kept for the candidate and promotion rechecks.
+        Object.assign(record, { status: 'pending', key_fingerprint: keyFingerprint, public_key: der.toString('base64'), activate_by: activateBy, hold_until: now() + 3600000,
+          issuer: structuredClone(c.issuer) });
         const credentials = readJson('agent-credentials.json', [], directory); credentials.push(record);
         const response = { credential_id: record.id, hostname: c.hostname, origin: c.origin, deployment_id: c.deployment_id, algorithm: 'RSA-OAEP-256',
           encrypted_token: publicEncrypt({ key, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256', oaepLabel: OAEP_LABEL }, Buffer.from(token)).toString('base64url'), recovery_expires_at: new Date(activateBy).toISOString() };

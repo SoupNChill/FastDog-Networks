@@ -12,10 +12,10 @@ import { writeJson } from '../src/onboard/json.js';
 import { issueCredential } from '../src/onboard/credentials.js';
 import { proofTranscript as edgeProofTranscript, parseProof, verifyAgentProof, createNonceCache } from '../src/control/agent-proof.js';
 import { validAgentVersion } from '../src/control/agent-version.js';
-import { startAgent, AGENT_VERSION, currentOriginStatus, MAX_CREDENTIAL_REJECTIONS } from '../agent/index.js';
-import { readState, writeState, acquireLock, atomicWrite, STATE_FILE, LOCK_FILE } from '../agent/state.js';
+import { startAgent, AGENT_VERSION, currentOriginStatus, MAX_CREDENTIAL_REJECTIONS, releaseVolumeLock } from '../agent/index.js';
+import { readState, writeState, acquireLock, atomicWrite, probeWritable, STATE_FILE, LOCK_FILE } from '../agent/state.js';
 import { readSettings, pinnedEdge, loadPins, KNOWN_AGENT_ENV } from '../agent/config.js';
-import { generateKey, exchangeTranscript, proofTranscript, proofHeader, dialTarget, tlsOptions, sha256 } from '../agent/protocol.js';
+import { generateKey, exchangeTranscript, proofTranscript, proofHeader, dialTarget, tlsOptions, sha256, edgeRequest } from '../agent/protocol.js';
 import { REDEEM_HORIZON_MS } from '../agent/bootstrap.js';
 
 const tid = 't_aaaaaaaaaaaaaaaaaaaa', hostname = 'app.example.test', audience = 'https://edge.example.test';
@@ -411,4 +411,95 @@ test('the persisted private key signs proofs the persisted fingerprint identifie
   assert.deepEqual(Object.keys(header), ['v', 'nonce', 'timestamp', 'signature']);
   const transcript = proofTranscript({ method: 'GET', target: '/t', audience, credentialId: 'c', timestamp: header.timestamp, nonce: header.nonce });
   assert.equal(verify('sha256', transcript, { key: createPublicKey(keys[0].publicKey), padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 }, Buffer.from(header.signature, 'base64url')), true);
+});
+
+// M3 review LOWs.
+test('startup removes abandoned probe temps and a leftover probe file, never unrelated names', async (t) => {
+  const e = edge(t); const dir = tmp(t, 'agent-state-');
+  const probeTemp = path.join(dir, `.write-probe.${'b'.repeat(32)}.tmp`), probe = path.join(dir, 'write-probe'), keep = path.join(dir, '.write-probe-keep');
+  for (const file of [probeTemp, probe, keep]) fs.writeFileSync(file, 'x', { mode: 0o600 });
+  const run = await start(t, { env: envFor(e.issued), stateDir: dir, request: e.request });
+  assert.deepEqual(run.exits, []);
+  assert.equal(fs.existsSync(probeTemp), false); assert.equal(fs.existsSync(probe), false); assert.equal(fs.existsSync(keep), true);
+  // The probe's own temp name is one the reaper recognises.
+  const names = []; const spy = { ...fs, constants: fs.constants, openSync: (file, ...rest) => { names.push(path.basename(String(file))); return fs.openSync(file, ...rest); } };
+  probeWritable(dir, { fs: spy });
+  assert.ok(names.some((n) => /^\.write-probe\.[0-9a-f]{32}\.tmp$/.test(n)), names.join(','));
+});
+
+test('a stop signal while startAgent is still redeeming releases the volume lock', async (t) => {
+  const e = edge(t, { faults: [{ status: 503 }] }); const dir = tmp(t, 'agent-state-');
+  let sleeping; const asleep = new Promise((resolve) => { sleeping = resolve; });
+  // Never resolves: the process is "inside" redeem when the signal arrives.
+  startAgent({ env: envFor(e.issued), stateDir: dir, pins, request: e.request, keygen: () => keys[0], exit: () => {}, log: { log() {}, warn() {}, error() {} },
+    sleep: () => { sleeping(); return new Promise(() => {}); }, lockOptions: { staleMs: 60000, waitMs: 50 } });
+  await asleep;
+  assert.equal(fs.existsSync(path.join(dir, LOCK_FILE)), true);
+  releaseVolumeLock();
+  assert.equal(fs.existsSync(path.join(dir, LOCK_FILE)), false);
+});
+
+test('a lock file that cannot be written or synced is removed, so the next start is not blocked', async (t) => {
+  for (const op of ['writeSync', 'fsyncSync']) {
+    const dir = tmp(t, 'agent-state-');
+    const failing = { ...fs, constants: fs.constants, [op]: () => { throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }); } };
+    await assert.rejects(acquireLock(dir, { fs: failing, waitMs: 50 }), { code: 'state_write_failed' });
+    assert.equal(fs.existsSync(path.join(dir, LOCK_FILE)), false, op);
+    (await acquireLock(dir, { waitMs: 50 })).release();
+  }
+});
+
+test('legacy token-only mode treats an unreadable state directory as no state and allows extra AGENT_* names', async (t) => {
+  const token = randomBytes(32).toString('hex'); const dir = tmp(t, 'agent-state-');
+  const denied = { ...fs, constants: fs.constants, lstatSync: () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); } };
+  const env = { AGENT_TOKEN: token, AGENT_HOSTNAME: hostname, AGENT_EXTRA_SETTING: 'synthetic-value', EDGE_HTTP_URL: 'http://127.0.0.1:1', EDGE_WS_URL: 'ws://127.0.0.1:1/_fastdog/tunnel' };
+  const legacy = await start(t, { env, stateDir: dir, fs: denied, request: async () => assert.fail('no exchange in legacy mode') });
+  assert.deepEqual(legacy.exits, []); assert.equal(legacy.result.mode, 'legacy');
+  assert.ok(!legacy.output.includes('synthetic-value'));
+  // Bootstrap mode keeps the strict rules for both.
+  const e = edge(t);
+  const strict = await start(t, { env: envFor(e.issued), stateDir: dir, fs: denied, request: e.request });
+  assert.deepEqual(strict.exits, [1]); assert.match(strict.output, /state_file_unsafe/);
+  const unknown = await start(t, { env: envFor(e.issued, { AGENT_EXTRA_SETTING: 'x' }), stateDir: dir, request: e.request });
+  assert.deepEqual(unknown.exits, [1]); assert.match(unknown.output, /unknown_env/);
+  // A saved state with a token-only env is key-bound mode and stays strict.
+  writeState(dir, activeState(e.issued));
+  const saved = await start(t, { env: { ...envFor(e.issued, { AGENT_BOOTSTRAP: undefined, AGENT_EXTRA_SETTING: 'x' }), AGENT_TOKEN: token }, stateDir: dir, request: e.request });
+  assert.deepEqual(saved.exits, [1]); assert.match(saved.output, /unknown_env/);
+  assert.equal(e.calls.length, 0);
+});
+
+test('an unusable 200 exchange response persists a 30 s next attempt instead of retrying at once on restart', async (t) => {
+  const e = edge(t, { faults: [{ status: 200 }] }); const dir = tmp(t, 'agent-state-');
+  const time = 7_000_000;
+  const run = await start(t, { env: envFor(e.issued), stateDir: dir, request: e.request, now: () => time });
+  assert.deepEqual(run.exits, [1]); assert.match(run.output, /bootstrap_response_invalid/);
+  const pending = readState(dir);
+  assert.equal(pending.status, 'pending'); assert.equal(pending.failure, undefined);
+  assert.equal(pending.next_attempt_at, time + 30000); assert.equal(pending.attempt, 1);
+  const waits = [];
+  await start(t, { env: envFor(e.issued), stateDir: dir, request: e.request, now: () => time, sleep: async (ms) => { waits.push(ms); throw Object.assign(new Error('crash'), { code: 'crash' }); } });
+  assert.deepEqual(waits, [30000]); assert.equal(e.calls.length, 1);
+});
+
+test('AGENT_LOCAL_UPSTREAM longer than the saved-state limit is rejected by name before any state is written', async (t) => {
+  const e = edge(t); const dir = tmp(t, 'agent-state-');
+  const long = `http://${Array(4).fill('a'.repeat(60)).join('.')}.test`;
+  assert.ok(long.length > 200);
+  const run = await start(t, { env: envFor(e.issued, { AGENT_LOCAL_UPSTREAM: long }), stateDir: dir, request: e.request });
+  assert.deepEqual(run.exits, [1]); assert.match(run.output, /origin_invalid: AGENT_LOCAL_UPSTREAM/);
+  assert.deepEqual(fs.readdirSync(dir), []); assert.equal(e.calls.length, 0);
+});
+
+test('edge requests have an overall deadline, so a trickling response cannot hold an attempt open', async (t) => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200);
+    const timer = setInterval(() => res.write('.'), 20);
+    res.on('close', () => clearInterval(timer));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const started = Date.now();
+  await assert.rejects(edgeRequest('https://edge.example.test/x', { method: 'GET', fixture: `http://127.0.0.1:${server.address().port}`, timeoutMs: 5000, deadlineMs: 300 }), /edge_timeout/);
+  assert.ok(Date.now() - started < 3000);
 });

@@ -7,7 +7,7 @@ import { createBootstrap, bootstrapMiddleware } from '../onboard/bootstrap.js';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { WebSocketServer } from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import { env, loadRoutes, defaultUpstream, ROOT } from '../lib/config.js';
 import { forwardHttp } from '../lib/http-forward.js';
 import { inc, get as getMetrics } from '../lib/metrics.js';
@@ -95,7 +95,7 @@ app.use('/www', (err, req, res, next) => {
 const bootstrap = createBootstrap({ registry: { closeCandidates, confirmCandidate } });
 if (bootstrap.enabled) {
   app.use(bootstrapMiddleware(bootstrap));
-  configureCandidates({ absentForMs: absentForSetting(process.env.AGENT_BOOTSTRAP_ABSENT_FOR_SECONDS) });
+  configureCandidates({ absentForMs: absentForSetting(process.env.AGENT_BOOTSTRAP_ABSENT_FOR_SECONDS), issuerCheck: bootstrap.issuerCheck });
   setInterval(sweepCandidates, 5000).unref();
 }
 app.post('/_fastdog/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billingWebhook);
@@ -164,11 +164,11 @@ function agentToken(req, legacyToken) {
   return legacyToken;
 }
 
-app.post('/_fastdog/agents/register', (req, res) => {
+app.post('/_fastdog/agents/register', async (req, res) => {
   try {
     // Disabled bootstrap yields {}: no candidate mode and no proof context (legacy behaviour).
     const { candidate, proof } = agentAuthContext(req, { enabled: bootstrap.enabled, audience: bootstrap.audience, body: req.rawBody });
-    const result = registerAgent({
+    let result = registerAgent({
       name: req.body?.name,
       hostname: req.body?.hostname,
       localUpstream: req.body?.localUpstream,
@@ -177,6 +177,8 @@ app.post('/_fastdog/agents/register', (req, res) => {
       expectedToken: AGENT_TOKEN,
       ...(bootstrap.enabled ? { candidate, proof } : {}),
     });
+    // Candidate registration awaits the authenticated issuer recheck; legacy registration stays synchronous.
+    if (typeof result?.then === 'function') result = await result;
     res.status(201).json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
@@ -247,19 +249,27 @@ wss.on('connection', (ws, req) => {
   const { candidate, proof } = agentAuthContext(req, { enabled: bootstrap.enabled, audience: bootstrap.audience });
   const token = candidate ? agentToken(req, undefined) : agentToken(req, queryToken || req.headers['x-fastdog-token']);
 
-  if (!agentId || !(bootstrap.enabled ? attachWs(agentId, ws, token, { candidate, proof }) : attachWs(agentId, ws, token))) {
-    ws.close(4401, 'unauthorized');
-    return;
-  }
+  const attached = agentId && (bootstrap.enabled ? attachWs(agentId, ws, token, { candidate, proof }) : attachWs(agentId, ws, token));
+  const proceed = (ok) => {
+    if (!agentId || !ok) {
+      ws.close(4401, 'unauthorized');
+      return;
+    }
+    // A candidate socket that closed while its issuer recheck was in flight is detached at once.
+    if (ws.readyState !== WebSocket.OPEN) { detachWs(agentId, ws); return; }
 
-  if (req.headers.authorization === undefined && queryToken) queryTokenFallbackUses++;
+    if (req.headers.authorization === undefined && queryToken) queryTokenFallbackUses++;
 
-  ws.send(JSON.stringify({ type: 'welcome', agentId, protocol: 'fastdog-tunnel-v0' }));
-  if (candidate) candidateReady(agentId, ws);
+    ws.send(JSON.stringify({ type: 'welcome', agentId, protocol: 'fastdog-tunnel-v0' }));
+    if (candidate) { const ready = candidateReady(agentId, ws); if (typeof ready?.then === 'function') ready.catch(() => {}); }
 
-  watchTunnel(ws, agentId);
-  ws.on('close', () => detachWs(agentId, ws));
-  ws.on('error', () => detachWs(agentId, ws));
+    watchTunnel(ws, agentId);
+    ws.on('close', () => detachWs(agentId, ws));
+    ws.on('error', () => detachWs(agentId, ws));
+  };
+  // Candidate upgrades await the authenticated issuer recheck; legacy upgrades stay synchronous.
+  if (typeof attached?.then === 'function') attached.then(proceed, () => proceed(false));
+  else proceed(attached);
 });
 
 if (process.env.NODE_ENV !== 'test') {

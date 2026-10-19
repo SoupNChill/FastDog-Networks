@@ -71,7 +71,12 @@ export async function redeem({ dir, stateOpts, state, code, edge, fixture, now =
         headers: { authorization: `Bearer ${code}`, 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify(state.request)) });
     } catch { /* Network failure: retry the same persisted request. */ }
     if (res?.status === 200) {
-      const active = complete(state, res.body);
+      let active;
+      try { active = complete(state, res.body); } catch (e) {
+        // Not terminal (a matching retry gets the same stored response), but restarts must not resend at once.
+        persist({ ...state, attempt: state.attempt + 1, next_attempt_at: now() + 30000 });
+        throw e;
+      }
       persist(active);
       return active;
     }

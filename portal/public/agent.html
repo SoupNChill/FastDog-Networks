@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent connection codes · Portal</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/css/site.css"><link rel="stylesheet" href="/css/portal.css"><script type="module" src="/js/agent-bootstrap.js"></script></head>
+<body><a class="skip" href="#main">Skip to content</a><header class="site-header wrap"><a class="brand" href="/hostname" aria-label="FastDog Networks Portal"><picture><source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/hound-light.svg" width="70" height="21" alt="FastDog Networks"></picture><span>Portal</span></a><nav aria-label="Main navigation"><a href="/hostname">Website</a><a href="/connect">Server</a><a href="/status">Status</a><a href="/domains">Domains</a><a href="/plan">Plan</a><a href="/keys">API keys</a><a href="/login" id="signin">Sign in</a><button type="button" id="logout" hidden>Sign out</button></nav></header>
+<main id="main" class="wrap split"><div class="section-marker">Agent</div><div class="section-body portal-body">
+<p class="eyebrow">Early access</p><h1>Agent connection codes</h1>
+<noscript><p>JavaScript is needed to manage agent connection codes.</p></noscript>
+<p>A connection code lets a new agent fetch its own credential once. It expires after 15 minutes, works once, and the agent that uses it does not replace a connected agent until you confirm or the old agent stays offline.</p>
+<p id="message" role="status" aria-live="polite"></p>
+<form id="agent-host-form"><label for="agent-hostname">Website</label><input id="agent-hostname" name="hostname" placeholder="app.example.com" autocapitalize="none" spellcheck="false" required>
+<label for="agent-origin">App address on your server</label><input id="agent-origin" name="origin" placeholder="127.0.0.1:3000" autocapitalize="none" spellcheck="false" required>
+<button type="submit" id="agent-issue">Create connection code</button> <button type="button" id="agent-refresh">Show status</button></form>
+<section id="agent-code" hidden aria-labelledby="agent-code-title"><h2 id="agent-code-title">Your connection code</h2><p><strong>Copy it now. It won't be shown again.</strong> Keep it out of URLs, logs, commits and chats.</p><pre><code id="agent-code-value"></code></pre><p id="agent-code-detail"></p></section>
+<section aria-labelledby="agent-list-title"><h2 id="agent-list-title">Recent codes</h2><p id="agent-empty">No codes yet.</p><ul id="agent-list" class="keys-list"></ul>
+<button type="button" id="agent-cancel">Cancel pending codes</button></section>
+<section aria-labelledby="agent-confirm-title"><h2 id="agent-confirm-title">Confirm a waiting agent</h2><p>Compare the key fingerprint with the one the new agent printed in its log before confirming.</p>
+<form id="agent-confirm-form"><label for="agent-credential">Credential ID</label><input id="agent-credential" name="credential_id" autocomplete="off" required>
+<label for="agent-fingerprint">Key fingerprint</label><input id="agent-fingerprint" name="key_fingerprint" autocomplete="off" required>
+<button type="submit">Confirm agent</button></form></section>
+<section aria-labelledby="agent-revoke-title"><h2 id="agent-revoke-title">Revoke agent</h2><p>Disconnects the current agent, revokes its credential and cancels pending codes. Nothing replaces it until you connect a server again.</p>
+<button type="button" id="agent-revoke">Revoke agent</button></section>
+</div></main><footer class="footer wrap"><a class="brand" href="/login">FastDog <span class="brand-second">Networks</span></a><div><span>Private customer portal</span><span>Access by invitation only</span></div></footer></body></html>

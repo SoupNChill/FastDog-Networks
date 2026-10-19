@@ -253,6 +253,14 @@ export function createClaims(opts, changed) {
       save(records);
       return { credential };
     },
+    // Owner "Revoke agent" (bootstrap routes only): every credential of the claim, pending codes, recovery responses and
+    // candidates are revoked and the tunnel closed; no replacement credential is minted.
+    revokeAgent(tid, host) {
+      active(find(claims(), tid, host));
+      revoke(tid, host);
+      registry?.closeHost(host);
+      return { hostname: host, revoked: true };
+    },
     agent(tid, host) { active(find(claims(), tid, host)); return agent(host); },
     // When this tenant's current claim became active (verified_at only; null makes the probes fail closed).
     claimSince(tid, host) { const c = find(claims(), tid, host); active(c); return c.verified_at || null; },

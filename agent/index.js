@@ -284,6 +284,10 @@ function keyBoundLoop({ credential, settings, persistPromoted, loop }) {
   });
 }
 
+// The volume lock of the current startAgent, so a signal during startup (for example while redeem sleeps) releases it.
+let heldLock;
+export function releaseVolumeLock() { heldLock?.release(); }
+
 const sameBinding = (state, binding, audience) =>
   state.hostname === binding.hostname && state.origin === binding.origin && state.deployment_id === binding.deployment_id && state.audience === audience;
 
@@ -310,8 +314,13 @@ export async function startAgent(opts = {}) {
 
   let settings, exists;
   try {
-    settings = readSettings(opts.env ?? process.env);
-    exists = stateExists(dir, stateOpts);
+    const env = opts.env ?? process.env;
+    const set = (name) => env[name] !== undefined && env[name] !== '';
+    // Token-only startups keep 0.1.2's leniency (unreadable state directory, extra AGENT_* names) unless a saved
+    // state exists, in which case the key-bound rules apply.
+    const legacy = set('AGENT_TOKEN') && !set('AGENT_BOOTSTRAP');
+    exists = stateExists(dir, { ...stateOpts, legacy });
+    settings = readSettings(env, { legacy: legacy && !exists });
   } catch (e) { return failWith(e); }
   const halted = () => Object.assign(new Error('stopped'), { fatal: true, stopped: true });
   const delay = (ms) => (stopped ? Promise.reject(halted()) : sleep(ms));
@@ -335,6 +344,7 @@ export async function startAgent(opts = {}) {
       edge = pinnedEdge(settings, opts.pins ?? loadPins());
       binding = requiredBinding(settings);
       lock = await acquireLock(dir, { ...stateOpts, ...opts.lockOptions, onLost: () => fail('volume_lock_lost', 'The credential state volume lock was lost.') });
+      heldLock = lock;
       removeAbandonedTemps(dir, stateOpts);
       if (stateExists(dir, stateOpts)) {
         // Persisted state always wins over env; it must match this deployment exactly or startup fails closed.
@@ -382,6 +392,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href &
   let agent;
   const stop = () => {
     agent?.stop?.();
+    releaseVolumeLock();
     if (activeSocket) {
       try { activeSocket.close(1000, 'shutdown'); } catch { /* Already closed. */ }
       setTimeout(() => {

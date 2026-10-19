@@ -1,10 +1,12 @@
 # Agent bootstrap implementation
 
-Milestone 1 implements edge issuance and exchange. Milestone 2 adds key-bound register/tunnel proofs, candidate registration, the promotion hold and owner confirmation on the edge. Milestone 3 implements the agent client and its state volume (below). No deployment, image build or publication, portal change, image pin change or default connect command change is included. Keep the feature disabled until the remaining milestones and operational acceptance gates pass.
+Milestone 1 implements edge issuance and exchange. Milestone 2 adds key-bound register/tunnel proofs, candidate registration, the promotion hold and owner confirmation on the edge. Milestone 3 implements the agent client and its state volume. Milestone 4 adds portal issuance and revocation and the authenticated issuer check (see "Portal and issuer check (milestone 4)"). No deployment, image build or publication, image pin change or default connect command/snippet change is included. Keep both flags disabled until the remaining milestones and operational acceptance gates pass.
 
 ## Flags and configuration
 
-`AGENT_BOOTSTRAP_ENABLED=1` enables the internal bootstrap operations and the canonical public exchange route. Unset, `0` and other values disable them. `AGENT_BOOTSTRAP_AUDIENCE` must specify the configured edge HTTPS audience; it is part of the signed transcript and issuance binding. Factory tests inject `bootstrapEnabled`, `bootstrapAudience`, `now` and `issuerCheck`. The production entry point deliberately has no issuer checker configured: exchange fails closed with `503 bootstrap_unavailable` until the authenticated checker is implemented and wired in milestone 3. A checker must return the boolean `true`; false means unauthorized (401); missing, nonboolean, throwing or timed-out checks mean unavailable (503).
+`AGENT_BOOTSTRAP_ENABLED=1` enables the internal bootstrap operations and the canonical public exchange route. Unset, `0` and other values disable them. `AGENT_BOOTSTRAP_AUDIENCE` must specify the configured edge HTTPS audience; it is part of the signed transcript and issuance binding. Factory tests inject `bootstrapEnabled`, `bootstrapAudience`, `now` and `issuerCheck`. In production the issuer checker is built from `AGENT_BOOTSTRAP_ISSUER_CHECK_URL` (the portal's loopback `http://127.0.0.1:<port>/internal/v1/issuer-check`) and `AGENT_BOOTSTRAP_ISSUER_CHECK_KEY` (the per-environment service secret; 32+ characters, never `PORTAL_KEY` or `AGENT_TOKEN`). Both unset means no checker: exchange, candidate auth and promotion fail closed with 503. A partial or invalid pair fails enabled startup; messages never contain values. A checker must return the boolean `true`; false means unauthorized (401); missing, nonboolean, throwing or timed-out checks mean unavailable (503).
+
+`PORTAL_AGENT_BOOTSTRAP_ENABLED=1` enables the portal side (below); anything else leaves the portal byte-for-byte unchanged. `PORTAL_ISSUER_CHECK_KEY` (same secret as the edge's `AGENT_BOOTSTRAP_ISSUER_CHECK_KEY`, provisioned by the portal operator in the protected runtime env file, never committed) starts the issuer-check listener on `127.0.0.1:PORTAL_ISSUER_CHECK_PORT` (default 8792). It must differ from `PORTAL_KEY` and the portal port. Caddy must not proxy that port.
 
 `AGENT_BOOTSTRAP_ABSENT_FOR_SECONDS` sets the promotion-hold absence (default 300; an integer from 60 to 3600, otherwise enabled startup fails). It is read only when bootstrap is enabled. Disabled, the edge gives no proof context or candidate mode. It keeps the existing JSON parser and the existing register/upgrade calls, so behaviour matches master. Consequently, once a key-bound credential has been promoted, disabling the flag makes that agent fail closed with 401 until the flag is re-enabled or the owner reissues a legacy credential. Factor this into rollback.
 
@@ -13,7 +15,7 @@ TLS ask, recheck, pricing, the agent image pin and portal commands are unchanged
 ## Status against the plan
 
 - Section 3: issuance, 15-minute TTL, signed RSA-3072 exchange, pending key-bound credentials, two-minute encrypted recovery, binding-first errors, bounded attempt budgets and durable known-code/claim counters are implemented. Issuance charges the shared five-per-UTC-day hostname budget and eight-per-day absolute ceiling. The latter becomes independently reachable when refund accounting exists.
-- Section 4: portal-key internal issuance/status/cancel endpoints are implemented on the existing internal listener with its limits. The issuer-check interface exists; portal HMAC transport, reply authentication and issuer-expiry capping remain milestone 3 work. Issuers must remain eligible at each exchange and recovery check.
+- Section 4: portal-key internal issuance/status/cancel/confirm and (milestone 4) `POST /bootstraps/agent/revoke` endpoints are implemented on the existing internal listener with its limits. The authenticated issuer check (portal listener, HMAC transport and reply authentication) is implemented in milestone 4. Issuer expiry caps a code effectively: an expired connect token is an invalid issuer at every later check.
 - Section 5 is implemented on the edge:
   - Downgrade protection: pending and held credentials never use active registration or tunnel authentication.
   - Proofs: key-bound credentials authenticate only with a valid `X-Fastdog-Agent-Proof` (below). This is enforced inside `validCredential` and the separate `validCandidateCredential`.
@@ -26,10 +28,8 @@ TLS ask, recheck, pricing, the agent image pin and portal commands are unchanged
   - Candidate registration, WS readiness, the default promotion hold, owner confirmation (internal endpoint) and atomic promotion are in place.
   - Cancellation, reissue, rotation, detach, suspension and release revoke candidates and remove them from the registry.
 
-  Still open:
-  - Issuer eligibility is not yet rechecked at candidate auth and promotion. The authenticated issuer checker is milestone 3 work, and production exchange is fail-closed until then, so no candidate can exist in production.
-  - The cancel-by-reissue principal limits (3/hour, 6/day) are enforced by the portal and are also milestone 3.
-- Sections 7–9: portal issuance, capability metadata, Docker image/volume integration and operator diagnostics remain future work. Refund accounting is not included in milestone 1.
+  Since milestone 4, issuer eligibility is rechecked at exchange and matching recovery, candidate registration and upgrade, owner confirmation and promotion, and the portal enforces the cancel-by-reissue limits.
+- Sections 7–9: portal issuance and revocation are implemented (milestone 4). Capability metadata, deployment allocation and templates, Docker image/volume integration, owner-visible redemption diagnostics and refund accounting remain future work.
 - Section 10: offline unit, handler and flag-on HTTP/WS tests cover milestones 1–2, including proof, replay, skew, isolation, hold timing and confirmation tests. Actual Caddy sentinel/redaction tests, Docker tests and end-to-end acceptance remain required before enablement.
 - Section 11: no rollout is performed. Migration and rollback need the stopped-writer, backup and validation procedures below. Older edge code that ignores combined state is not a supported rollback target.
 
@@ -123,7 +123,7 @@ Modules under `agent/` (all built-in `node:` APIs plus the existing `ws` depende
 
 ### Configuration
 
-- Accepted `AGENT_*` names: `AGENT_BOOTSTRAP`, `AGENT_TOKEN`, `AGENT_HOSTNAME`, `AGENT_NAME`, `AGENT_LOCAL_UPSTREAM`, `AGENT_DEPLOYMENT_ID` and `AGENT_ENV_FORMAT`. `AGENT_ENV_FORMAT` is optional; only `1` is supported. `EDGE_HTTP_URL` and `EDGE_WS_URL` are also read. Any other `AGENT_*` name fails startup, in every mode, and the error names the setting but never its value. Unrelated environment such as `HOME` or `NODE_VERSION` is allowed.
+- Accepted `AGENT_*` names: `AGENT_BOOTSTRAP`, `AGENT_TOKEN`, `AGENT_HOSTNAME`, `AGENT_NAME`, `AGENT_LOCAL_UPSTREAM`, `AGENT_DEPLOYMENT_ID` and `AGENT_ENV_FORMAT`. `AGENT_ENV_FORMAT` is optional; only `1` is supported. `EDGE_HTTP_URL` and `EDGE_WS_URL` are also read. Any other `AGENT_*` name fails startup in bootstrap and persisted-credential modes, and the error names the setting but never its value. Token-only legacy mode (`AGENT_TOKEN` without `AGENT_BOOTSTRAP` and no saved state) skips that check and treats an unreadable state directory (EACCES/EPERM, for example `--user` against the image's 0700 directory) as no state, as 0.1.2 did (M3 review LOW). Unrelated environment such as `HOME` or `NODE_VERSION` is allowed.
 - Key-bound modes (bootstrap and persisted credential) require `EDGE_HTTP_URL` to be exactly one audience in the image file `agent/edge-pins.json`. `EDGE_WS_URL` is optional; if set, it must equal `wss://<same authority>/_fastdog/tunnel`. The environment can only select a pinned entry: it cannot add a host, downgrade to HTTP or change trust roots.
 - The repository ships an empty pin list, because the production edge name may not appear in the repository under the name-scan rule. Until a reviewed release adds the production audience, bootstrap mode fails closed with `edge_not_pinned`.
 - Legacy `AGENT_TOKEN` mode keeps the 0.1.2 defaults and transport unchanged, and pins do not apply to it.
@@ -136,7 +136,7 @@ Modules under `agent/` (all built-in `node:` APIs plus the existing `ws` depende
 - `active` adds `credential_id`, `token` and `promoted`. Retry metadata is dropped and the private key is retained.
 - Reads require a plain directory owned by the agent UID with no group or other access, and a regular, non-symlink, 0600, agent-owned file opened with `O_NOFOLLOW` (inode rechecked after open).
 - Writes create an exclusive `O_EXCL|O_NOFOLLOW` 0600 temp in the same directory, write it completely, fsync it, rename it over the destination and fsync the directory. The process umask is 077. Any failure raises `state_write_failed`, and the agent never registers after one.
-- Only the agent's own temp names (`.credential.json.<32 hex>.tmp` and the probe temp) are removed at startup, while holding the lock.
+- Only the agent's own temp names (`.credential.json.<32 hex>.tmp`, `.write-probe.<32 hex>.tmp`) and a leftover `write-probe` file are removed at startup, while holding the lock.
 - Nothing is written outside the volume and `/tmp` is not used, so a read-only root filesystem works.
 - `agent/Dockerfile` creates the directory as `node:node` 0700 with an empty 0600 `.fastdog-agent-volume` seed, so Docker's empty-volume copy preserves the ownership. It declares no `VOLUME` (old run templates get no anonymous volume) and uses no root entrypoint or runtime ownership change.
 
@@ -147,7 +147,7 @@ Modules under `agent/` (all built-in `node:` APIs plus the existing `ws` depende
 - A lock that stays fresh means `volume_busy` and exit 1.
 - A holder that finds its lock replaced exits with `volume_lock_lost`.
 
-Graceful shutdown removes the lock, so only a crash restart waits for the stale ceiling.
+Graceful shutdown removes the lock, including a SIGTERM/SIGINT that arrives while startup is still redeeming. A lock file that was created but could not be written or synced is removed at once. So only a crash restart waits for the stale ceiling.
 
 ### Startup order
 
@@ -170,6 +170,7 @@ Graceful shutdown removes the lock, so only a crash restart waits for the stale 
 | 200 | Validate exact fields and binding, OAEP-decrypt (SHA-256, label `fastdog-agent-bootstrap-v1`) and require a 64-hex token. Then persist `active`. |
 | 400, 401, 409, 410 | Persist the failure, then exit 1 with a fixed diagnostic. Restarts exit again without a network call. `bootstrap_used` reports possible copying and advises revoke plus a fresh command. |
 | 404, 405, 413, other 4xx | Exit 1. `next_attempt_at` is pushed 30 seconds out. |
+| 200 that fails validation or decryption | Exit 1 with `bootstrap_response_invalid`; not terminal (a matching retry returns the stored response), but `next_attempt_at` is pushed 30 seconds out. |
 | 429 | Wait for `Retry-After`. |
 | 503, 5xx, network errors | Back off with `computeBackoffMs` (1 s base, 30 s cap, full jitter). |
 
@@ -185,7 +186,8 @@ Before each retry the next eligible attempt is persisted, so restarts neither re
   - `promoted`: the agent persists `promoted: true`, and later reconnects use the active path.
 - Three consecutive registration rounds rejected with 401 end in exit 1 with a reconnect-required (`credential_rejected`) diagnostic. The old bootstrap is not retried.
 - TLS uses `rejectUnauthorized: true` with `tls.rootCertificates`, so `NODE_TLS_REJECT_UNAUTHORIZED` and `NODE_EXTRA_CA_CERTS` cannot relax it. The origin probe's local exception is not inherited.
-- HTTP requests use no redirects, a bounded response size and the pinned `Host`. WS sets `followRedirects: false`.
+- HTTP requests use no redirects, a bounded response size, the pinned `Host`, a 15-second idle timeout and a 30-second overall deadline. WS sets `followRedirects: false`.
+- `AGENT_LOCAL_UPSTREAM` longer than 200 characters (the saved-state limit) fails as `origin_invalid` naming the setting.
 - Loopback HTTP/WS is reachable only through the code-level `fixture` option that tests inject, and must target 127.0.0.1, ::1 or localhost. No environment setting can select it.
 - Heartbeats add `credential_mode` (`legacy` or `key_bound`) and `bootstrap_status` (`none`, `candidate`, `held` or `promoted`), and never any state contents. Welcome-based backoff reset and origin reporting are unchanged.
 
@@ -214,7 +216,7 @@ Before each retry the next eligible attempt is persisted, so restarts neither re
   - candidate-then-active registration with fresh proofs, ending in `credential_rejected`;
   - version agreement;
   - no secrets in logs or `process.env`.
-- `test/agent-bootstrap-e2e.test.js` runs `startAgent` against the real `server.js` with the flag on. The exchange is served by `bootstrapHandler` with a test issuer check, since production has none yet. The steps:
+- `test/agent-bootstrap-e2e.test.js` runs `startAgent` against the real `server.js` with the flag on. The exchange is served by `bootstrapHandler` with a test issuer check; since milestone 4, `server.js` rechecks candidates and promotion through the real portal issuer-check listener (`test/helpers/issuer-check.js`). The steps:
   1. exchange;
   2. candidate register and WS;
   3. `held` while a legacy agent is connected, with the fingerprint notice;
@@ -223,13 +225,93 @@ Before each retry the next eligible attempt is persisted, so restarts neither re
   6. tenant traffic through the new tunnel;
   7. a restart on the active path with no second exchange.
 
-Open after milestone 3:
+Open after milestone 3 (portal issuance and the issuer checker are milestone 4):
 - A reviewed production pin entry.
 - The version bump and image build.
 - Docker integration tests (UID 1000, both architectures, read-only root, empty-volume population).
-- Portal issuance and templates.
-- The authenticated issuer checker.
+- Portal deployment metadata and templates.
 - Caddy sentinel tests.
+
+## Portal and issuer check (milestone 4)
+
+### Portal issuance (`PORTAL_AGENT_BOOTSTRAP_ENABLED=1` only)
+
+`portal/src/agent-bootstrap.js`. With the flag off, none of the routes, the `/agent` page or `/js/agent-bootstrap.js` exist, and every existing response is unchanged (snapshot below).
+
+| Route | Who | Notes |
+| --- | --- | --- |
+| `POST /api/hostnames/:h/bootstraps` `{origin}` | Session, verified email, CSRF token, exact Origin | Issuer `session`: ID `sha256("fastdog-session-issuer:" + session hash)[0:32]`, generation = user `auth_version`. Charges the shared 5/day rotate budget. |
+| `POST /api/v1/hostnames/:h/bootstraps` `{origin}` | API key with `connect` scope | Issuer `api_key`: key ID, generation = key `auth_version`. Charges `api-rotate` 3/day + shared 5/day. Trial tenants never pass (no keys). |
+| `POST /api/connect/v1/bootstrap` `{origin}` | `fdct_` token, verified issuer | Issuer `connect_token`. One command per token: issuance marks it used; only a definitive refusal unmarks it. Charges `connect-token-rotate` 3/day + shared 5/day. |
+| `GET` / `DELETE /api/hostnames/:h/bootstraps` | Session (DELETE: CSRF, Origin) | Nonsecret list (IDs, issuer kind, state, edge status of the newest); cancel pending codes, recovery and candidates. |
+| `POST /api/hostnames/:h/bootstraps/candidates/:id/confirm` `{key_fingerprint}` | Session, CSRF, Origin | Owner confirmation of a held candidate (edge 409 on mismatch, 404 out of scope). |
+| `POST /api/hostnames/:h/revoke-agent` `{confirm:true}` | Session, CSRF, Origin, browser confirmation dialog | Edge `POST /bootstraps/agent/revoke`: revokes every credential of the claim, cancels codes, recovery and candidates, closes the tunnel, mints nothing. |
+
+Issuance responses (201, `Cache-Control: no-store`) contain `{issuance_id, code, hostname, origin, deployment_id, expires_at, note}`. The portal persists only nonsecret records in `agent_bootstraps.json`: no code, digest or credential. The deployment ID is a fresh random UUID per issuance until deployment allocation and templates exist. Before the edge call, a new issuance that would cancel a still-pending code (status checked at the edge; uncertain counts as pending) is limited to 3/hour and 6/24 h per user across hostnames. It returns 429 before any edge mutation. Like the existing portal budgets, these are rolling windows, not UTC days. An edge failure that may have committed (transport/timeout) is reconciled: look the issuance up, cancel an orphan, never retry. A connect token stays used. Bootstrap edge errors map onto portal-only codes (`agent_bootstrap_unavailable` 503, `agent_bootstrap_not_found`, `candidate_not_found` 404, `candidate_mismatch` 409), so existing routes keep their error mapping.
+
+Revocation:
+- Connect-token `DELETE` also cancels the claim's bootstraps when the newest live issuance came from a connect token. The edge honours only the newest issuance, so this cancels exactly that token's pending code, recovery and candidate. The response adds `bootstraps_cancelled`, flag on only. Active credentials and a connected agent are untouched. If the edge call fails, the revoked token is refused by the issuer check anyway.
+- API-key deletion, password reset, logout and suspension invalidate pending issuance through the issuer check.
+
+### Issuer-check protocol
+
+Portal listener in `portal/src/issuer-check.js`; edge client in `src/onboard/issuer-check.js` (a parity test checks the two byte for byte).
+- Keys: `HKDF-SHA256(ikm = service secret, salt = "fastdog-issuer-check-v1", info = "fastdog-issuer-check-request-v1" | "fastdog-issuer-check-reply-v1", 32 bytes)`.
+- Request: `POST /internal/v1/issuer-check` with JSON exactly `{issuer_kind, issuer_id, authorization_generation, nonce}`. The nonce is 32 random bytes, base64url. Header `X-Fastdog-Issuer-Mac` = base64url HMAC-SHA256(request key, length-prefixed `["fastdog-issuer-check-v1", "request", kind, id, JSON(generation), nonce]`).
+- Reply: 200 with JSON exactly `{issuer_kind, issuer_id, authorization_generation, nonce, valid, checked_at}` (ms). The same header carries HMAC(reply key, length-prefixed `[label, "reply", kind, id, JSON(generation), nonce, "true"|"false", String(checked_at)]`). JSON encoding of the generation keeps `1` and `"1"` distinct.
+- Listener:
+  - Loopback peers only; any forwarding header is 404, as is any path but the one route. Malformed requests get 400, a bad MAC 401.
+  - Limits are 60/min per key, then 300/min global (fixed windows, two counters). Validator errors get 503.
+  - Unknown kinds are `valid: false`. Validity requires an active, unsuspended tenant not suspended since the issuer was created, a verified user with an unchanged `auth_version`, and a live issuer: the session unexpired; the key unrevoked, unexpired, connect-scoped and on a paid plan; the token unrevoked and unexpired (used is fine).
+  - Logs carry the status only.
+- Edge client:
+  - The edge verifies the MAC in constant time. The nonce must be its own, outstanding and unused: single-use, at most 1,024 entries, discarded 5 s after issue, with used/expired markers kept one more window. Every echoed field must be strictly equal, and `checked_at` within ±5 s.
+  - Anything else throws 503 and increments one fixed reason in `issuerReplyRejected()`: capacity, transport, status, rate_limited, malformed, missing_mac, invalid_mac, unknown_nonce, reused_nonce, expired_nonce, different_request, mismatch or stale. These counters are deliberately not added to `/_fastdog/metrics`, which keeps flag-off metrics output unchanged.
+  - Only an authenticated `valid: true` authorizes.
+
+### Wiring on the edge
+
+- Exchange and matching recovery: the existing check point, now the real client.
+- Candidate registration and upgrade:
+  - After token and proof validation, the candidate record's issuer is checked. The exchange copies kind, ID and generation from the code onto the pending credential as `issuer`, because the code's own issuer is dropped at its tombstone.
+  - Invalid gives 401, unavailable 503. After the asynchronous check, durable liveness is rechecked before the registry changes.
+- Promotion and owner confirmation:
+  - `promoteCandidate` first runs a dry run. Holding never costs a check.
+  - A promotable candidate is checked, then the real transaction rechecks everything with the registry state of that moment.
+  - Unavailable leaves the candidate unchanged until its deadline; invalid drops it. Only one evaluation per candidate is in flight (`busy`).
+  - Confirmation maps unavailable or busy to 503.
+- Registry functions stay synchronous when the injected checker answers synchronously (unit tests). With the production asynchronous checker they return promises, which `server.js` awaits. Legacy register/upgrade paths are unchanged and synchronous.
+
+### Milestone 4 validation
+
+- `test/issuer-check.test.js`:
+  - encoding/key parity, and a real listener with valid and invalid issuers;
+  - a wrong-environment key;
+  - forged replies, each a 503 that never counts as valid: missing or invalid MAC, request-direction MAC (both the sent header and a reply MACed with the request key), mismatched ID or generation (including `3` vs `"3"`), unknown, reused or expired nonce, stale `checked_at` either way, a valid reply to a different outstanding request, malformed bodies, 500 and 429;
+  - bounded nonce table;
+  - exchange 503 for each rejection and 401 only for an authenticated false;
+  - unconfigured, partial or reused configuration.
+- `test/bootstrap-candidates.test.js` (M4 tests): ineligible or unavailable issuers at candidate register and upgrade, held through unavailable promotion and confirmation, dropped on ineligible, asynchronous awaiting before any registry change.
+- `portal/test/agent-bootstrap.test.js`, against the real internal API and listener:
+  - issuance with CSRF, Origin, session and verification checks;
+  - the code never stored;
+  - list, cancel and cancel-by-reissue limits (also 6/day across hostnames);
+  - API-key scope;
+  - key deletion and password reset;
+  - trial tenants;
+  - connect-token single use and DELETE cancelling the pending code and candidate while the active credential and connection stay;
+  - Revoke agent (confirmation, CSRF, Origin, other tenant 404, no replacement credential);
+  - confirmation input checks;
+  - the issuer validity matrix;
+  - flag-off twins of every new path.
+- `portal/test/issuer-check.test.js`: reply shape and direction keys, non-loopback and forwarded peers, wrong-environment key, rate limits, and the service credential unauthenticated on every other portal route, including internal-looking paths.
+- `portal/test/flag-off-snapshot.test.js`: `flag-off-recorder.js` walks pages, scripts and session/key/token routes, including the new paths. The fixture was recorded from HEAD `d9d780c`'s portal and verified identical to the milestone-4 tree before being committed.
+- `test/agent-bootstrap-portal-e2e.test.js`, both flags on in test only: portal session issuance, then edge internal `POST /bootstraps`, then real agent exchange at `server.js`. It asserts three authenticated session issuer checks (exchange, register, upgrade), the held notice, portal owner confirmation with a fourth check, promotion, traffic through the tunnel, and portal Revoke agent closing it. No secrets appear in logs or portal state.
+
+Known milestone-4 limits:
+- Owner-visible redemption diagnostics (redeem time, source IP, version, fingerprint) are not shown in the portal yet. The `/agent` page asks the owner to compare the agent's logged fingerprint.
+- Refund accounting (plan section 4) is not implemented. Failed or orphaned issuances keep their budget charge (M5).
+- The issuer check is a live call per check. A held candidate costs no checks until it becomes promotable.
 
 ## Milestone 2 validation
 

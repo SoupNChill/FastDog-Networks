@@ -1,0 +1,690 @@
+[
+ [
+  "anon GET /",
+  302,
+  "text/html; charset=utf-8",
+  "/login",
+  null,
+  "cd9c3180f17f0906"
+ ],
+ [
+  "anon GET /login",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "cd89bb75ae90d86e"
+ ],
+ [
+  "anon GET /signup",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "d7376446093c240c"
+ ],
+ [
+  "anon GET /hostname",
+  302,
+  "text/html; charset=utf-8",
+  "/login",
+  null,
+  "cd9c3180f17f0906"
+ ],
+ [
+  "anon GET /verify-email",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "029a76ce950a4ec8"
+ ],
+ [
+  "anon GET /dashboard",
+  302,
+  "text/html; charset=utf-8",
+  "/login",
+  null,
+  "cd9c3180f17f0906"
+ ],
+ [
+  "anon GET /start",
+  302,
+  "text/html; charset=utf-8",
+  "/login",
+  null,
+  "cd9c3180f17f0906"
+ ],
+ [
+  "anon GET /connect",
+  302,
+  "text/html; charset=utf-8",
+  "/login",
+  null,
+  "cd9c3180f17f0906"
+ ],
+ [
+  "anon GET /domains",
+  302,
+  "text/html; charset=utf-8",
+  "/login",
+  null,
+  "cd9c3180f17f0906"
+ ],
+ [
+  "anon GET /plan",
+  302,
+  "text/html; charset=utf-8",
+  "/login",
+  null,
+  "cd9c3180f17f0906"
+ ],
+ [
+  "anon GET /status",
+  302,
+  "text/html; charset=utf-8",
+  "/login",
+  null,
+  "cd9c3180f17f0906"
+ ],
+ [
+  "anon GET /keys",
+  302,
+  "text/html; charset=utf-8",
+  "/login",
+  null,
+  "cd9c3180f17f0906"
+ ],
+ [
+  "anon GET /agent",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "anon GET /health",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "4062edaf750fb807"
+ ],
+ [
+  "anon GET /nope",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "anon GET /js/agent-view.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "e23b37424bab1740"
+ ],
+ [
+  "anon GET /js/api.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "be672bbfe33a0be0"
+ ],
+ [
+  "anon GET /js/connect.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "bc0bd171f517a724"
+ ],
+ [
+  "anon GET /js/domains.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "09561ccc0e479063"
+ ],
+ [
+  "anon GET /js/guide.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "22829aa30be8ddde"
+ ],
+ [
+  "anon GET /js/hostname.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "051f0531156abd26"
+ ],
+ [
+  "anon GET /js/keys.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "e129ba2308404933"
+ ],
+ [
+  "anon GET /js/login.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "da09e3cceaa71d61"
+ ],
+ [
+  "anon GET /js/plan.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "900166f9e3f387d1"
+ ],
+ [
+  "anon GET /js/signup.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "d0a5fe569e8b3297"
+ ],
+ [
+  "anon GET /js/start-state.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "63cc05969d4195ea"
+ ],
+ [
+  "anon GET /js/start.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "43a650bedb88d73d"
+ ],
+ [
+  "anon GET /js/status.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "f42f473b37a589ae"
+ ],
+ [
+  "anon GET /js/verify-email.js",
+  200,
+  "text/javascript; charset=utf-8",
+  null,
+  null,
+  "1ac4e533d506396d"
+ ],
+ [
+  "anon GET /js/agent-bootstrap.js",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "anon GET /css/site.css",
+  200,
+  "text/css; charset=utf-8",
+  null,
+  null,
+  "08b5b79ceedda7b3"
+ ],
+ [
+  "anon GET /css/portal.css",
+  200,
+  "text/css; charset=utf-8",
+  null,
+  null,
+  "4443f9ee101e1a6f"
+ ],
+ [
+  "anon GET /install/agent.sh",
+  200,
+  "text/plain; charset=utf-8",
+  null,
+  null,
+  "9e2925fa6d779193"
+ ],
+ [
+  "anon GET /favicon.svg",
+  200,
+  "image/svg+xml",
+  null,
+  null,
+  "38d2e3497bb00e42"
+ ],
+ [
+  "session GET /",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "6ad4d3870cd5c63e"
+ ],
+ [
+  "session GET /login",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "cd89bb75ae90d86e"
+ ],
+ [
+  "session GET /signup",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "d7376446093c240c"
+ ],
+ [
+  "session GET /hostname",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "6ad4d3870cd5c63e"
+ ],
+ [
+  "session GET /verify-email",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "029a76ce950a4ec8"
+ ],
+ [
+  "session GET /dashboard",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "6ad4d3870cd5c63e"
+ ],
+ [
+  "session GET /start",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "d963276efae8be63"
+ ],
+ [
+  "session GET /connect",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "029c8b5ef7363749"
+ ],
+ [
+  "session GET /domains",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "f89064ae0e941fb8"
+ ],
+ [
+  "session GET /plan",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "99e91adbd2f61975"
+ ],
+ [
+  "session GET /status",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "2a4d45889e0cae04"
+ ],
+ [
+  "session GET /keys",
+  200,
+  "text/html; charset=utf-8",
+  null,
+  null,
+  "8dff08d36de44397"
+ ],
+ [
+  "session GET /agent",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session GET /health",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "4062edaf750fb807"
+ ],
+ [
+  "session GET /nope",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session GET /api/me",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "84d159e33ce045f7"
+ ],
+ [
+  "session POST /api/hostnames",
+  201,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "a57f3fa863d81a16"
+ ],
+ [
+  "session POST /api/hostnames/app.example.test/connect-token",
+  409,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "7671b5ee96910a8a"
+ ],
+ [
+  "session POST /api/hostnames/app.example.test/verify",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "1cf734173f2b9d5c"
+ ],
+ [
+  "session GET /api/hostnames",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "6cb560b09a741a67"
+ ],
+ [
+  "session GET /api/hostnames/app.example.test",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "af2d662e098ec6d8"
+ ],
+ [
+  "session GET /api/hostnames/app.example.test/bootstraps",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session POST /api/hostnames/app.example.test/bootstraps",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session DELETE /api/hostnames/app.example.test/bootstraps",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session GET /api/hostnames/app.example.test/revoke-agent",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session POST /api/hostnames/app.example.test/revoke-agent",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session DELETE /api/hostnames/app.example.test/revoke-agent",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session GET /api/hostnames/app.example.test/bootstraps/candidates/x/confirm",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session POST /api/hostnames/app.example.test/bootstraps/candidates/x/confirm",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session DELETE /api/hostnames/app.example.test/bootstraps/candidates/x/confirm",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session GET /api/hostnames/app.example.test/unknown",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session POST /api/hostnames/app.example.test/unknown",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session DELETE /api/hostnames/app.example.test/unknown",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "session POST connect-token (active)",
+  201,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "b8f56500d381d5f8"
+ ],
+ [
+  "session GET /api/hostnames/app.example.test/connect-token",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "6e661dd51a128e70"
+ ],
+ [
+  "session POST /api/keys",
+  201,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "dcf99146e11fce48"
+ ],
+ [
+  "session GET /api/keys",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "fab82ef22b7653c8"
+ ],
+ [
+  "key GET /api/v1/hostnames/app.example.test",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "c0206ce2edd4c2f4"
+ ],
+ [
+  "key GET /api/v1/hostnames/app.example.test/status",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "3e6077bdd90b609e"
+ ],
+ [
+  "key POST /api/v1/hostnames/app.example.test/bootstraps",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "key GET /api/v1/hostnames/app.example.test/bootstraps",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "key POST /api/v1/hostnames/app.example.test/connect",
+  200,
+  "text/plain; charset=utf-8",
+  null,
+  null,
+  "cd5f739fd351dbf5"
+ ],
+ [
+  "key POST /api/v1/hostnames/app.example.test/connect",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "f6953bbdeeab514c"
+ ],
+ [
+  "token GET /api/connect/v1/hostname",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "db0cf80c7d1a2344"
+ ],
+ [
+  "token POST /api/connect/v1/bootstrap",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "token GET /api/connect/v1/bootstrap",
+  404,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "d2dfdc9511fbeaa0"
+ ],
+ [
+  "token POST /api/connect/v1/command",
+  200,
+  "text/plain; charset=utf-8",
+  null,
+  null,
+  "cd5f739fd351dbf5"
+ ],
+ [
+  "token POST /api/connect/v1/command",
+  409,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "4720d93e6393110d"
+ ],
+ [
+  "session DELETE /api/hostnames/app.example.test/connect-token",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "df3b013c563671d3"
+ ],
+ [
+  "session POST /api/hostnames/app.example.test/rotate",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "6e544dc1645df323"
+ ],
+ [
+  "session DELETE /api/keys/<uuid>",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "897ea1b80b4930ec"
+ ],
+ [
+  "session DELETE /api/hostnames/app.example.test",
+  200,
+  "application/json; charset=utf-8",
+  null,
+  null,
+  "dd164f5c04ef6fb9"
+ ]
+]

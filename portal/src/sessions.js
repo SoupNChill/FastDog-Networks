@@ -37,5 +37,7 @@ export function createSessions(store, now) {
     },
     revoke(hash) { store.write('sessions', current().filter((s) => s.token_hash !== hash)); },
     revokeUser(id) { store.write('sessions', current().filter((s) => s.user_id !== id)); },
+    // Unexpired sessions, read-only (agent bootstrap issuer checks).
+    active: current,
   };
 }

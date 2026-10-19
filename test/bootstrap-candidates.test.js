@@ -42,7 +42,8 @@ function fixture(t, extra = {}) {
   const options = { bootstrapEnabled: true, bootstrapAudience: audience, dataDir: directory, now, issuerCheck: async () => true, registry, ...extra };
   const service = createBootstrap(options);
   t.after(() => service.close());
-  configureCandidates({ now, absentForMs: 300000 });
+  // A synchronous issuer check keeps these registry calls synchronous; test/issuer-check.test.js covers the real client.
+  configureCandidates({ now, absentForMs: 300000, issuerCheck: extra.registryIssuerCheck ?? (() => true) });
 
   async function redeem(key = keys[0]) {
     const issued = service.issue(tid, hostname, { origin, deployment_id: randomUUID(), issuance_id: randomUUID(), issuer: { kind: 'session', id: randomUUID(), authorization_generation: 1 } });
@@ -366,4 +367,69 @@ test('M2 review LOW: an unknown candidate token is rejected before the writer lo
   assert.equal(validCandidateCredential(c.token, hostname, f.directory, f.now, undefined), null);
   f.service.status(tid, hostname, c.issued.issuance_id);
   assert.ok(f.record(c.id).revoked_at);
+});
+
+// Milestone 4: issuer eligibility at candidate registration, upgrade, promotion and owner confirmation.
+test('candidate register and upgrade recheck the issuer: ineligible is 401, unavailable is 503, neither touches the registry', async (t) => {
+  let verdict = true; const seen = [];
+  const f = fixture(t, { registryIssuerCheck: (issuer) => { seen.push(issuer); if (verdict === 'throw') throw new Error('portal down'); return verdict; } });
+  const a = f.connectActive(); const c = await f.redeem();
+  // The candidate record carries only the issuer's kind, ID and generation, copied from the code at exchange.
+  assert.deepEqual(Object.keys(f.record(c.id).issuer).sort(), ['authorization_generation', 'id', 'kind']);
+  assert.equal(seen.length, 0);
+  verdict = false; assert.throws(() => f.register(c), { status: 401, message: 'unauthorized' });
+  verdict = 'throw'; assert.throws(() => f.register(c), { status: 503, message: 'bootstrap_unavailable' });
+  verdict = 'yes'; assert.throws(() => f.register(c), { status: 503 });
+  assert.deepEqual(listAgents().map((x) => x.id), [a.reg.id]); assert.equal(a.ws.closed, null);
+  assert.equal(seen.at(-1).kind, 'session');
+  verdict = true; const reg = f.register(c);
+  for (const [value, expected] of [[false, false], ['throw', false], [true, true]]) {
+    verdict = value;
+    assert.equal(attachWs(reg.id, socket(), c.token, { candidate: true, proof: f.wsProof(c, reg.id) }), expected, String(value));
+  }
+  // Without any configured checker every candidate path fails closed.
+  configureCandidates({ now: f.now, absentForMs: 300000 });
+  assert.throws(() => f.register(c), { status: 503 });
+});
+
+test('promotion rechecks the issuer: unavailable leaves the candidate held until its deadline; ineligible drops it; the active agent stays', async (t) => {
+  let verdict = true;
+  const f = fixture(t, { registryIssuerCheck: () => { if (verdict === 'throw') throw new Error('portal down'); return verdict; } });
+  const a = f.connectActive(); const c = await f.redeem();
+  const cand = f.connect(c); assert.equal(cand.state, 'held');
+  detachWs(a.reg.id, a.ws);
+  // Holding needs no issuer check; a promotable candidate does.
+  verdict = 'throw'; f.advance(300000); sweepCandidates();
+  assert.equal(f.record(c.id).status, 'held'); assert.equal(getAgentByHost(hostname).id, a.reg.id); assert.equal(f.owner().credential_id, f.active.id);
+  assert.equal(cand.ws.closed, null);
+  // Owner confirmation while the check is unavailable: 503, nothing changes.
+  await assert.rejects(Promise.resolve().then(() => f.service.confirm(tid, hostname, c.id, { key_fingerprint: fingerprint(keys[0]) })), { status: 503 });
+  assert.equal(f.record(c.id).status, 'held');
+  verdict = false; sweepCandidates();
+  assert.equal(cand.ws.closed, 4401); assert.equal(f.owner().credential_id, f.active.id);
+  assert.equal(validCredential(f.active.token, hostname, f.directory, f.now), true);
+  assert.notEqual(f.record(c.id).status, 'active');
+});
+
+test('an asynchronous issuer check makes candidate paths asynchronous and is awaited before any registry change', async (t) => {
+  let release; let verdict = true;
+  const f = fixture(t, { registryIssuerCheck: () => new Promise((resolve) => { release = () => resolve(verdict); }) });
+  // Edge started 300 s ago and no active agent is connected, so a ready candidate is promotable.
+  f.advance(300000);
+  const c = await f.redeem();
+  const pending = f.register(c);
+  assert.equal(typeof pending.then, 'function'); assert.equal(listAgents().length, 0);
+  release(); const reg = await pending; assert.equal(reg.candidate, true);
+  const ws = socket();
+  const attaching = attachWs(reg.id, ws, c.token, { candidate: true, proof: f.wsProof(c, reg.id) });
+  release(); assert.equal(await attaching, true);
+  const ready = candidateReady(reg.id, ws);
+  assert.equal(typeof ready.then, 'function'); assert.equal(f.record(c.id).status, 'pending');
+  assert.equal(candidateReady(reg.id, ws), 'busy');
+  release(); assert.equal(await ready, 'promoted');
+  assert.equal(getAgentByHost(hostname).id, reg.id);
+  // A late "false" for a re-registration is a 401 after the await.
+  const d = await f.redeem(keys[1]); verdict = false;
+  const refused = f.register(d); release();
+  await assert.rejects(refused, { status: 401 });
 });

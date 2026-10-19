@@ -55,8 +55,9 @@ export function candidateLive(directory = dataDir(), id, now = Date.now) {
 }
 
 // One transaction: hold, or select the candidate and revoke every other credential for the claim.
-// `activeConnected`/`absentLongEnough` come from the registry in the same synchronous turn.
-export function promoteCandidate(directory = dataDir(), id, now = Date.now, { activeConnected, absentLongEnough, confirmed = false, keyFingerprint } = {}) {
+// `activeConnected`/`absentLongEnough` come from the registry in the same synchronous turn. `dryRun` stops before the
+// promotion commit and returns { state: 'promotable', issuer } so the registry can recheck the issuer first.
+export function promoteCandidate(directory = dataDir(), id, now = Date.now, { activeConnected, absentLongEnough, confirmed = false, keyFingerprint, dryRun = false } = {}) {
   return authTransaction(directory, () => {
     const time = now(); const records = expire(directory, time);
     const record = records.find((c) => c.id === id);
@@ -70,6 +71,7 @@ export function promoteCandidate(directory = dataDir(), id, now = Date.now, { ac
       if (record.status !== 'held') { record.status = 'held'; record.held_at = new Date(time).toISOString(); writeJson(CREDENTIALS, records, 0o600, directory); }
       return { state: 'held' };
     }
+    if (dryRun) return { state: 'promotable', issuer: structuredClone(record.issuer) };
     const stamp = new Date(time).toISOString();
     for (const c of records) if (c !== record && c.tenant_id === record.tenant_id && c.claim_hostname === record.claim_hostname && !c.revoked_at) c.revoked_at = stamp;
     Object.assign(record, { status: 'active', promoted_at: stamp });

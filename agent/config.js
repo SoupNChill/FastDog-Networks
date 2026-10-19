@@ -19,8 +19,9 @@ export function loadPins(file = new URL('./edge-pins.json', import.meta.url)) {
   return Object.freeze([...pins.audiences]);
 }
 
-export function readSettings(env = process.env) {
-  const unknown = Object.keys(env).filter((k) => k.startsWith('AGENT_') && !KNOWN_AGENT_ENV.includes(k)).sort();
+// `legacy` (AGENT_TOKEN without AGENT_BOOTSTRAP and no saved state) skips the unknown-name check, as 0.1.2 did.
+export function readSettings(env = process.env, { legacy = false } = {}) {
+  const unknown = legacy ? [] : Object.keys(env).filter((k) => k.startsWith('AGENT_') && !KNOWN_AGENT_ENV.includes(k)).sort();
   if (unknown.length) throw new ConfigError('unknown_env', `Unsupported agent settings: ${unknown.join(', ')}. Remove them or use an image that supports them.`);
   const value = (name) => (env[name] === undefined || env[name] === '' ? undefined : env[name]);
   const format = value('AGENT_ENV_FORMAT');
@@ -54,6 +55,9 @@ export function requiredBinding(settings) {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(settings.deploymentId ?? '')) throw new ConfigError('deployment_invalid', 'AGENT_DEPLOYMENT_ID is missing or invalid.');
   let url;
   try { url = new URL(settings.localUpstream); } catch { url = null; }
-  if (!url || !['http:', 'https:'].includes(url.protocol) || `${url.protocol}//${url.host}` !== settings.localUpstream) throw new ConfigError('origin_invalid', 'AGENT_LOCAL_UPSTREAM is missing or invalid.');
+  // 200 characters is the saved-state limit; checking it here names the setting instead of reporting corrupt state.
+  if (!url || !['http:', 'https:'].includes(url.protocol) || `${url.protocol}//${url.host}` !== settings.localUpstream || settings.localUpstream.length > 200) {
+    throw new ConfigError('origin_invalid', 'AGENT_LOCAL_UPSTREAM is missing, invalid or longer than 200 characters.');
+  }
   return { hostname: settings.hostname, origin: settings.localUpstream, deployment_id: settings.deploymentId };
 }

@@ -10,6 +10,7 @@ import { createBootstrap, exchangeTranscript, OAEP_LABEL } from '../src/onboard/
 import { writeJson, readJson } from '../src/onboard/json.js';
 import { issueCredential } from '../src/onboard/credentials.js';
 import { proofTranscript, PROOF_HEADER } from '../src/control/agent-proof.js';
+import { issuerCheckFixture } from './helpers/issuer-check.js';
 
 const tid = 't_aaaaaaaaaaaaaaaaaaaa', hostname = 'app.example.test', audience = 'https://edge.example.test', origin = 'http://127.0.0.1:8080';
 const key = generateKeyPairSync('rsa', { modulusLength: 3072 });
@@ -25,7 +26,10 @@ test('flag-on edge: legacy agents ignore proofs; candidates register and attach 
   const operator = randomBytes(32).toString('hex');
   const active = issueCredential({ tenant_id: tid, hostname }, directory);
   writeJson('tenant_hostnames.json', [{ tenant_id: tid, hostname, status: 'active', txt_value: randomBytes(8).toString('hex'), verified_at: new Date().toISOString(), created_at: new Date().toISOString(), credential_id: active.id }], 0o600, directory);
-  Object.assign(process.env, { NODE_ENV: 'test', AGENT_TOKEN: operator, DATA_DIR: directory, INTERNAL_ENABLED: '0', BILLING_ENABLED: 'false', AGENT_BOOTSTRAP_ENABLED: '1', AGENT_BOOTSTRAP_AUDIENCE: audience });
+  // Candidate registration and upgrade recheck the issuer through the authenticated portal listener.
+  const issuers = await issuerCheckFixture(t);
+  Object.assign(process.env, { NODE_ENV: 'test', AGENT_TOKEN: operator, DATA_DIR: directory, INTERNAL_ENABLED: '0', BILLING_ENABLED: 'false', AGENT_BOOTSTRAP_ENABLED: '1', AGENT_BOOTSTRAP_AUDIENCE: audience,
+    AGENT_BOOTSTRAP_ISSUER_CHECK_URL: issuers.url, AGENT_BOOTSTRAP_ISSUER_CHECK_KEY: issuers.secret });
   const service = createBootstrap({ bootstrapEnabled: true, bootstrapAudience: audience, dataDir: directory, issuerCheck: async () => true });
   const { server } = await import('../src/edge/server.js?bootstrap=1');
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -33,7 +37,7 @@ test('flag-on edge: legacy agents ignore proofs; candidates register and attach 
   t.after(async () => {
     for (const socket of sockets) socket.terminate();
     service.close(); server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); rmSync(directory, { recursive: true, force: true });
-    for (const name of ['AGENT_BOOTSTRAP_ENABLED', 'AGENT_BOOTSTRAP_AUDIENCE']) delete process.env[name];
+    for (const name of ['AGENT_BOOTSTRAP_ENABLED', 'AGENT_BOOTSTRAP_AUDIENCE', 'AGENT_BOOTSTRAP_ISSUER_CHECK_URL', 'AGENT_BOOTSTRAP_ISSUER_CHECK_KEY']) delete process.env[name];
   });
   const base = `127.0.0.1:${server.address().port}`;
   const post = (path, token, body, headers = {}) => fetch(`http://${base}${path}`, { method: 'POST', body, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...headers } });

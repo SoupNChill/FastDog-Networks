@@ -6,6 +6,9 @@ import { createDomainClient } from './src/domain-client.js';
 import { createFileMailer, scheduleOutboxPurge } from './src/mailer-file.js';
 import { createSmtpMailer } from './src/mailer-smtp.js';
 import { supportEmail } from './src/static.js';
+import { createStore } from './src/store.js';
+import { createIssuerCheckServer } from './src/issuer-check.js';
+import { createIssuerValidator } from './src/agent-bootstrap.js';
 
 const logJson = (entry) => console.log(JSON.stringify(entry));
 // MAIL_TRANSPORT=file (default) queues private outbox files; smtp submits via STARTTLS and retains redacted audit records.
@@ -30,6 +33,15 @@ export function start(env = process.env) {
   const outboxDir = env.OUTBOX_DIR ? resolve(env.OUTBOX_DIR) : join(dataDir, 'outbox');
   const mailer = selectMailer(env, { outboxDir });
 
+  // Agent bootstrap is off unless PORTAL_AGENT_BOOTSTRAP_ENABLED=1. The issuer-check listener additionally needs its own
+  // per-environment PORTAL_ISSUER_CHECK_KEY (never PORTAL_KEY) and binds loopback only; without the key the edge's checks
+  // fail closed.
+  const agentBootstrap = env.PORTAL_AGENT_BOOTSTRAP_ENABLED === '1';
+  const issuerCheckKey = agentBootstrap ? env.PORTAL_ISSUER_CHECK_KEY : undefined;
+  const issuerCheckPort = Number(env.PORTAL_ISSUER_CHECK_PORT || 8792);
+  if (issuerCheckKey !== undefined && (issuerCheckKey.length < 32 || issuerCheckKey === env.PORTAL_KEY || !Number.isInteger(issuerCheckPort) || issuerCheckPort < 1 || issuerCheckPort > 65535 || issuerCheckPort === port)) {
+    throw new Error('Invalid issuer check configuration');
+  }
   const app = createApp({ dataDir,
     edge: createEdgeClient({ baseUrl: env.EDGE_INTERNAL_URL || 'http://127.0.0.1:8789', portalKey: env.PORTAL_KEY }),
     domainSearch: createDomainClient({ baseUrl: env.DOMAIN_SEARCH_URL || 'http://127.0.0.1:8791' }),
@@ -40,10 +52,15 @@ export function start(env = process.env) {
       openSignupHostnameLimit: Number(env.OPEN_SIGNUP_HOSTNAME_LIMIT || 1), openConnectTokensPerHour: Number(env.OPEN_CONNECT_TOKENS_PER_HOUR || 3),
       signupIpPerHour: Number(env.SIGNUP_IP_PER_HOUR || 3), signupDomainPerDay: Number(env.SIGNUP_DOMAIN_PER_DAY || 5),
       signupBigmailPerDay: Number(env.SIGNUP_BIGMAIL_PER_DAY || 200), signupGlobalPerDay: Number(env.SIGNUP_GLOBAL_PER_DAY || 100),
-      logger: logJson },
+      logger: logJson, ...(agentBootstrap ? { agentBootstrap: true } : {}) },
   });
   const purgeTimer = scheduleOutboxPurge(outboxDir);
   app.once('close', () => clearInterval(purgeTimer));
+  if (issuerCheckKey !== undefined) {
+    const issuerCheck = createIssuerCheckServer({ secret: issuerCheckKey, validate: createIssuerValidator({ store: createStore(dataDir) }), logger: logJson });
+    app.once('close', () => issuerCheck.close());
+    issuerCheck.listen(issuerCheckPort, '127.0.0.1');
+  }
   app.listen(port, '127.0.0.1');
   return app;
 }

@@ -24,7 +24,7 @@ const candidateAgents = new Map();
 /** hostname -> time the active tunnel last detached; absent entries count from process start */
 const absentSince = new Map();
 export const DEFAULT_ABSENT_FOR_MS = 300000;
-let candidateMode = false, clock = Date.now, absentForMs = DEFAULT_ABSENT_FOR_MS, startedAt = Date.now();
+let candidateMode = false, clock = Date.now, absentForMs = DEFAULT_ABSENT_FOR_MS, startedAt = Date.now(), issuerCheck;
 
 // Seconds from AGENT_BOOTSTRAP_ABSENT_FOR_SECONDS: unset means 300; otherwise an integer 60-3600.
 export function absentForSetting(value) {
@@ -34,11 +34,25 @@ export function absentForSetting(value) {
   return seconds * 1000;
 }
 
-export function configureCandidates({ enabled = true, now = Date.now, absentForMs: absent = DEFAULT_ABSENT_FOR_MS } = {}) {
-  candidateMode = enabled; clock = now; absentForMs = absent; startedAt = now();
+// `issuerCheck(issuer)` answers true/false or throws; without one every candidate path fails closed.
+export function configureCandidates({ enabled = true, now = Date.now, absentForMs: absent = DEFAULT_ABSENT_FOR_MS, issuerCheck: check } = {}) {
+  candidateMode = enabled; clock = now; absentForMs = absent; startedAt = now(); issuerCheck = check;
 }
 
 const unauthorized = () => Object.assign(new Error('unauthorized'), { status: 401 });
+const unavailable = () => Object.assign(new Error('bootstrap_unavailable'), { status: 503 });
+
+// Issuer eligibility (plan section 6) for candidate registration, upgrade and promotion: next('valid' | 'invalid' |
+// 'unavailable'). A synchronous checker keeps the caller synchronous; the production checker is asynchronous, and then
+// the caller returns a promise.
+function issuerVerdict(issuer, next) {
+  const settle = (value) => next(value === true ? 'valid' : value === false ? 'invalid' : 'unavailable');
+  if (typeof issuerCheck !== 'function' || !issuer) return next('unavailable');
+  let result;
+  try { result = issuerCheck(structuredClone(issuer)); } catch { return next('unavailable'); }
+  return typeof result?.then === 'function' ? result.then(settle, () => next('unavailable')) : settle(result);
+}
+const quiet = (value) => { if (typeof value?.then === 'function') value.catch(() => {}); return value; };
 function closeSocket(ws, code) {
   try { if (ws) code ? ws.close(code, 'unauthorized') : ws.terminate ? ws.terminate() : ws.close(); } catch { /* Already closed. */ }
 }
@@ -121,15 +135,23 @@ function registerCandidate({ name, hostname, localUpstream, token, dataDir, proo
   try { record = validCandidateCredential(token, hostname, dataDir, clock, proof); } catch { /* Storage uncertainty fails closed. */ }
   if (!record) throw unauthorized();
   if (!localUpstream) throw Object.assign(new Error('hostname and localUpstream required'), { status: 400 });
-  // Re-registration replaces only this credential's own earlier candidate.
-  const previous = candidates.get(record.id);
-  if (previous) { candidateAgents.delete(previous.id); closeSocket(previous.ws); }
-  const id = randomUUID(); const time = new Date().toISOString();
-  candidates.set(record.id, { id, credentialId: record.id, tenantId: record.tenant_id, keyFingerprint: record.key_fingerprint,
-    name: name || `agent-${id.slice(0, 8)}`, hostname: record.claim_hostname, localUpstream: localUpstream.replace(/\/$/, ''),
-    ws: null, ready: false, registeredAt: time, lastSeen: time, dataDir, tokenHash: createHash('sha256').update(token).digest() });
-  candidateAgents.set(id, record.id);
-  return { id, hostname: record.claim_hostname, candidate: true, state: record.status, wsPath: '/_fastdog/tunnel' };
+  return issuerVerdict(record.issuer, (verdict) => {
+    if (verdict === 'invalid') throw unauthorized();
+    if (verdict === 'unavailable') throw unavailable();
+    // The check may have been asynchronous: the durable candidate must still be live and bound.
+    let alive = false;
+    try { alive = candidateLive(dataDir, record.id, clock); } catch { throw unavailable(); }
+    if (!alive) throw unauthorized();
+    // Re-registration replaces only this credential's own earlier candidate.
+    const previous = candidates.get(record.id);
+    if (previous) { candidateAgents.delete(previous.id); closeSocket(previous.ws); }
+    const id = randomUUID(); const time = new Date().toISOString();
+    candidates.set(record.id, { id, credentialId: record.id, tenantId: record.tenant_id, keyFingerprint: record.key_fingerprint, issuer: record.issuer,
+      name: name || `agent-${id.slice(0, 8)}`, hostname: record.claim_hostname, localUpstream: localUpstream.replace(/\/$/, ''),
+      ws: null, ready: false, registeredAt: time, lastSeen: time, dataDir, tokenHash: createHash('sha256').update(token).digest() });
+    candidateAgents.set(id, record.id);
+    return { id, hostname: record.claim_hostname, candidate: true, state: record.status, wsPath: '/_fastdog/tunnel' };
+  });
 }
 
 function attachCandidate(agentId, ws, token, proof) {
@@ -138,10 +160,15 @@ function attachCandidate(agentId, ws, token, proof) {
   let record = null;
   try { record = validCandidateCredential(token, c.hostname, c.dataDir, clock, proof); } catch { /* Fail closed. */ }
   if (record?.id !== c.credentialId) return false;
-  if (c.ws && c.ws !== ws) closeSocket(c.ws);
-  c.ws = ws; c.ready = false;
-  c.lastSeen = new Date().toISOString();
-  return true;
+  return issuerVerdict(record.issuer, (verdict) => {
+    let alive = false;
+    try { alive = verdict === 'valid' && candidates.get(c.credentialId) === c && candidateLive(c.dataDir, c.credentialId, clock); } catch { /* Fail closed. */ }
+    if (!alive) return false;
+    if (c.ws && c.ws !== ws) closeSocket(c.ws);
+    c.ws = ws; c.ready = false;
+    c.lastSeen = new Date().toISOString();
+    return true;
+  });
 }
 
 export function attachWs(agentId, ws, token, { candidate = false, proof } = {}) {
@@ -180,20 +207,38 @@ function install(c) {
 
 // Promotion hold: promote a ready candidate only on owner confirmation, or when the active tunnel is not connected and
 // has been continuously absent for absent_for (or there is no active credential). Otherwise it is held without traffic.
+// A promotion first runs as a dry run; only a promotable candidate costs an issuer check, after which the real
+// transaction rechecks every durable condition and the registry state of that moment. An unavailable check leaves the
+// candidate unchanged until its deadline; an ineligible issuer drops it.
 function evaluate(credentialId, { confirmed = false, keyFingerprint } = {}) {
   const c = candidates.get(credentialId);
   if (!c?.ready || !connected(c.ws)) return 'not_ready';
-  const active = agents.get(hostIndex.get(c.hostname));
-  const activeConnected = connected(active?.ws);
-  const since = Math.max(absentSince.get(c.hostname) ?? startedAt, startedAt);
-  let result;
-  try {
-    result = promoteCandidate(c.dataDir, credentialId, clock, { activeConnected, absentLongEnough: !activeConnected && clock() - since >= absentForMs, confirmed, keyFingerprint });
-  } catch { return 'unavailable'; }
-  if (result.state === 'invalid') { dropCandidate(credentialId); return 'invalid'; }
-  if (result.state === 'promoted') install(c);
-  if (result.state !== 'mismatch') notify(c, result.state);
-  return result.state;
+  if (c.evaluating) return 'busy';
+  const attempt = (dryRun) => {
+    const active = agents.get(hostIndex.get(c.hostname));
+    const activeConnected = connected(active?.ws);
+    const since = Math.max(absentSince.get(c.hostname) ?? startedAt, startedAt);
+    try {
+      return promoteCandidate(c.dataDir, credentialId, clock, { activeConnected, absentLongEnough: !activeConnected && clock() - since >= absentForMs, confirmed, keyFingerprint, dryRun });
+    } catch { return { state: 'unavailable' }; }
+  };
+  const finish = (result) => {
+    if (result.state === 'unavailable') return 'unavailable';
+    if (result.state === 'invalid') { dropCandidate(credentialId); return 'invalid'; }
+    if (result.state === 'promoted') install(c);
+    if (result.state !== 'mismatch') notify(c, result.state);
+    return result.state;
+  };
+  const dry = attempt(true);
+  if (dry.state !== 'promotable') return finish(dry);
+  c.evaluating = true;
+  return issuerVerdict(dry.issuer, (verdict) => {
+    c.evaluating = false;
+    if (verdict === 'invalid') { dropCandidate(credentialId); return 'invalid'; }
+    if (verdict === 'unavailable') return 'unavailable';
+    if (candidates.get(credentialId) !== c || !c.ready || !connected(c.ws)) return 'not_ready';
+    return finish(attempt(false));
+  });
 }
 
 // Called after the candidate's WS welcome: authenticated attachment plus welcome makes it ready.
@@ -218,7 +263,7 @@ export function closeCandidates(hostname) {
 // Periodic (enabled only): promote held candidates whose active tunnel stayed absent; drop expired or revoked ones.
 export function sweepCandidates() {
   for (const c of [...candidates.values()]) {
-    if (c.ready && connected(c.ws)) { evaluate(c.credentialId); continue; }
+    if (c.ready && connected(c.ws)) { quiet(evaluate(c.credentialId)); continue; }
     let alive = false;
     try { alive = candidateLive(c.dataDir, c.credentialId, clock); } catch { continue; }
     if (!alive) dropCandidate(c.credentialId);
@@ -357,5 +402,5 @@ export function _resetForTests() {
   agents.clear();
   hostIndex.clear();
   candidates.clear(); candidateAgents.clear(); absentSince.clear();
-  configureCandidates({ enabled: false });
+  configureCandidates({ enabled: false, issuerCheck: undefined });
 }

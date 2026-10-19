@@ -8,7 +8,8 @@ export const STATE_DIR = '/var/lib/fastdog-agent';
 export const STATE_FILE = 'credential.json';
 export const LOCK_FILE = '.agent.lock';
 export const SCHEMA_VERSION = 1;
-const PROBE_FILE = '.write-probe';
+// atomicWrite prefixes a dot, so the probe temp is `.write-probe.<hex>.tmp` and matches TEMP.
+const PROBE_FILE = 'write-probe';
 const TEMP = /^\.(?:credential\.json|write-probe)\.[0-9a-f]{32}\.tmp$/;
 const MAX_STATE_BYTES = 65536;
 
@@ -35,10 +36,12 @@ export function checkDir(dir, opts = {}) {
 }
 
 // True when a state file entry exists (of any type); a missing directory or file means no state.
+// `legacy` (AGENT_TOKEN without AGENT_BOOTSTRAP): an unreadable directory, as for a container run with --user against
+// the image's 0700 directory, also means no state, as it did in 0.1.2.
 export function stateExists(dir, opts = {}) {
   const fs = opts.fs ?? realFs;
   try { fs.lstatSync(join(dir, STATE_FILE)); return true; } catch (e) {
-    if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return false;
+    if (e.code === 'ENOENT' || e.code === 'ENOTDIR' || (opts.legacy && ['EACCES', 'EPERM'].includes(e.code))) return false;
     throw new StateError('state_file_unsafe', 'The credential state file cannot be inspected.');
   }
 }
@@ -131,11 +134,12 @@ export function probeWritable(dir, opts = {}) {
   try { fs.unlinkSync(join(dir, PROBE_FILE)); } catch { throw new StateError('state_write_failed', 'The credential state could not be written durably.'); }
 }
 
-// Only our own abandoned temp files, only inside the owned state directory, only while holding the lock.
+// Only our own abandoned temp files (and a probe left by a crash before its unlink), only inside the owned state
+// directory, only while holding the lock.
 export function removeAbandonedTemps(dir, opts = {}) {
   const fs = opts.fs ?? realFs;
   for (const name of fs.readdirSync(dir)) {
-    if (!TEMP.test(name)) continue;
+    if (!TEMP.test(name) && name !== PROBE_FILE) continue;
     try { const st = fs.lstatSync(join(dir, name)); if (st.isFile() && st.uid === uidOf(opts)) fs.unlinkSync(join(dir, name)); } catch { /* Raced or vanished. */ }
   }
 }
@@ -155,10 +159,16 @@ export async function acquireLock(dir, opts = {}) {
   for (;;) {
     try {
       const fd = fs.openSync(lock, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600);
-      try { fs.writeSync(fd, JSON.stringify({ nonce, pid: process.pid })); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      try { fs.writeSync(fd, JSON.stringify({ nonce, pid: process.pid })); fs.fsyncSync(fd); } catch (e) {
+        // A lock we created but could not write (disk full) must not block the next start until it goes stale.
+        try { fs.closeSync(fd); } catch { /* Best effort. */ }
+        try { fs.unlinkSync(lock); } catch { /* Already gone. */ }
+        throw Object.assign(e, { created: true });
+      }
+      fs.closeSync(fd);
       break;
     } catch (e) {
-      if (e.code !== 'EEXIST') throw new StateError('state_write_failed', 'The credential state volume lock could not be created.');
+      if (e.code !== 'EEXIST' || e.created) throw new StateError('state_write_failed', 'The credential state volume lock could not be created.');
     }
     let st;
     try { st = fs.lstatSync(lock); } catch { continue; }

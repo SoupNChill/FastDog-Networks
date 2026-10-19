@@ -71,7 +71,8 @@ export function dialTarget(pinnedUrl, fixtureBase) {
 // Mandatory verification against the bundled roots: NODE_TLS_REJECT_UNAUTHORIZED and NODE_EXTRA_CA_CERTS cannot relax it.
 export const tlsOptions = () => ({ rejectUnauthorized: true, ca: tls.rootCertificates });
 
-export function edgeRequest(pinnedUrl, { method = 'POST', headers = {}, body, fixture, timeoutMs = 15000 } = {}) {
+// timeoutMs bounds idle time; deadlineMs bounds the whole request, so a trickling response cannot outlive it.
+export function edgeRequest(pinnedUrl, { method = 'POST', headers = {}, body, fixture, timeoutMs = 15000, deadlineMs = 30000 } = {}) {
   const { url, secure } = dialTarget(pinnedUrl, fixture);
   const pinned = new URL(pinnedUrl);
   return new Promise((resolve, reject) => {
@@ -86,6 +87,8 @@ export function edgeRequest(pinnedUrl, { method = 'POST', headers = {}, body, fi
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
       res.on('error', reject);
     });
+    const deadline = setTimeout(() => req.destroy(new Error('edge_timeout')), deadlineMs);
+    req.on('close', () => clearTimeout(deadline));
     req.on('timeout', () => req.destroy(new Error('edge_timeout')));
     req.on('error', reject);
     req.end(body);
