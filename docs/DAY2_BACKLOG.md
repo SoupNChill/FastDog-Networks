@@ -173,4 +173,4 @@ Operator-reported evidence for the homepage claim; logs live on the operator hos
 
 - DONE (shadow retention): first-party shadow rows default to 30-day atomic age trimming with a seven-day configuration floor, oldest-first size backstop, idle maintenance and daily summary pruning. Offline regressions cover retention, atomic replacement and fail-open I/O; deployment remains operator work.
 
-- DONE (portal terms): advisory re-accept prompt on login/account pages, CSRF-protected acceptance with bounded history and fail-open persistence; existing API access remains independent of terms versions.
+- DONE (portal terms): advisory re-accept prompt at sign-in, CSRF-protected acceptance with bounded history and fail-open persistence; existing API access remains independent of terms versions.

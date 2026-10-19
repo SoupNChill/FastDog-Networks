@@ -74,7 +74,7 @@ test('terms acceptance is authenticated, CSRF protected, advisory and survives a
   assert.match(record.ip_hash, /^[a-f0-9]{64}$/);
 });
 
-test('shared account initialization and login wire the external advisory panel', () => {
+test('login wires the external advisory panel', () => {
   const read = (name) => readFileSync(new URL('../public/js/' + name, import.meta.url), 'utf8');
   assert.match(read('login.js'), /showTermsUpdate/);
   const source = read('terms-update.js');
@@ -147,4 +147,20 @@ test('the prompt is shown at sign-in only, never from shared page init', () => {
   const read = (name) => readFileSync(new URL('../public/js/' + name, import.meta.url), 'utf8');
   assert.doesNotMatch(read('api.js'), /showTermsUpdate|terms-update/);
   assert.match(read('login.js'), /showTermsUpdate\(me\.terms_update, api, \(\) => location\.assign\(destination\)\)/);
+});
+
+test('"Continue for now" removes the panel and continues without saving anything', async () => {
+  const { showTermsUpdate } = await import('../public/js/terms-update.js');
+  const previousDocument = globalThis.document;
+  try {
+    const nodes = [];
+    globalThis.document = { querySelector: (s) => (s === '#terms-update' ? null : { prepend() {} }),
+      createElement: (tag) => { const n = { tag, append() {}, addEventListener() {}, remove() { this.removed = true; } }; nodes.push(n); return n; } };
+    let continued = 0, calls = 0;
+    assert.equal(showTermsUpdate({ required: true, terms_url: '/terms/', privacy_url: '/privacy/' }, async () => { calls++; return {}; }, () => continued++), true);
+    nodes.find((n) => n.textContent === 'Continue for now').onclick();
+    assert.equal(continued, 1);
+    assert.equal(nodes[0].removed, true);
+    assert.equal(calls, 0);
+  } finally { globalThis.document = previousDocument; }
 });
