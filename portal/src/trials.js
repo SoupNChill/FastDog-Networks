@@ -1,6 +1,6 @@
 // Trial policy (docs/decisions/2026-10-19-trial-pause.md): 7 days from tenant creation, then the edge pauses the
 // tenant's hostnames (nothing is deleted) until the plan becomes paid.
-// trials.json ({ tenants: { tid: { started_at?, paused_at?, unpaused_at? } } }) is written only by the server sweep.
+// trials.json ({ tenants: { tid: { started_at?, pause_requested_at?, paused_at?, unpaused_at? } } }) is written only by the server sweep.
 // trial_overrides.json ({ tenants: { tid: { extra_days?, plan? } } }) is written only by portal/bin/tenant.js; the
 // server only reads it. A file with the wrong shape throws, so the sweep takes no action rather than a wrong one.
 import { UNPAID_PLANS } from './api-keys.js';
@@ -34,7 +34,8 @@ const extraDays = (override) => (Number.isInteger(override?.extra_days) && overr
 // Pure: trial details for a tenant whose effective plan is trial, else null. now is in ms.
 export function trialInfo(tenant, state, override, now) {
   if (!tenant || !isTrialPlan(effectivePlan(tenant, override))) return null;
-  const start = [parse(tenant.created_at), parse(state?.started_at)].find(Number.isFinite) ?? now;
+  const start = [parse(tenant.created_at), parse(state?.started_at)].find(Number.isFinite);
+  if (start === undefined) return null;
   const ends = start + (TRIAL_DAYS + extraDays(override)) * DAY;
   return { active: now < ends, started_at: iso(start), ends_at: iso(ends), days_left: Math.max(0, Math.ceil((ends - now) / DAY)), paused: Boolean(state?.paused_at) };
 }
@@ -74,7 +75,7 @@ function audit(store, entry) {
 }
 
 // Idempotent. Pauses trials that have ended and unpauses paused tenants that became paid (or were extended).
-// Never deletes, releases or suspends anything; an edge failure leaves the state as it was for the next run.
+// Never deletes, releases or suspends anything; an edge failure retains the pause request for the next run.
 export async function sweepTrials({ store, edge, now = Date.now, logger }) {
   const log = (entry) => { try { logger?.({ event: 'trial_sweep', ...entry }); } catch { /* Logging cannot affect the sweep. */ } };
   const summary = { paused: 0, unpaused: 0, failed: 0 };
@@ -95,16 +96,30 @@ export async function sweepTrials({ store, edge, now = Date.now, logger }) {
       if (isTrialPlan(plan) && !Number.isFinite(parse(tenant.created_at)) && !Number.isFinite(parse(entry?.started_at))) {
         entry = record(store, tenant.id, { started_at: iso(now()) });
       }
-      const info = trialInfo(tenant, entry, override, now());
-      const action = info && !info.active && !entry?.paused_at ? 'trial_pause'
-        : entry?.paused_at && (isPaidPlan(plan) || info?.active) ? 'trial_unpause' : null;
+      // Re-read immediately before deciding on an edge call: a plan/extension may have changed mid-sweep.
+      const freshAccounts = store.read('accounts', emptyAccounts());
+      if (!plain(freshAccounts) || !Array.isArray(freshAccounts.tenants)) continue;
+      const freshTenant = freshAccounts.tenants.find((item) => item?.id === tenant.id);
+      const freshOverride = own(readOverrides(store), tenant.id);
+      if (!plain(freshTenant) || typeof freshTenant.plan !== 'string' || !freshTenant.plan.trim()
+        || (freshTenant.created_at != null && !Number.isFinite(parse(freshTenant.created_at)))
+        || (freshOverride?.plan != null && (typeof freshOverride.plan !== 'string' || !freshOverride.plan.trim()))
+        || (freshOverride?.extra_days != null && (!Number.isInteger(freshOverride.extra_days) || freshOverride.extra_days < 0))) continue;
+      const freshPlan = effectivePlan(freshTenant, freshOverride);
+      const info = trialInfo(freshTenant, entry, freshOverride, now());
+      const action = info && !info.active ? 'trial_pause'
+        : (entry?.paused_at || entry?.pause_requested_at) && (isPaidPlan(freshPlan) || info?.active) ? 'trial_unpause' : null;
       if (!action) continue;
+      const reassert = action === 'trial_pause' && Boolean(entry?.paused_at);
+      if (action === 'trial_pause' && !reassert) record(store, tenant.id, { pause_requested_at: iso(now()) });
       let ok = true;
       try { await (action === 'trial_pause' ? edge.pauseTenant(tenant.id) : edge.unpauseTenant(tenant.id)); }
       catch { ok = false; }
+      // The CLI can unpause without clearing paused_at; reconcile quietly on every expired sweep.
+      if (ok && reassert) continue;
       const at = iso(now());
       if (ok && action === 'trial_pause') { record(store, tenant.id, { paused_at: at }); summary.paused++; }
-      else if (ok) { record(store, tenant.id, { unpaused_at: at }, ['paused_at']); summary.unpaused++; }
+      else if (ok) { record(store, tenant.id, { unpaused_at: at }, ['paused_at', 'pause_requested_at']); summary.unpaused++; }
       else { summary.failed++; log({ action, result: 'failed', reason: 'edge_failed' }); }
       audit(store, { at, action, tenant_id: tenant.id, edge: ok ? 'ok' : 'failed' });
     } catch { summary.failed++; log({ result: 'failed', reason: 'tenant_error' }); }

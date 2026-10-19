@@ -54,7 +54,7 @@ test('trialInfo: rolling 7 days from creation, ceil days left, extension and eff
   assert.equal(trialInfo({ ...tenant, created_at: undefined }, { started_at: '2026-10-05T00:00:00.000Z' }, null, start).ends_at, '2026-10-12T00:00:00.000Z');
 });
 
-test('sweep: day 7 is untouched, day 8 pauses once, re-runs are no-ops and nothing is ever deleted', async (t) => {
+test('sweep: day 7 is untouched, day 8 pauses once, re-runs quietly reassert the pause and nothing is ever deleted', async (t) => {
   const s = state(t, [trialTenant(), { ...trialTenant(tids[1]), plan: 'hobby' }]);
   const { edge, calls } = recordingEdge();
   s.set(start + 7 * DAY - 60000);
@@ -64,13 +64,14 @@ test('sweep: day 7 is untouched, day 8 pauses once, re-runs are no-ops and nothi
   s.set(start + 7 * DAY);
   assert.deepEqual(await s.sweep(edge), { paused: 1, unpaused: 0, failed: 0 });
   assert.deepEqual(calls, [['pauseTenant', tids[0]]]);
-  assert.deepEqual(s.trials(), { [tids[0]]: { paused_at: new Date(start + 7 * DAY).toISOString() } });
+  assert.deepEqual(s.trials(), { [tids[0]]: { pause_requested_at: new Date(start + 7 * DAY).toISOString(), paused_at: new Date(start + 7 * DAY).toISOString() } });
   assert.deepEqual(s.audit(), [{ at: new Date(start + 7 * DAY).toISOString(), action: 'trial_pause', tenant_id: tids[0], edge: 'ok' }]);
+  const before = { trials: s.trials(), audit: s.audit(), logs: [...s.logs] };
   s.set(start + 9 * DAY);
-  await s.sweep(edge);
-  await s.sweep(edge);
-  assert.equal(calls.length, 1);
-  assert.equal(s.audit().length, 1);
+  assert.deepEqual(await s.sweep(edge), { paused: 0, unpaused: 0, failed: 0 });
+  assert.deepEqual(await s.sweep(edge), { paused: 0, unpaused: 0, failed: 0 });
+  assert.deepEqual(calls, Array.from({ length: 3 }, () => ['pauseTenant', tids[0]]));
+  assert.deepEqual({ trials: s.trials(), audit: s.audit(), logs: s.logs }, before);
   assert.deepEqual(forbidden(calls), []);
 });
 
@@ -80,14 +81,23 @@ test('sweep: an edge failure is not recorded and is retried on the next run; log
   const { edge, calls } = recordingEdge({ fail: (name, tid) => down && tid === tids[0] });
   s.set(start + 8 * DAY);
   assert.deepEqual(await s.sweep(edge), { paused: 1, unpaused: 0, failed: 1 });
-  assert.deepEqual(Object.keys(s.trials()), [tids[1]], 'one failure does not stop the rest');
+  assert.ok(s.trials()[tids[0]].pause_requested_at);
+  assert.equal(s.trials()[tids[0]].paused_at, undefined);
+  assert.ok(s.trials()[tids[1]].paused_at, 'one failure does not stop the rest');
   assert.deepEqual(s.audit().map((e) => [e.tenant_id, e.edge]), [[tids[0], 'failed'], [tids[1], 'ok']]);
   assert.ok(s.logs.some((e) => e.reason === 'edge_failed'));
   assert.ok(!JSON.stringify(s.logs).includes(tids[0]));
   down = false;
   await s.sweep(edge);
   assert.ok(s.trials()[tids[0]].paused_at);
-  assert.deepEqual(calls.map(([name, tid]) => [name, tid]), [['pauseTenant', tids[0]], ['pauseTenant', tids[1]], ['pauseTenant', tids[0]]]);
+  assert.deepEqual(calls.map(([name, tid]) => [name, tid]), [['pauseTenant', tids[0]], ['pauseTenant', tids[1]], ['pauseTenant', tids[0]], ['pauseTenant', tids[1]]]);
+  const before = s.trials();
+  down = true;
+  assert.deepEqual(await s.sweep(edge), { paused: 0, unpaused: 0, failed: 1 });
+  assert.deepEqual(s.trials(), before);
+  assert.deepEqual(s.audit().at(-1), { at: new Date(start + 8 * DAY).toISOString(), action: 'trial_pause', tenant_id: tids[0], edge: 'failed' });
+  assert.ok(s.logs.some((e) => e.reason === 'edge_failed'));
+  assert.ok(!JSON.stringify(s.logs).includes(tids[0]));
   assert.deepEqual(forbidden(calls), []);
 });
 
@@ -129,6 +139,23 @@ test('sweep: legacy trial tenants without created_at get a full trial from first
   await s.sweep(edge);
   assert.deepEqual(calls.at(-1), ['pauseTenant', tids[0]]);
   assert.equal(calls.length, 3);
+});
+
+test('sweep: an extension that expires before the next sweep re-pauses despite stale paused_at', async (t) => {
+  const s = state(t, [trialTenant()]);
+  const { edge, calls } = recordingEdge();
+  s.set(start + 8 * DAY - 30 * 60000);
+  await s.sweep(edge);
+  const before = { trials: s.trials(), audit: s.audit() };
+  // Simulate the CLI's override and edge unpause; only the sweep may write trials.json.
+  s.store.write('trial_overrides', { tenants: { [tids[0]]: { extra_days: 1 } } });
+  assert.equal(tenantPlan(s.store, trialTenant(), start + 8 * DAY - 30 * 60000).trial.active, true);
+  await edge.unpauseTenant(tids[0]);
+  assert.deepEqual(s.trials(), before.trials);
+  s.set(start + 8 * DAY + 30 * 60000);
+  assert.deepEqual(await s.sweep(edge), { paused: 0, unpaused: 0, failed: 0 });
+  assert.deepEqual(calls, [['pauseTenant', tids[0]], ['unpauseTenant', tids[0]], ['pauseTenant', tids[0]]]);
+  assert.deepEqual({ trials: s.trials(), audit: s.audit() }, before);
 });
 
 test('scheduled sweep never overlaps and stops cleanly', async (t) => {
@@ -263,4 +290,55 @@ test('tenant CLI: extend-trial and set-plan write the override and admin audit; 
   assert.deepEqual(audit.map((e) => [e.action, e.reason, e.edge]).slice(-3), [['set-plan', 'paid by invoice', 'ok'], ['set-plan', 'edge down', 'failed'], ['set-plan', 'back to trial', undefined]]);
   assert.deepEqual(audit[0], { at: audit[0].at, action: 'extend-trial', tenant_id: tids[0], reason: 'support request', changed: true, extra_days: 3 });
   for (const output of [extended, upgraded, down].map((r) => r.stdout + r.stderr)) assert.ok(!output.includes(h.portalKey));
+});
+
+
+test('sweep: failed paused_at write retains a request and an upgrade unpauses', async (t) => {
+  const s = state(t, [trialTenant()]);
+  const write = s.store.write;
+  s.store.write = (name, value) => {
+    if (name === 'trials' && value.tenants[tids[0]]?.paused_at) throw new Error('state write failed');
+    write(name, value);
+  };
+  const { edge, calls } = recordingEdge();
+  s.set(start + 8 * DAY);
+  assert.deepEqual(await s.sweep(edge), { paused: 0, unpaused: 0, failed: 1 });
+  assert.ok(s.trials()[tids[0]].pause_requested_at);
+  assert.equal(s.trials()[tids[0]].paused_at, undefined);
+  s.store.write('accounts', { ...emptyAccounts(), tenants: [trialTenant(tids[0], { plan: 'pro' })] });
+  assert.deepEqual(await s.sweep(edge), { paused: 0, unpaused: 1, failed: 0 });
+  assert.deepEqual(calls, [['pauseTenant', tids[0]], ['unpauseTenant', tids[0]]]);
+  assert.deepEqual(s.trials()[tids[0]], { unpaused_at: new Date(start + 8 * DAY).toISOString() });
+});
+
+test('sweep: fresh accounts and overrides prevent pausing a tenant upgraded mid-run', async (t) => {
+  for (const source of ['accounts', 'trial_overrides']) {
+    const s = state(t, [trialTenant()]);
+    const read = s.store.read;
+    let changed = false;
+    s.store.read = (name, fallback) => {
+      const value = read(name, fallback);
+      if (name === source && !changed) {
+        changed = true;
+        s.store.write(source, source === 'accounts'
+          ? { ...emptyAccounts(), tenants: [trialTenant(tids[0], { plan: 'pro' })] }
+          : { tenants: { [tids[0]]: { plan: 'pro' } } });
+      }
+      return value;
+    };
+    const { edge, calls } = recordingEdge();
+    s.set(start + 8 * DAY);
+    assert.deepEqual(await s.sweep(edge), { paused: 0, unpaused: 0, failed: 0 });
+    assert.deepEqual(calls, [], source);
+  }
+});
+
+test('tenantPlan: legacy trials have no countdown until a real start is recorded', (t) => {
+  const s = state(t, []);
+  const legacy = trialTenant(tids[0], { created_at: undefined });
+  assert.equal(tenantPlan(s.store, legacy, start).trial, null);
+  assert.equal(tenantPlan(s.store, legacy, start + DAY).trial, null);
+  assert.equal(tenantPlan(s.store, trialTenant(), start + DAY).trial.days_left, 6);
+  s.store.write('trials', { tenants: { [tids[0]]: { started_at: new Date(start).toISOString() } } });
+  assert.equal(tenantPlan(s.store, legacy, start + DAY).trial.days_left, 6);
 });
