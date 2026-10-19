@@ -53,7 +53,7 @@
 <ul>
 <li>Account details and terms acceptance: while your account exists, then deleted, except where we must keep billing records by law.</li>
 <li>Operational logs (rate limits, Verdict decision logs, web server access logs, portal logs, and API key audit entries): we aim to delete them within 30 days. Some rotate or expire sooner in normal operation (for example rate-limit windows from one minute up to 24 hours, Verdict and access-log files that roll over by size, and an API key audit list capped at the latest 1,000 entries per account). Others are bounded by size or entry count rather than by a clock.</li>
-<li>Outbox emails: removed by hand by our operator. Automatic deletion is not built yet; we treat them under the same 30-day target.</li>
+<li>Copies of emails the portal sends (the outbox): deleted automatically after about 7 days.</li>
 <li>Email messages: as long as needed to handle your request, and no longer than we reasonably need.</li>
 </ul>
 <p>We aim to delete operational logs within 30 days. Exact deletion timing can depend on the next write or rollover for a given log, so idle files may sit until that happens. Guaranteed time-based deletion for every log type is not fully in place yet.</p>
@@ -85,7 +85,7 @@
 </section>
 
 <section class="section" id="contact"><h2>9. Contact</h2>
-<p>Privacy questions and requests: email <a href="mailto:support@example.invalid?subject=Privacy">support@example.invalid</a>. See also our <a href="/terms/">Terms of Service</a> and <a href="/faq/">FAQ</a>.</p>
+<p>Privacy questions and requests: email <a href="mailto:support@fastdognetworks.com?subject=Privacy">support@fastdognetworks.com</a>. See also our <a href="/terms/">Terms of Service</a> and <a href="/faq/">FAQ</a>.</p>
 </section>
 </main>
 <footer class="footer wrap"><picture><source srcset="/logos/lockup-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/lockup-light.svg" width="180" height="110" alt="FastDog Networks. Fast by Design."></picture><div><span>DNS · tunnel · TLS</span><span>© FastDog Networks</span><span><a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="/faq/">FAQ</a></span><a class="footer-link" href="/docs/">Docs</a></div></footer>

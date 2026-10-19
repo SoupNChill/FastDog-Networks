@@ -47,11 +47,18 @@ test('privacy/index.html is final copy (no DRAFT), version 2026-10-19, noindex k
   assert.doesNotMatch(html, /-draft/);
   assert.match(html, /Version 2026-10-19/);
   assert.match(html, /<title>Privacy Policy — FastDog Networks<\/title>/);
-  assert.match(html, /mailto:support@example\.invalid/);
+  const canonical = read('index.html').match(/<link rel=\x22canonical\x22 href=\x22([^\x22]+)\x22>/);
+  assert.ok(canonical, 'homepage has a canonical origin');
+  const host = new URL(canonical[1]).hostname;
+  const address = `support@${host}`;
+  assert.doesNotMatch(address, /@example\.invalid$/);
+  assert.deepEqual([...html.matchAll(/mailto:([^\x22?]+)/g)].map(([, value]) => value), [address]);
+  const contactLink = `<a href="mailto:${address}?subject=Privacy">${address}</a>`;
+  assert.ok(html.includes(contactLink), 'Privacy contact keeps its subject and visible address');
   assert.doesNotMatch(html, /TODO/);
   assert.doesNotMatch(html, /Stripe/i);
   assert.doesNotMatch(html, /DigitalOcean|Hetzner|MXRoute/i);
-  assert.doesNotMatch(html, /fastdognetworks\.com/);
+  assert.ok(!html.replace(contactLink, '').includes(host), 'public host appears only in the contact link');
 });
 
 test('legal pages cover the required topics', () => {
@@ -72,7 +79,7 @@ test('legal pages cover the required topics', () => {
 test('privacy and FAQ describe retention, logging and email delivery as implemented', () => {
   const privacy = read('privacy/index.html');
   for (const claim of ['Terms acceptance (planned)', 'Sign-up does not record this yet', 'private outbox',
-    'Automatic deletion is not built yet', '24 hours', 'aim to delete them within 30 days',
+    'Guaranteed time-based deletion for every log type is not fully in place yet.', '24 hours', 'aim to delete them within 30 days',
     'payment processor will be added when paid plans launch', 'cloud hosting providers and our email provider']) {
     assert.ok(privacy.includes(claim), claim);
   }
@@ -80,6 +87,10 @@ test('privacy and FAQ describe retention, logging and email delivery as implemen
     'TODO(owner)', 'planned but not in place yet', 'DRAFT. Not yet in effect.']) {
     assert.ok(!privacy.includes(stale), stale);
   }
+  const outbox = privacy.match(/<li>[^<]*outbox[^<]*<\/li>/i)?.[0];
+  assert.ok(outbox, 'outbox retention item exists');
+  assert.match(outbox, /deleted automatically after about 7 days/);
+  assert.doesNotMatch(outbox, /not built|manual|by hand/i);
   const faq = read('faq/index.html');
   for (const claim of ['does not store them', 'remove both if you leave']) assert.ok(faq.includes(claim), claim);
   assert.ok(!faq.includes('status and user agent'));
