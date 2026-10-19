@@ -13,9 +13,9 @@ const resolves = (href) => {
 };
 
 for (const page of pages) {
-  test(`${page} keeps noindex and the shared subpage layout`, () => {
+  test(`${page} is indexable and keeps the shared subpage layout`, () => {
     const html = read(page);
-    assert.match(html, /<meta name="robots" content="noindex">/);
+    assert.doesNotMatch(html, /<meta name="robots" content="noindex">/);
     assert.match(html, /<link rel="stylesheet" href="\/css\/site\.css">/);
     assert.match(html, /<header class="site-header wrap">/);
     assert.match(html, /<footer class="footer wrap">/);
@@ -32,7 +32,7 @@ for (const page of pages) {
 }
 
 for (const [page, title] of [['terms/index.html', 'Terms of Service'], ['faq/index.html', 'FAQ']]) {
-  test(`${page} is final copy (no DRAFT), version 2026-10-19, noindex kept`, () => {
+  test(`${page} is final copy (no DRAFT), version 2026-10-19`, () => {
     const html = read(page);
     assert.doesNotMatch(html, /draft/i);
     assert.doesNotMatch(html, /not yet in effect/i);
@@ -52,7 +52,7 @@ for (const [page, title] of [['terms/index.html', 'Terms of Service'], ['faq/ind
   });
 }
 
-test('privacy/index.html is final copy (no DRAFT), version 2026-10-19, noindex kept', () => {
+test('privacy/index.html is final copy (no DRAFT), version 2026-10-19', () => {
   const html = read('privacy/index.html');
   assert.doesNotMatch(html, /DRAFT/);
   assert.doesNotMatch(html, /-draft/);
