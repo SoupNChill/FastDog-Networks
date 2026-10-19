@@ -12,7 +12,7 @@ const logPaths = (process.env.VERDICT_SHADOW_LOGS ?? '/var/log/caddy/access-apex
   .split(',').map(s => s.trim()).filter(Boolean);
 const outFile = process.env.VERDICT_SHADOW_FILE || 'data/shadow.jsonl';
 const asnFile = process.env.VERDICT_ASN_FILE || '';
-const maxBytes = Number(process.env.VERDICT_SHADOW_MAX_BYTES || 10 * 1024 * 1024);
+const maxBytes = Number(process.env.VERDICT_SHADOW_MAX_BYTES ?? 10 * 1024 * 1024);
 const pollMs = Math.max(500, Number(process.env.VERDICT_SHADOW_POLL_MS || 2000));
 
 const hosting = loadHostingAsns();

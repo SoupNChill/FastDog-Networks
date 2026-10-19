@@ -34,42 +34,48 @@ export function createShadowWriter(file, {
       throw error;
     }
     if (time < nextCheck && (!cap || info.size + reserve <= cap)) return;
-    const original = await readFile(file, 'utf8');
-    const rows = [];
-    for (const line of original.split('\n')) {
-      if (!line) continue;
-      let ts;
-      try { ts = Date.parse(JSON.parse(line).ts); } catch { continue; }
-      // Undated or corrupt records cannot establish a retention age: discard them.
-      if (Number.isFinite(ts) && ts > time - days * DAY) rows.push({ line: line + '\n', ts });
-    }
-    const includeIncoming = Boolean(incoming && cap && info.size + reserve > cap);
-    if (includeIncoming) {
-      rows.push({ line: incoming, ts: Date.parse(JSON.parse(incoming).ts) });
-      reserve = 0;
-    }
-    let bytes = rows.reduce((sum, row) => sum + Buffer.byteLength(row.line), 0);
-    // Age comes first. The disk cap takes priority over the seven-day age floor
-    // only when necessary; remove oldest timestamps, even in out-of-order logs.
-    const removed = new Set();
-    if (cap && bytes + reserve > cap) {
-      for (const row of [...rows].sort((a, b) => a.ts - b.ts)) {
-        if (bytes + reserve <= cap) break;
-        removed.add(row);
-        bytes -= Buffer.byteLength(row.line);
+    let includeIncoming = false;
+    try {
+      const original = await readFile(file, 'utf8');
+      const rows = [];
+      for (const line of original.split('\n')) {
+        if (!line) continue;
+        let ts;
+        try { ts = Date.parse(JSON.parse(line).ts); } catch { continue; }
+        // Undated or corrupt records cannot establish a retention age: discard them.
+        if (Number.isFinite(ts) && ts > time - days * DAY) rows.push({ line: line + '\n', ts });
       }
-    }
-    const kept = rows.filter(row => !removed.has(row)).map(row => row.line).join('');
-    if (kept !== original) {
-      const temp = `${file}.${randomUUID()}.tmp`;
-      try {
-        await writeFile(temp, kept, { flag: 'wx', mode: 0o600 });
-        await rename(temp, file);
-      } finally {
-        await unlink(temp).catch(error => { if (error.code !== 'ENOENT') report(error); });
+      includeIncoming = Boolean(incoming && cap && info.size + reserve > cap);
+      if (includeIncoming) {
+        rows.push({ line: incoming, ts: Date.parse(JSON.parse(incoming).ts) });
+        reserve = 0;
       }
+      let bytes = rows.reduce((sum, row) => sum + Buffer.byteLength(row.line), 0);
+      // Age comes first. The disk cap takes priority over the seven-day age floor
+      // only when necessary; remove oldest timestamps, even in out-of-order logs.
+      const removed = new Set();
+      if (cap && bytes + reserve > cap) {
+        for (const row of [...rows].sort((a, b) => a.ts - b.ts)) {
+          if (bytes + reserve <= cap) break;
+          removed.add(row);
+          bytes -= Buffer.byteLength(row.line);
+        }
+      }
+      const kept = rows.filter(row => !removed.has(row)).map(row => row.line).join('');
+      if (kept !== original) {
+        const temp = `${file}.${randomUUID()}.tmp`;
+        try {
+          await writeFile(temp, kept, { flag: 'wx', mode: 0o600 });
+          await rename(temp, file);
+        } finally {
+          await unlink(temp).catch(error => { if (error.code !== 'ENOENT') report(error); });
+        }
+      }
+    } finally {
+      // Always backoff, including on failure, so a sticky EACCES/ENOSPC does not
+      // re-read up to 10 MiB on every append.
+      nextCheck = time + 60000;
     }
-    nextCheck = time + 60000;
     return includeIncoming;
   }
   const append = record => enqueue(async () => {
