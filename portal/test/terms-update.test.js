@@ -31,17 +31,19 @@ test('terms acceptance is authenticated, CSRF protected, advisory and survives a
   const logs = [];
   const f = await fixture(t, { logger: (e) => logs.push(e) });
   assert.equal((await f.client.call('/api/me')).data.terms_update, undefined);
+  assert.equal((await f.client.call('/api/terms/status')).status, 401);
   assert.equal((await f.client.call('/api/terms/accept', 'POST', { accept_terms: true })).status, 401);
   const { client, password } = await f.seed();
-  const me = await client.call('/api/me');
+  const me = await client.call('/api/terms/status');
   assert.equal(me.data.terms_update.required, true);
+  assert.equal((await client.call('/api/me')).data.terms_update, undefined, '/api/me itself is unchanged');
   assert.match(me.data.terms_update.terms_url, /\/terms\/$/);
   const current = termsRecord(f.store, '192.0.2.1', f.now());
   for (const terms of [{}, { ...current, tos_version: 'old' }, { ...current, privacy_version: 'old' }, current]) {
     const data = f.store.read('accounts');
     data.users[0].terms = terms;
     f.store.write('accounts', data);
-    assert.equal(Boolean((await client.call('/api/me')).data.terms_update?.required), terms !== current);
+    assert.equal(Boolean((await client.call('/api/terms/status')).data.terms_update?.required), terms !== current);
   }
   const outdated = f.store.read('accounts');
   outdated.users[0].terms = { ...current, tos_version: 'old' };
@@ -65,7 +67,7 @@ test('terms acceptance is authenticated, CSRF protected, advisory and survives a
   assert.ok(logs.some((e) => e.event === 'terms_accept_failed'));
   rmSync(join(f.dataDir, 'install-salt.json'), { recursive: true });
   assert.deepEqual((await client.call('/api/terms/accept', 'POST', { accept_terms: true })).data, { ok: true });
-  assert.equal((await client.call('/api/me')).data.terms_update, undefined);
+  assert.deepEqual((await client.call('/api/terms/status')).data, {});
   const record = f.store.read('accounts').users[0].terms;
   assert.equal(record.tos_version, TERMS_VERSION);
   assert.equal(record.privacy_version, PRIVACY_VERSION);
@@ -146,7 +148,7 @@ test('prompt is skipped when the page has no .portal-body', async () => {
 test('the prompt is shown at sign-in only, never from shared page init', () => {
   const read = (name) => readFileSync(new URL('../public/js/' + name, import.meta.url), 'utf8');
   assert.doesNotMatch(read('api.js'), /showTermsUpdate|terms-update/);
-  assert.match(read('login.js'), /showTermsUpdate\(me\.terms_update, api, \(\) => location\.assign\(destination\)\)/);
+  assert.match(read('login.js'), /showTermsUpdate\(status\.terms_update, api, \(\) => location\.assign\(destination\)\)/);
 });
 
 test('"Continue for now" removes the panel and continues without saving anything', async () => {

@@ -21,7 +21,7 @@ import { createSuspensions, effectiveTenant } from './suspensions.js';
 const authPaths = new Set(['/api/signup', '/api/login', '/api/logout', '/api/verify-email', '/api/password-reset', '/api/password-reset/confirm']);
 const staticRoutes = new Map([
   ...[...authPaths].map((path) => [path, ['POST']]),
-  ['/api/terms/accept', ['POST']], ['/api/me', ['GET']], ['/api/hostnames', ['GET', 'POST']], ['/api/domains/search', ['GET']],
+  ['/api/terms/status', ['GET']], ['/api/terms/accept', ['POST']], ['/api/me', ['GET']], ['/api/hostnames', ['GET', 'POST']], ['/api/domains/search', ['GET']],
   ['/api/domain-requests', ['GET', 'POST']], ['/api/plan', ['GET']], ['/api/keys', ['GET', 'POST']],
 ]);
 const pick = (value, keys) => Object.fromEntries(keys.filter((key) => value?.[key] !== undefined).map((key) => [key, value[key]]));
@@ -300,7 +300,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
           response.setHeader('Set-Cookie', session.cookie);
         }
         const identity = auth.identity(session);
-        return send(200, { ...termsUpdate(identity?.user, process.env, config.logger), email: identity?.user.email ?? null,
+        return send(200, { email: identity?.user.email ?? null,
           tenant: identity ? pick(identity.tenant, ['id', 'plan', 'hostname_limit']) : null,
           email_verified: Boolean(identity?.user.email_verified_at), open_signup: config.openSignup, csrf: session.csrf });
       }
@@ -308,6 +308,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
       if (authPaths.has(path)) return await auth.handle(path, body, { ip, session, send });
       const identity = auth.identity(session);
       if (!identity) throw fail('unauthorized');
+      // Kept out of /api/me on purpose: a separate route that can only ever answer {} or terms_update.
+      if (path === '/api/terms/status') return send(200, termsUpdate(identity.user, process.env, config.logger));
       if (path === '/api/terms/accept') {
         if (body.accept_terms !== true) throw fail('invalid_json');
         limits.take(`terms:${session.token_hash}`, 20, 3600000);

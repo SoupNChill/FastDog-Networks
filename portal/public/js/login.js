@@ -25,8 +25,9 @@ try {
       await api('/api/login', 'POST', data);
       const destination = await loginDestination(api);
       try {
-        const me = await init(); // Refresh CSRF after login rotates the session.
-        if (!showTermsUpdate(me.terms_update, api, () => location.assign(destination))) location.assign(destination);
+        await init(); // Refresh CSRF after login rotates the session.
+        const status = await api('/api/terms/status');
+        if (!showTermsUpdate(status.terms_update, api, () => location.assign(destination))) location.assign(destination);
       } catch { location.assign(destination); }
     } catch (error) {
       message(`${error.message} Check your email address and password. If you forgot your password, use the reset link below.`);
