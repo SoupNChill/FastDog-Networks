@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-export const TERMS_VERSION = '2026-10-17-draft';
+export const TERMS_VERSION = '2026-10-19';
 export const PRIVACY_VERSION = '2026-10-19';
 const siteFallback = 'https://example.invalid';
 export function siteOrigin(env = process.env) {

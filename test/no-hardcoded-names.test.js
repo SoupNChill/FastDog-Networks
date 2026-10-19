@@ -22,7 +22,7 @@ const hostnameLegacy = [
   'test/add-customer-host.test.js', 'test/agent-installer.test.js', 'test/assistant-docs.test.js', 'test/attach.test.js',
   'test/caddy-snippet.test.js', 'test/control-auth.test.js', 'test/deny-names.json', 'test/dns.test.js', 'test/edge.test.js',
   'test/enable-on-demand-tls.test.js', 'test/fixtures/caddy-adapted-live-fdctl.json', 'test/fixtures/caddy-adapted-live-full.json',
-  'test/helpers/fixtures.js', 'test/helpers/name-scanner.js', 'test/helpers/offline.cjs', 'test/homepage-hero.test.js',
+  'test/helpers/fixtures.js', 'test/helpers/name-scanner.js', 'test/helpers/offline.cjs',
   'test/no-hardcoded-names.allow.json', 'test/no-hardcoded-names.test.js', 'test/ns-cut-checklist.test.js',
   'test/site-status.test.js', 'test/sync-coredns.test.js', 'test/test-guards.test.js', 'test/tls-ask.test.js',
 ];
@@ -51,12 +51,13 @@ test('deny-list is lowercase data and exemptions are explicitly reviewed', () =>
 // Master baseline: 61 files, 350 hashes, 398 occurrences. Remove one old hero
 // hash/occurrence; add its replacement and the assistant support link (one each).
 // Approved Privacy contact adds one file, one hash and one occurrence.
+// Approved Terms and FAQ contacts add two files, two hashes and two occurrences.
 test('allowlist stays grouped by directory and at exact reviewed baseline counts', () => {
   assert.deepEqual(Object.keys(allow), Object.keys(allow).sort());
-  assert.equal(Object.keys(allow).length, 62, 'review required to change exempt files');
+  assert.equal(Object.keys(allow).length, 64, 'review required to change exempt files');
   const lines = Object.values(allow).flatMap((rule) => Object.values(rule.lines || {}));
-  assert.equal(lines.length, 353, 'review required to change line-hash entries');
-  assert.equal(lines.reduce((sum, count) => sum + count, 0), 401, 'review required to change exempt occurrences');
+  assert.equal(lines.length, 355, 'review required to change line-hash entries');
+  assert.equal(lines.reduce((sum, count) => sum + count, 0), 403, 'review required to change exempt occurrences');
 });
 
 test('whole-file flags cannot exempt documentation or arbitrary source files', () => {

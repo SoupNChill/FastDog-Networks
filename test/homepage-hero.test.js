@@ -10,12 +10,13 @@ const section = (label) => {
   return match[0];
 };
 
-test('homepage hero has exact onboarding copy and invite/docs actions', () => {
+test('homepage hero has exact onboarding copy and sign-up/docs actions', () => {
   const hero = section('hero-title');
   assert.ok(hero.includes('<h1 id="hero-title">Your AI can put your app on FastDog safely <em>in one prompt.</em></h1>'));
   assert.ok(hero.includes('<p class="hero-lede">Paste one prompt into your coding assistant. It sets up the hostname, HTTPS, and a private tunnel to your app. You add two DNS records and approve the docker command. No open ports, and the setup keys it uses only work for your account and expire on their own. The agent key stays on your server.</p>'));
   assert.ok(hero.includes('<p class="small-note">In our Oct 17 production test (single run), a fresh Claude Code session took a new hostname to live HTTPS in under 3 minutes, DNS included, for about $0.17 of AI usage. With web requests allowed up front, its only approval was the docker run.</p>'));
-  assert.match(hero, /<a class="cta" href="mailto:support@fastdognetworks\.com\?subject=Request%20an%20invite">Request an invite <span aria-hidden="true">↗<\/span><\/a>/);
+  assert.match(hero, /<a class="cta" href="https:\/\/portal\.fastdognetworks\.com\/signup">Start a free trial <span aria-hidden="true">↗<\/span><\/a>/);
+  assert.doesNotMatch(html, /Request an invite|Request%20an%20invite/);
   assert.match(hero, /<a class="text-link" href="\/docs\/">Read the docs<\/a>/);
 });
 
@@ -36,8 +37,9 @@ test('AI setup section sits between hero and products with scoped guidance', () 
   assert.doesNotMatch(ai, /same[- ]business[- ]day/i);
 });
 
-test('pricing markup remains byte-identical to the pre-review homepage', () => {
-  // SHA-256 of the unchanged pricing section before this review (also identical to origin/master).
-  const baseline = '5b80f3aea1d01280000283ad4690b2c3ff1b5e3c239ff922a8e7e34af786203d';
+test('pricing markup matches the reviewed launch copy', () => {
+  // SHA-256 of the reviewed pricing section: plans unchanged; the launch copy (PR #96) adds the trial line and the
+  // "Email us to pick a plan" link text. Any other change needs review.
+  const baseline = 'd36fff2c931acfc728e91acc202cf50d4f1916893e642290227efbcd3325bf18';
   assert.equal(createHash('sha256').update(section('pricing'), 'utf8').digest('hex'), baseline);
 });

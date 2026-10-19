@@ -7,7 +7,6 @@ import { join } from 'node:path';
 const site = fileURLToPath(new URL('../site/', import.meta.url));
 const read = (path) => readFileSync(join(site, path), 'utf8');
 const pages = ['terms/index.html', 'privacy/index.html', 'faq/index.html'];
-const draftPages = ['terms/index.html', 'faq/index.html'];
 const resolves = (href) => {
   const path = href.split('#')[0];
   return existsSync(join(site, path.endsWith('/') ? `${path}index.html` : path));
@@ -32,12 +31,24 @@ for (const page of pages) {
   });
 }
 
-for (const page of draftPages) {
-  test(`${page} remains a draft with placeholder contact`, () => {
+for (const [page, title] of [['terms/index.html', 'Terms of Service'], ['faq/index.html', 'FAQ']]) {
+  test(`${page} is final copy (no DRAFT), version 2026-10-19, noindex kept`, () => {
     const html = read(page);
-    assert.match(html, /DRAFT\. Not yet in effect\./);
-    assert.match(html, /Version 2026-10-17-draft/);
-    for (const [, address] of html.matchAll(/mailto:([^\x22?]+)/g)) assert.match(address, /@example\.invalid$/);
+    assert.doesNotMatch(html, /draft/i);
+    assert.doesNotMatch(html, /not yet in effect/i);
+    assert.match(html, /Version 2026-10-19/);
+    assert.ok(html.includes(`<title>${title} — FastDog Networks</title>`));
+    assert.doesNotMatch(html, /TODO|example\.invalid/);
+    const canonical = read('index.html').match(/<link rel=\x22canonical\x22 href=\x22([^\x22]+)\x22>/);
+    assert.ok(canonical, 'homepage has a canonical origin');
+    const host = new URL(canonical[1]).hostname;
+    const address = `support@${host}`;
+    assert.doesNotMatch(address, /@example\.invalid$/);
+    assert.deepEqual([...html.matchAll(/mailto:([^\x22?]+)/g)].map(([, value]) => value), [address]);
+    // Subject strings stay as written in the page; they are not repeated here (the name scan reads test literals).
+    const contactLink = html.match(new RegExp(`<a href="mailto:${address.replaceAll('.', '\\.')}\\?subject=[^"]+">${address.replaceAll('.', '\\.')}</a>`))?.[0];
+    assert.ok(contactLink, 'contact keeps a subject and the visible address');
+    assert.ok(!html.replace(contactLink, '').includes(host), 'public host appears only in the contact link');
   });
 }
 
@@ -72,19 +83,19 @@ test('legal pages cover the required topics', () => {
   }
   const faq = read('faq/index.html');
   const questions = faq.match(/<dt>/g).length;
-  assert.ok(questions >= 8 && questions <= 10, String(questions));
+  assert.equal(questions, 11);
   for (const topic of ['/docs/', 'CNAME', 'log', 'delete my account', '/edge/#pricing', 'help']) assert.ok(faq.includes(topic), topic);
 });
 
 test('privacy and FAQ describe retention, logging and email delivery as implemented', () => {
   const privacy = read('privacy/index.html');
-  for (const claim of ['Terms acceptance (planned)', 'Sign-up does not record this yet', 'private outbox',
+  for (const claim of ['<dt>Terms acceptance</dt>', 'we record which versions of the Terms of Service and this Privacy Policy you accepted', 'private outbox',
     'deleted automatically. Many are gone within 30 days', 'system logs and DNS lookup logs are stored in files', 'Our DNS servers also log each lookup they answer', 'entries in these logs can be kept for more than 30 days', '24 hours',
     'sent through our email provider', 'most recent backup of each kind', 'any backup needed to roll back a change',
     'payment processor will be added when paid plans launch', 'cloud hosting providers and our email provider']) {
     assert.ok(privacy.includes(claim), claim);
   }
-  for (const stale of ['on a short schedule', 'minutes to hours', 'request headers such as the user agent, IP',
+  for (const stale of ['(planned)', 'does not record this yet', 'on a short schedule', 'minutes to hours', 'request headers such as the user agent, IP',
     'TODO(owner)', 'planned but not in place yet', 'DRAFT. Not yet in effect.',
     'not fully in place', 'once connected', 'not yet sent through the email provider', 'aim to delete', 'no longer than we reasonably need']) {
     assert.ok(!privacy.includes(stale), stale);
@@ -98,10 +109,20 @@ test('privacy and FAQ describe retention, logging and email delivery as implemen
   assert.ok(outgoing.includes('whether it was sent'));
   assert.doesNotMatch(outgoing, /\bthe link\b/);
   const faq = read('faq/index.html');
-  for (const claim of ['does not store them', 'remove both if you leave']) assert.ok(faq.includes(claim), claim);
+  for (const claim of ['does not store them', 'remove both if you leave', 'DNS servers’ lookup logs',
+    'the requesting IP address, the name and record type asked for, and the result', 'Logs are deleted automatically',
+    'Many are gone within 30 days', 'some are kept longer', 'Is there a free trial?', 'When you sign up in the portal without an invitation, you get a 7-day free trial with 1 hostname',
+    'don’t need a card', 'On day 8 we pause the hostname', 'To pick one, email support from your account’s email address', 'We don’t delete the hostname']) assert.ok(faq.includes(claim), claim);
   assert.ok(!faq.includes('status and user agent'));
+  assert.doesNotMatch(faq, /(all|every) logs?[^.]*within 30 days/i);
+  assert.match(faq, /<dt>Is there a free trial\?<\/dt><dd>[^\n]+<\/dd>\n<dt>How much does it cost\?<\/dt>/);
   const terms = read('terms/index.html');
   assert.ok(terms.includes('stay blocked for every other account until we review them and release them'));
+  for (const claim of ['Domain registration is billed separately. You can cancel at any time.', 'To ask for a refund, email support at the address under <a href="#contact">Contact</a>',
+    'we handle refund requests case by case.']) assert.ok(terms.includes(claim), claim);
+  assert.ok(terms.includes('Accounts created through open sign-up start with a free trial that lasts 7 days from sign-up and covers 1 hostname. When the trial ends, we pause your hostnames, without deleting anything, until you are on a paid plan. Accounts created from an invitation start on the plan named in the invitation.'));
+  for (const stale of ['setup promise', 'fees already paid are not refunded']) assert.ok(!terms.includes(stale), stale);
+  assert.doesNotMatch(terms, /refunds? (are|is|will be) (guaranteed|always)|refund[^.]*within \d+ (business )?days/i, 'no new money promise');
 });
 
 test('docs subpage footer links the legal pages', () => {
