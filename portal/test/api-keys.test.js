@@ -184,3 +184,21 @@ test('per-key rate limits, connect budgets and an audit log without secrets', as
   assert.ok(view.data.recent_use.length > 0);
   assert.equal(JSON.stringify(view.data).includes('app.example.test/'), false, 'routes are templates');
 });
+
+
+test('audit entries older than 30 days are pruned on write', async (t) => {
+  const { f } = await setup(t);
+  const tid = tids[0];
+  const old = new Date(f.now() - 40 * DAY).toISOString();
+  f.store.write('api_key_audit', [
+    { at: old, key_id: 'k-old', tenant_id: tid, scope: 'status:read', route: '/api/v1/status', method: 'GET', status: 200 },
+    { at: new Date(f.now()).toISOString(), key_id: 'k-new', tenant_id: tid, scope: 'status:read', route: '/api/v1/status', method: 'GET', status: 200 },
+  ]);
+  const { createApiKeys } = await import('../src/api-keys.js');
+  const keys = createApiKeys(f.store, () => f.now());
+  keys.audit({ key_id: 'k-trig', tenant_id: tid, scope: 'status:read', route: '/api/v1/status', method: 'GET', status: 200 });
+  const audit = f.store.read('api_key_audit', []);
+  assert.equal(audit.some((e) => e.key_id === 'k-old'), false);
+  assert.ok(audit.some((e) => e.key_id === 'k-new'));
+  assert.ok(audit.some((e) => e.key_id === 'k-trig'));
+});
