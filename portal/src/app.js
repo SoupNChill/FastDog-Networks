@@ -300,7 +300,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
           response.setHeader('Set-Cookie', session.cookie);
         }
         const identity = auth.identity(session);
-        return send(200, { ...termsUpdate(identity?.user, config.termsEnv, config.logger), email: identity?.user.email ?? null,
+        return send(200, { ...termsUpdate(identity?.user, process.env, config.logger), email: identity?.user.email ?? null,
           tenant: identity ? pick(identity.tenant, ['id', 'plan', 'hostname_limit']) : null,
           email_verified: Boolean(identity?.user.email_verified_at), open_signup: config.openSignup, csrf: session.csrf });
       }

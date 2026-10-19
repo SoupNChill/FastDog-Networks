@@ -28,7 +28,7 @@ export function showTermsUpdate(update, api, continueTo = () => {}) {
   skip.type = 'button';
   skip.textContent = 'Continue for now';
   const finish = () => { panel.remove(); continueTo(); };
-  skip.onclick = finish;
+  skip.onclick = () => { try { sessionStorage.setItem('fd-terms-skip', '1'); } catch { /* storage may be off */ } finish(); };
   panel.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (!checkbox.checked) return;
@@ -38,6 +38,8 @@ export function showTermsUpdate(update, api, continueTo = () => {}) {
     finally { finish(); }
   });
   panel.append(heading, label, accept, skip);
-  document.querySelector('.portal-body').prepend(panel);
+  const body = document.querySelector('.portal-body');
+  if (!body) return false;
+  body.prepend(panel);
   return true;
 }

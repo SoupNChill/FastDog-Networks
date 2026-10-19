@@ -49,6 +49,8 @@ test('terms acceptance is authenticated, CSRF protected, advisory and survives a
   assert.equal((await client.call('/api/terms/accept', 'POST', { accept_terms: true }, { 'x-fd-csrf': 'wrong' })).status, 401);
   assert.deepEqual((await client.call('/api/terms/accept', 'POST', {})).data, { error: 'invalid_json' });
   assert.equal((await client.call('/api/hostnames')).status, 200);
+  const created = await client.call('/api/hostnames', 'POST', { hostname: 'app.example.test' });
+  assert.ok(![401, 403, 404, 405, 500].includes(created.status), `hostname create with outdated terms: ${created.status}`);
   const key = await client.call('/api/keys', 'POST', { password, scopes: ['status:read'] });
   assert.equal(key.status, 201);
   // The key authenticates with outdated terms: an unknown hostname is a 404, not a refusal.
@@ -129,4 +131,29 @@ test('prompt continues after successful, refused and failed acceptance', async (
       assert.equal(panel.removed, true);
     }
   } finally { globalThis.document = previous; }
+});
+
+test('prompt is skipped when the page has no .portal-body and a skip is remembered for the session', async () => {
+  const { showTermsUpdate } = await import('../public/js/terms-update.js');
+  const previousDocument = globalThis.document, previousStorage = globalThis.sessionStorage;
+  try {
+    globalThis.document = { querySelector: () => null,
+      createElement: (tag) => ({ tag, append() {}, addEventListener() {}, remove() {} }) };
+    assert.equal(showTermsUpdate({ required: true, terms_url: '/terms/', privacy_url: '/privacy/' }, async () => ({})), false);
+    const store = new Map();
+    globalThis.sessionStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+    const nodes = [];
+    globalThis.document = { querySelector: (s) => (s === '#terms-update' ? null : { prepend() {} }),
+      createElement: (tag) => { const n = { tag, append() {}, addEventListener() {}, remove() { this.removed = true; } }; nodes.push(n); return n; } };
+    let continued = 0;
+    assert.equal(showTermsUpdate({ required: true, terms_url: '/terms/', privacy_url: '/privacy/' }, async () => ({}), () => continued++), true);
+    nodes.find((n) => n.textContent === 'Continue for now').onclick();
+    assert.equal(store.get('fd-terms-skip'), '1');
+    assert.equal(continued, 1);
+  } finally { globalThis.document = previousDocument; globalThis.sessionStorage = previousStorage; }
+});
+
+test('account init guards the advisory prompt with the session skip flag and a catch', () => {
+  const source = readFileSync(new URL('../public/js/api.js', import.meta.url), 'utf8');
+  assert.match(source, /try \{ if \(me\.tenant && !sessionStorage\.getItem\('fd-terms-skip'\)\) showTermsUpdate\(me\.terms_update, api\); \} catch/);
 });
