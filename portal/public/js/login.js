@@ -1,4 +1,5 @@
 import { api, init, form, message } from './api.js';
+import { showTermsUpdate } from './terms-update.js';
 import { loginDestination } from './start-state.js';
 const fragment = new URLSearchParams(location.hash.slice(1));
 const linkToken = fragment.get('token');
@@ -22,7 +23,11 @@ try {
   form('#login', async (data) => {
     try {
       await api('/api/login', 'POST', data);
-      location.assign(await loginDestination(api));
+      const destination = await loginDestination(api);
+      try {
+        const me = await init(); // Refresh CSRF after login rotates the session.
+        if (!showTermsUpdate(me.terms_update, api, () => location.assign(destination))) location.assign(destination);
+      } catch { location.assign(destination); }
     } catch (error) {
       message(`${error.message} Check your email address and password. If you forgot your password, use the reset link below.`);
     }

@@ -1,3 +1,4 @@
+import { showTermsUpdate } from './terms-update.js';
 let csrf;
 export const message = (text) => { document.querySelector('#message').textContent = text; };
 const errors = {
@@ -41,6 +42,7 @@ export async function init(required = false) {
   if (logout) logout.onclick = async () => {
     try { await api('/api/logout', 'POST'); location.assign('/login'); } catch (error) { message(error.message); }
   };
+  if (me.tenant) showTermsUpdate(me.terms_update, api);
   return me;
 }
 export function form(id, callback) {

@@ -172,3 +172,5 @@ Operator-reported evidence for the homepage claim; logs live on the operator hos
 - MEDIUM — DONE (#87 mail review): share signup/invite/SMTP email normalization, supporting ASCII dot-atom local parts and punycode domains, with verification/reset delivery regressions.
 
 - DONE (shadow retention): first-party shadow rows default to 30-day atomic age trimming with a seven-day configuration floor, oldest-first size backstop, idle maintenance and daily summary pruning. Offline regressions cover retention, atomic replacement and fail-open I/O; deployment remains operator work.
+
+- DONE (portal terms): advisory re-accept prompt on login/account pages, CSRF-protected acceptance with bounded history and fail-open persistence; existing API access remains independent of terms versions.
