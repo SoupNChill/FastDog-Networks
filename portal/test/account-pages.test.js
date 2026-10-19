@@ -128,6 +128,11 @@ test('signup with open_signup hides an optional invite field behind a toggle and
   assert.equal(nodes['#invite'].focused, true);
   await calls.callback({ email: 'invited@example.test', password: 'p', invite_code: 'code-1' });
   assert.equal(calls.sent[2].invite_code, 'code-1', 'an expanded invite field still sends the code');
+  assert.match(nodes['#invite-label'].textContent, /optional/);
+  await calls.callback({ email: 'new@example.test', password: 'p', invite_code: '   ' });
+  assert.equal('invite_code' in calls.sent[2], false, 'a blank code takes the open path');
+  await calls.callback({ email: 'invited@example.test', password: 'p', invite_code: ' code-2 ' });
+  assert.equal(calls.sent[2].invite_code, 'code-2');
   nodes['#invite'].value = 'typed';
   nodes['#invite-toggle'].listeners.click();
   assert.equal(nodes['#invite-field'].hidden, true);
@@ -155,12 +160,14 @@ test('signup falls back to a visible optional invite field when the status check
   assert.match(nodes['#invite-label'].textContent, /optional/);
   assert.equal(typeof calls.callback, 'function', 'the form still submits');
   assert.match(calls.status, /could not be completed/);
+  await calls.callback({ email: 'new@example.test', password: 'p', invite_code: '' });
+  assert.equal(calls.sent[2].invite_code, '', 'fallback sends the field as typed; the server is the gate');
 });
 
 test('account pages label the sign-up nav link Create account', () => {
   for (const name of ['login', 'signup', 'verify-email']) {
     assert.match(read(`${name}.html`), /<a href="\/signup">Create account<\/a>/);
-    assert.doesNotMatch(read(`${name}.html`), /Use an invitation/);
+    assert.doesNotMatch(read(`${name}.html`), /Use an invitation|with an invitation/);
   }
   assert.match(read('signup.html'), /id="invite-toggle" aria-controls="invite-field" aria-expanded="false" hidden/);
 });
