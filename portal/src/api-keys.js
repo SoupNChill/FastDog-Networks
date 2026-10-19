@@ -15,6 +15,7 @@ export const MAX_DAYS = 90;
 export const MAX_LIVE_PER_TENANT = 10;
 const MAX_ALLOW_HOSTS = 20;
 const AUDIT_KEEP_PER_TENANT = 1000;
+const AUDIT_MAX_AGE_DAYS = 30;
 const TOUCH_EVERY_MS = 60000;
 // There is no free plan; these names are refused defensively in case one is ever assigned.
 const UNPAID_PLANS = new Set(['free', 'none', 'trial', 'suspended']);
@@ -104,6 +105,12 @@ export function createApiKeys(store, now) {
       const log = store.read('api_key_audit', []);
       log.push({ at: new Date(now()).toISOString(), key_id: entry.key_id ?? null, tenant_id: entry.tenant_id ?? null,
         scope: entry.scope ?? null, route: entry.route, method: entry.method, status: entry.status });
+      // Drop entries older than 30 days first (Privacy retention), then cap per tenant by count.
+      const cutoff = now() - AUDIT_MAX_AGE_DAYS * DAY_MS;
+      for (let i = log.length - 1; i >= 0; i--) {
+        const t = Date.parse(log[i].at);
+        if (!Number.isFinite(t) || t < cutoff) log.splice(i, 1);
+      }
       // Capped per tenant, so one tenant's traffic can never push out another tenant's history.
       const mine = log.reduce((n, e) => n + (e.tenant_id === entry.tenant_id), 0);
       if (mine > AUDIT_KEEP_PER_TENANT) log.splice(log.findIndex((e) => e.tenant_id === entry.tenant_id), 1);
