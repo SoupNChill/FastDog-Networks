@@ -391,6 +391,12 @@
       "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1
     }
   },
+  "site/faq/index.html": {
+    "reason": "Approved public FAQ contact; exempt only the exact contact line.",
+    "lines": {
+      "d2cc92f133b861130642c4bed65ec5b9298538f636c3a637b3f7251071a35b2e": 1
+    }
+  },
   "site/index.html": {
     "reason": "Reviewed legacy homepage lines plus the replacement hero and assistant-section support link; the two new hashes retain existing brand/support references, each once.",
     "lines": {
@@ -421,6 +427,12 @@
     "reason": "Approved public Privacy contact; exempt only the exact contact line.",
     "lines": {
       "bc6defe9a78bc7b520ea9b969971fd13fa131879ed7a23668e18d228c0a20bde": 1
+    }
+  },
+  "site/terms/index.html": {
+    "reason": "Approved public Terms contact; exempt only the exact contact line.",
+    "lines": {
+      "6cae9f1dd70678d93330bf98039dd5fed419a0d8236f32c5246e44d575d2a4da": 1
     }
   },
   "site/verdict/index.html": {

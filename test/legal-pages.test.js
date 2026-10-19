@@ -7,7 +7,6 @@ import { join } from 'node:path';
 const site = fileURLToPath(new URL('../site/', import.meta.url));
 const read = (path) => readFileSync(join(site, path), 'utf8');
 const pages = ['terms/index.html', 'privacy/index.html', 'faq/index.html'];
-const draftPages = ['terms/index.html', 'faq/index.html'];
 const resolves = (href) => {
   const path = href.split('#')[0];
   return existsSync(join(site, path.endsWith('/') ? `${path}index.html` : path));
@@ -32,12 +31,24 @@ for (const page of pages) {
   });
 }
 
-for (const page of draftPages) {
-  test(`${page} remains a draft with placeholder contact`, () => {
+for (const [page, title] of [['terms/index.html', 'Terms of Service'], ['faq/index.html', 'FAQ']]) {
+  test(`${page} is final copy (no DRAFT), version 2026-10-19, noindex kept`, () => {
     const html = read(page);
-    assert.match(html, /DRAFT\. Not yet in effect\./);
-    assert.match(html, /Version 2026-10-17-draft/);
-    for (const [, address] of html.matchAll(/mailto:([^\x22?]+)/g)) assert.match(address, /@example\.invalid$/);
+    assert.doesNotMatch(html, /draft/i);
+    assert.doesNotMatch(html, /-draft/);
+    assert.match(html, /Version 2026-10-19/);
+    assert.ok(html.includes(`<title>${title} — FastDog Networks</title>`));
+    assert.doesNotMatch(html, /TODO|example\.invalid/);
+    const canonical = read('index.html').match(/<link rel=\x22canonical\x22 href=\x22([^\x22]+)\x22>/);
+    assert.ok(canonical, 'homepage has a canonical origin');
+    const host = new URL(canonical[1]).hostname;
+    const address = `support@${host}`;
+    assert.doesNotMatch(address, /@example\.invalid$/);
+    assert.deepEqual([...html.matchAll(/mailto:([^\x22?]+)/g)].map(([, value]) => value), [address]);
+    // Subject strings stay as written in the page; they are not repeated here (the name scan reads test literals).
+    const contactLink = html.match(new RegExp(`<a href="mailto:${address.replaceAll('.', '\\.')}\\?subject=[^"]+">${address.replaceAll('.', '\\.')}</a>`))?.[0];
+    assert.ok(contactLink, 'contact keeps a subject and the visible address');
+    assert.ok(!html.replace(contactLink, '').includes(host), 'public host appears only in the contact link');
   });
 }
 
