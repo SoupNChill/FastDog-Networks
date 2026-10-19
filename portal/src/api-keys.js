@@ -18,7 +18,7 @@ const AUDIT_KEEP_PER_TENANT = 1000;
 const AUDIT_MAX_AGE_DAYS = 30;
 const TOUCH_EVERY_MS = 60000;
 // There is no free plan; these names are refused defensively in case one is ever assigned.
-const UNPAID_PLANS = new Set(['free', 'none', 'trial', 'suspended']);
+export const UNPAID_PLANS = new Set(['free', 'none', 'trial', 'suspended']);
 
 export const planAllowsKeys = (tenant) => Boolean(tenant) && (!tenant.status || tenant.status === 'active')
   && typeof tenant.plan === 'string' && tenant.plan.trim() !== '' && !UNPAID_PLANS.has(tenant.plan.trim().toLowerCase());

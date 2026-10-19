@@ -104,9 +104,9 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
           return send(200, generic);
         }
         const tenant = open
-          ? { id: tenantId(), name: '', plan: 'trial', hostname_limit: 1, status: 'active', source: 'open' }
+          ? { id: tenantId(), name: '', plan: 'trial', hostname_limit: 1, status: 'active', source: 'open', created_at: new Date(now()).toISOString() }
           : { id: tenantId(), name: '', plan: invite.plan ?? config.defaultPlan,
-            hostname_limit: invite.hostname_limit ?? config.defaultHostnameLimit, status: 'active' };
+            hostname_limit: invite.hostname_limit ?? config.defaultHostnameLimit, status: 'active', created_at: new Date(now()).toISOString() };
         const user = { id: randomUUID(), tenant_id: tenant.id, email, password_hash, email_verified_at: null, auth_version: 1,
           terms: termsRecord(store, ip, now()), ...(open ? { signup_source: 'open' } : {}) };
         data.tenants.push(tenant);

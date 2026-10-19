@@ -2,7 +2,9 @@
 // Writes only suspensions.json and admin_audit.json; the running server reads suspensions.json and ends
 // sessions, API keys and connect tokens on their next use. Resume keeps the suspension's revocation
 // epoch, so credentials issued before it never come back, and first re-runs a failed edge suspend. Release (only after resume) frees the
-// tenant's administratively reserved hostnames on the edge. Never prints the portal key or any token.
+// tenant's administratively reserved hostnames on the edge. extend-trial and set-plan write only
+// trial_overrides.json (and admin_audit.json); set-plan to a paid plan also unpauses the tenant on the edge.
+// Never prints the portal key or any token.
 import { openSync, writeSync, closeSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -11,21 +13,32 @@ import { createStore, emptyAccounts } from '../src/store.js';
 import { createSuspensions } from '../src/suspensions.js';
 import { createEdgeClient } from '../src/edge-client.js';
 import { normalizeEmail } from '../src/tokens.js';
+import { readOverrides, readTrials, writeOverride, trialInfo, isPaidPlan, MAX_EXTRA_DAYS } from '../src/trials.js';
 
-const usage = 'Usage: STATE_DIRECTORY=<state directory> node portal/bin/tenant.js suspend|resume|release <tenant_id|email> --reason "<text>"\n';
+const pick = (value, keys) => Object.fromEntries(keys.filter((key) => value?.[key] !== undefined).map((key) => [key, value[key]]));
+const usage = 'Usage: STATE_DIRECTORY=<state directory> node portal/bin/tenant.js suspend|resume|release <tenant_id|email> --reason "<text>"\n'
+  + '       STATE_DIRECTORY=<state directory> node portal/bin/tenant.js extend-trial <tenant_id|email> --days <1-90> --reason "<text>"\n'
+  + '       STATE_DIRECTORY=<state directory> node portal/bin/tenant.js set-plan <tenant_id|email> trial|hobby|pro|agency|assigned --reason "<text>"\n';
 const AUDIT_KEEP = 5000;
+const OVERRIDE_PLANS = ['trial', 'hobby', 'pro', 'agency', 'assigned'];
 const live = (record, now) => !record.revoked_at && Date.parse(record.expires_at) > now;
 
 function parse(argv) {
-  const [action, target, ...rest] = argv;
+  const [action, target, ...args] = argv;
+  const plan = action === 'set-plan' ? args[0] : undefined;
+  const rest = action === 'set-plan' ? args.slice(1) : args;
   let reason = null;
+  let days = null;
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === '--reason' && typeof rest[i + 1] === 'string') reason = rest[++i];
+    else if (action === 'extend-trial' && rest[i] === '--days' && /^\d{1,2}$/.test(rest[i + 1] ?? '')) days = Number(rest[++i]);
     else return null;
   }
   reason = typeof reason === 'string' ? reason.replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, 500) : '';
-  if (!['suspend', 'resume', 'release'].includes(action) || typeof target !== 'string' || !target || !reason) return null;
-  return { action, target, reason };
+  if (!['suspend', 'resume', 'release', 'extend-trial', 'set-plan'].includes(action) || typeof target !== 'string' || !target || !reason) return null;
+  if (action === 'extend-trial' && !(days >= 1 && days <= 90)) return null;
+  if (action === 'set-plan' && !OVERRIDE_PLANS.includes(plan)) return null;
+  return { action, target, reason, ...(days ? { days } : {}), ...(plan ? { plan } : {}) };
 }
 
 function resolveTenant(accounts, suspensions, target) {
@@ -109,6 +122,26 @@ async function locked(args, env, out, store) {
     }
     if (!code) Object.assign(summary, { changed: suspensions.clear(tid, at),
       note:'Portal access restored; credentials issued before the suspension stay revoked. Hostnames stay reserved on the edge until release; the customer then re-adds and re-verifies each one.' });
+  } else if (args.action === 'extend-trial' || args.action === 'set-plan') {
+    // Writes only trial_overrides.json; the server sweep records pause state in trials.json.
+    const previous = readOverrides(store).tenants[tid] ?? {};
+    const patch = args.action === 'set-plan' ? { plan: args.plan }
+      : { extra_days: Math.min((Number.isInteger(previous.extra_days) ? previous.extra_days : 0) + args.days, MAX_EXTRA_DAYS) };
+    const next = writeOverride(store, tid, patch);
+    Object.assign(summary, { changed: JSON.stringify(previous) !== JSON.stringify(next), ...pick(next, ['extra_days', 'plan']) });
+    const tenant = accounts.tenants.find((t) => t.id === tid);
+    const trial = tenant ? trialInfo(tenant, readTrials(store).tenants[tid] ?? null, next, now) : null;
+    if (trial) Object.assign(summary, { ends_at: trial.ends_at });
+    // Upgrading (or extending an ended trial) unpauses now; the hourly sweep records it and retries any failure.
+    if (args.action === 'set-plan' ? isPaidPlan(args.plan) : trial?.active && trial.paused) {
+      try {
+        await edgeClient(env).unpauseTenant(tid);
+        summary.edge = 'ok';
+      } catch {
+        Object.assign(summary, { edge: 'failed', note: 'Override saved. The edge unpause did not succeed; the trial sweep retries it.' });
+        code = 2;
+      }
+    }
   } else {
     try {
       const result = await edgeClient(env).releaseTenant(tid);
@@ -121,7 +154,8 @@ async function locked(args, env, out, store) {
   }
   const audit = store.read('admin_audit', []);
   const entries = Array.isArray(audit) ? audit : [];
-  entries.push({ at, action: args.action, tenant_id: tid, reason: args.reason, changed: summary.changed, ...(summary.edge ? { edge: summary.edge } : {}) });
+  entries.push({ at, action: args.action, tenant_id: tid, reason: args.reason, changed: summary.changed,
+    ...pick(summary, ['extra_days', 'plan']), ...(summary.edge ? { edge: summary.edge } : {}) });
   store.write('admin_audit', entries.slice(-AUDIT_KEEP));
   out.stdout(`${JSON.stringify(summary)}\n`);
   return code;

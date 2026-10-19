@@ -109,7 +109,7 @@ export function createInternalServer(opts = {}) {
         return send(res, result.status, result.retry_after ? { error: 'rate_limited', retry_after: result.retry_after } : undefined);
       }
       if (!equalToken(req.headers['x-fastdog-portal-key'], opts.portalKey)) throw fail(401, 'unauthorized');
-      const suspension = url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/(suspend|release)$/);
+      const suspension = url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/(suspend|release|pause|unpause)$/);
       const match = suspension ?? url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/hostnames(?:\/([^/]+)(?:\/(verify|credentials\/rotate|agent|status|test))?)?$/);
       if (!match) throw fail(404, 'not_found');
       const [, tid, rawHost, action] = match;
@@ -121,7 +121,10 @@ export function createInternalServer(opts = {}) {
       const body = await readBody(req);
       bodyRead = true;
       if (abort.signal.aborted) return;
-      if (suspension) return send(res, 200, suspension[2] === 'release' ? claims.releaseTenant(tid) : claims.suspendTenant(tid));
+      if (suspension) {
+        const tenantAction = { suspend: 'suspendTenant', release: 'releaseTenant', pause: 'pauseTenant', unpause: 'unpauseTenant' }[suspension[2]];
+        return send(res, 200, claims[tenantAction](tid));
+      }
       if (!rawHost) {
         if (req.method === 'GET') return send(res, 200, claims.list(tid));
         const result = claims.create(tid, body);

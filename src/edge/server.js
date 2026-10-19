@@ -31,6 +31,7 @@ import { renderStatus } from '../status/html.js';
 import { billingRouter, billingWebhook } from '../billing/api.js';
 import { isNonCanonicalControlPath, isControlPath } from './control-path.js';
 import { createOperatorServer, OPERATOR_BIND, OPERATOR_PORT } from '../operator/server.js';
+import { createPausedHosts, servePaused, upgradeUrl } from './paused-hosts.js';
 
 const PORT = Number(env('EDGE_PORT', '8787'));
 const BIND = env('EDGE_BIND', '127.0.0.1');
@@ -41,6 +42,8 @@ const ALLOW_QUERY_TOKEN = env('ALLOW_QUERY_TOKEN', '1') !== '0';
 let queryTokenFallbackUses = 0;
 
 let routeConfig = loadRoutes();
+const pausedHosts = createPausedHosts({ dataDir: dataDir() });
+const PAUSED_UPGRADE_URL = upgradeUrl(process.env.PAUSED_UPGRADE_URL);
 
 function reloadRoutes() {
   routeConfig = loadRoutes();
@@ -187,6 +190,11 @@ app.use((req, res) => {
   if (isControlPath(req.url)) return controlNotFound(res);
   const host = req.headers.host || '';
   const resolved = resolveUpstream(host);
+  // Trial pause is fail-open: any error here proxies as usual.
+  try {
+    const tunnelHost = routeConfig.tunnelHosts.has(String(host).split(':')[0].toLowerCase());
+    if (servePaused(req, res, { resolved, tunnelHost, isPaused: pausedHosts.isPaused, link: PAUSED_UPGRADE_URL })) return;
+  } catch { if (res.headersSent) return; }
 
   inc('requestsProxied');
 
@@ -217,6 +225,7 @@ const internalServer = internalEnabled ? createInternalServer({
   timeoutCodes: env('INTERNAL_TIMEOUT_CODES', '0') === '1', claimCreateRateLimit: env('CLAIM_CREATE_RATE_LIMIT', '0'),
 }) : null;
 internalServer?.on('routesChanged', reloadRoutes);
+internalServer?.on('routesChanged', () => pausedHosts.invalidate());
 
 const wss = new WebSocketServer({ server, path: '/_fastdog/tunnel' });
 

@@ -16,6 +16,7 @@ import { dockerDetails, serializeDockerEnv, dockerEnvFile, buildCommand, validOr
 import { verifyPassword } from './passwords.js';
 import { createApiKeys, planAllowsKeys, API_KEY_SCOPES, DEFAULT_DAYS, MAX_DAYS } from './api-keys.js';
 import { createSuspensions, effectiveTenant } from './suspensions.js';
+import { tenantPlan } from './trials.js';
 
 const authPaths = new Set(['/api/signup', '/api/login', '/api/logout', '/api/verify-email', '/api/password-reset', '/api/password-reset/confirm']);
 const staticRoutes = new Map([
@@ -175,7 +176,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const tid = key.tenant_id;
         if (!m[1]) {
           limits.take(`api-create:${tid}`, 10, 3600000, true);
-          const created = hostnameRecord(await edge.createHostname(unsuspended(tid), hostname, tenant.hostname_limit));
+          const created = hostnameRecord(await edge.createHostname(unsuspended(tid), hostname, tenantPlan(store, tenant, now()).hostname_limit));
           const commands = store.read('connect_commands', {});
           if (delete commands[commandKey(tid, hostname)]) store.write('connect_commands', commands);
           return send(201, { ...created, docker: dockerDetails(hostname) });
@@ -300,7 +301,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         }
         const identity = auth.identity(session);
         return send(200, { email: identity?.user.email ?? null,
-          tenant: identity ? pick(identity.tenant, ['id', 'plan', 'hostname_limit']) : null,
+          tenant: identity ? { id: identity.tenant.id, ...tenantPlan(store, identity.tenant, now()) } : null,
           email_verified: Boolean(identity?.user.email_verified_at), open_signup: config.openSignup, csrf: session.csrf });
       }
       const body = request.method === 'GET' ? {} : await readBody(request);
@@ -317,7 +318,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
       }
       if (!identity) throw fail('unauthorized');
       const { user, tenant } = identity;
-      if (path === '/api/plan') return send(200, pick(tenant, ['plan', 'hostname_limit']));
+      if (path === '/api/plan') return send(200, tenantPlan(store, tenant, now()));
       if (path === '/api/domain-requests') {
         const all = store.read('domain_requests', []);
         if (request.method === 'GET') return send(200, { requests: all.filter((r) => r.tenant_id === tenant.id) });
@@ -356,7 +357,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         }
         if (!user.email_verified_at) throw fail('unauthorized');
         const hostname = normalizeHostname(body.hostname);
-        const created = hostnameRecord(await edge.createHostname(unsuspended(tenant.id), hostname, tenant.hostname_limit));
+        const created = hostnameRecord(await edge.createHostname(unsuspended(tenant.id), hostname, tenantPlan(store, tenant, now()).hostname_limit));
         const commands = store.read('connect_commands', {});
         if (delete commands[commandKey(tenant.id, hostname)]) store.write('connect_commands', commands);
         return send(201, created);
