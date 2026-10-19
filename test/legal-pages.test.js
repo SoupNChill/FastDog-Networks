@@ -79,18 +79,24 @@ test('legal pages cover the required topics', () => {
 test('privacy and FAQ describe retention, logging and email delivery as implemented', () => {
   const privacy = read('privacy/index.html');
   for (const claim of ['Terms acceptance (planned)', 'Sign-up does not record this yet', 'private outbox',
-    'Guaranteed time-based deletion for every log type is not fully in place yet.', '24 hours', 'aim to delete them within 30 days',
+    'deleted automatically. Many are gone within 30 days', 'system logs and DNS lookup logs are stored in files', 'Our DNS servers also log each lookup they answer', 'entries in these logs can be kept for more than 30 days', '24 hours',
+    'sent through our email provider', 'most recent backup of each kind', 'any backup needed to roll back a change',
     'payment processor will be added when paid plans launch', 'cloud hosting providers and our email provider']) {
     assert.ok(privacy.includes(claim), claim);
   }
   for (const stale of ['on a short schedule', 'minutes to hours', 'request headers such as the user agent, IP',
-    'TODO(owner)', 'planned but not in place yet', 'DRAFT. Not yet in effect.']) {
+    'TODO(owner)', 'planned but not in place yet', 'DRAFT. Not yet in effect.',
+    'not fully in place', 'once connected', 'not yet sent through the email provider', 'aim to delete', 'no longer than we reasonably need']) {
     assert.ok(!privacy.includes(stale), stale);
   }
   const outbox = privacy.match(/<li>[^<]*outbox[^<]*<\/li>/i)?.[0];
   assert.ok(outbox, 'outbox retention item exists');
   assert.match(outbox, /deleted automatically after about 7 days/);
   assert.doesNotMatch(outbox, /not built|manual|by hand/i);
+  const outgoing = privacy.match(/<dt>Outgoing emails<\/dt><dd>([^<]*)<\/dd>/)?.[1];
+  assert.ok(outgoing, 'outgoing emails entry exists');
+  assert.ok(outgoing.includes('whether it was sent'));
+  assert.doesNotMatch(outgoing, /\bthe link\b/);
   const faq = read('faq/index.html');
   for (const claim of ['does not store them', 'remove both if you leave']) assert.ok(faq.includes(claim), claim);
   assert.ok(!faq.includes('status and user agent'));
