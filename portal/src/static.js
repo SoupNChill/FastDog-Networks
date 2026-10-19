@@ -25,9 +25,10 @@ export function safePath(raw) {
   if (/[\\\x00-\x1f\x7f%]/.test(path) || path.split('/').some((part) => part === '.' || part === '..')) throw fail('not_found');
   return path;
 }
-export function serveStatic(path, response) {
+// `extraPages` adds flag-gated pages (agent bootstrap) on top of the fixed page map.
+export function serveStatic(path, response, extraPages = {}) {
   let base = publicRoot;
-  let relative = pages[path.replace(/\/$/, '') || '/'];
+  let relative = pages[path.replace(/\/$/, '') || '/'] ?? extraPages[path.replace(/\/$/, '') || '/'];
   if (/^\/js\/[a-z-]+\.js$/.test(path)) relative = path.slice(1);
   if (['/favicon.svg', '/logos/hound-dark.svg', '/logos/hound-light.svg'].includes(path) || path === '/css/site.css' || path === '/css/portal.css' || path === '/css/guide.css' || path === '/css/connect.css' || path === '/css/status.css' || /^\/fonts\/[A-Za-z-]+\.ttf$/.test(path)) {
     base = publicRoot;

@@ -1,8 +1,11 @@
+import { combined, dataDir as defaultDataDir } from '../onboard/json.js';
+import { validAgentVersion } from './agent-version.js';
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { inc } from '../lib/metrics.js';
 import { validCredential, tenantOwner } from '../onboard/credentials.js';
+import { validCandidateCredential, candidateLive, promoteCandidate } from '../onboard/candidates.js';
 import { normalizeHostname } from '../onboard/hostname.js';
-import { equalToken } from './auth.js';
+import { equalToken, equalHash } from './auth.js';
 
 /**
  * In-memory tunnel registry for Phase 1.
@@ -11,6 +14,52 @@ import { equalToken } from './auth.js';
 const agents = new Map();
 /** hostname (lower) -> agentId */
 const hostIndex = new Map();
+
+// Bootstrap candidates (AGENT_BOOTSTRAP_ENABLED only). Routing, hostIndex, listAgents and getAgentByHost never read these;
+// only promotion moves a candidate into `agents`.
+/** credential id -> { id, credentialId, tenantId, keyFingerprint, hostname, localUpstream, ws, ready, ... } */
+const candidates = new Map();
+/** candidate agentId -> credential id */
+const candidateAgents = new Map();
+/** hostname -> time the active tunnel last detached; absent entries count from process start */
+const absentSince = new Map();
+export const DEFAULT_ABSENT_FOR_MS = 300000;
+let candidateMode = false, clock = Date.now, absentForMs = DEFAULT_ABSENT_FOR_MS, startedAt = Date.now(), issuerCheck;
+
+// Seconds from AGENT_BOOTSTRAP_ABSENT_FOR_SECONDS: unset means 300; otherwise an integer 60-3600.
+export function absentForSetting(value) {
+  if (value === undefined || value === '') return DEFAULT_ABSENT_FOR_MS;
+  const seconds = Number(value);
+  if (!Number.isInteger(seconds) || seconds < 60 || seconds > 3600) throw new Error('AGENT_BOOTSTRAP_ABSENT_FOR_SECONDS must be an integer from 60 to 3600');
+  return seconds * 1000;
+}
+
+// `issuerCheck(issuer)` answers true/false or throws; without one every candidate path fails closed.
+export function configureCandidates({ enabled = true, now = Date.now, absentForMs: absent = DEFAULT_ABSENT_FOR_MS, issuerCheck: check } = {}) {
+  candidateMode = enabled; clock = now; absentForMs = absent; startedAt = now(); issuerCheck = check;
+}
+
+const unauthorized = () => Object.assign(new Error('unauthorized'), { status: 401 });
+const unavailable = () => Object.assign(new Error('bootstrap_unavailable'), { status: 503 });
+
+// Issuer eligibility (plan section 6) for candidate registration, upgrade and promotion: next('valid' | 'invalid' |
+// 'unavailable'). A synchronous checker keeps the caller synchronous; the production checker is asynchronous, and then
+// the caller returns a promise.
+function issuerVerdict(issuer, next) {
+  const settle = (value) => next(value === true ? 'valid' : value === false ? 'invalid' : 'unavailable');
+  if (typeof issuerCheck !== 'function' || !issuer) return next('unavailable');
+  let result;
+  try { result = issuerCheck(structuredClone(issuer)); } catch { return next('unavailable'); }
+  return typeof result?.then === 'function' ? result.then(settle, () => next('unavailable')) : settle(result);
+}
+const quiet = (value) => { if (typeof value?.then === 'function') value.catch(() => {}); return value; };
+function closeSocket(ws, code) {
+  try { if (ws) code ? ws.close(code, 'unauthorized') : ws.terminate ? ws.terminate() : ws.close(); } catch { /* Already closed. */ }
+}
+const connected = (ws) => Boolean(ws && ws.readyState === 1);
+function notify(c, state) {
+  try { if (connected(c.ws)) c.ws.send(JSON.stringify({ type: 'candidate_status', state })); } catch { /* Socket closing. */ }
+}
 
 export function listAgents() {
   return [...agents.values()].map((a) => ({
@@ -30,10 +79,12 @@ export function getAgentByHost(hostname) {
   return agents.get(id) || null;
 }
 
-export function registerAgent({ name, hostname, localUpstream, token, expectedToken, dataDir }) {
+// `candidate` and `proof` are supplied only when bootstrap is enabled; legacy callers pass neither.
+export function registerAgent({ name, hostname, localUpstream, token, expectedToken, dataDir, candidate = false, proof }) {
+  if (candidate) return registerCandidate({ name, hostname, localUpstream, token, dataDir, proof });
   const owner = tenantOwner(hostname, dataDir);
   const operator = equalToken(token, expectedToken);
-  if (!token || (operator && owner) || (!operator && !validCredential(token, hostname, dataDir))) {
+  if (!token || (operator && owner) || (!operator && !validCredential(token, hostname, dataDir, clock, proof))) {
     const err = new Error('unauthorized');
     err.status = 401;
     throw err;
@@ -53,6 +104,9 @@ export function registerAgent({ name, hostname, localUpstream, token, expectedTo
     }
     agents.delete(existingId);
   }
+  // Any active re-registration, even while its socket is already down, restarts the absence clock, so a candidate
+  // cannot promote in the gap between this register and its WS attach.
+  if (candidateMode) absentSince.set(host, clock());
   const id = randomUUID();
   const record = {
     id,
@@ -62,6 +116,7 @@ export function registerAgent({ name, hostname, localUpstream, token, expectedTo
     ws: null,
     registeredAt: new Date().toISOString(),
     lastSeen: new Date().toISOString(),
+    dataDir, credentialAuth: !operator,
     tokenHash: createHash('sha256').update(token).digest(),
   };
   agents.set(id, record);
@@ -75,14 +130,145 @@ export function registerAgent({ name, hostname, localUpstream, token, expectedTo
   };
 }
 
-export function attachWs(agentId, ws, token) {
+function registerCandidate({ name, hostname, localUpstream, token, dataDir, proof }) {
+  let record = null;
+  try { record = validCandidateCredential(token, hostname, dataDir, clock, proof); } catch { /* Storage uncertainty fails closed. */ }
+  if (!record) throw unauthorized();
+  if (!localUpstream) throw Object.assign(new Error('hostname and localUpstream required'), { status: 400 });
+  return issuerVerdict(record.issuer, (verdict) => {
+    if (verdict === 'invalid') throw unauthorized();
+    if (verdict === 'unavailable') throw unavailable();
+    // The check may have been asynchronous: the durable candidate must still be live and bound.
+    let alive = false;
+    try { alive = candidateLive(dataDir, record.id, clock); } catch { throw unavailable(); }
+    if (!alive) throw unauthorized();
+    // Re-registration replaces only this credential's own earlier candidate.
+    const previous = candidates.get(record.id);
+    if (previous) { candidateAgents.delete(previous.id); closeSocket(previous.ws); }
+    const id = randomUUID(); const time = new Date().toISOString();
+    candidates.set(record.id, { id, credentialId: record.id, tenantId: record.tenant_id, keyFingerprint: record.key_fingerprint, issuer: record.issuer,
+      name: name || `agent-${id.slice(0, 8)}`, hostname: record.claim_hostname, localUpstream: localUpstream.replace(/\/$/, ''),
+      ws: null, ready: false, registeredAt: time, lastSeen: time, dataDir, tokenHash: createHash('sha256').update(token).digest() });
+    candidateAgents.set(id, record.id);
+    return { id, hostname: record.claim_hostname, candidate: true, state: record.status, wsPath: '/_fastdog/tunnel' };
+  });
+}
+
+function attachCandidate(agentId, ws, token, proof) {
+  const c = candidates.get(candidateAgents.get(agentId));
+  if (!c || typeof token !== 'string' || !timingSafeEqual(c.tokenHash, createHash('sha256').update(token).digest())) return false;
+  let record = null;
+  try { record = validCandidateCredential(token, c.hostname, c.dataDir, clock, proof); } catch { /* Fail closed. */ }
+  if (record?.id !== c.credentialId) return false;
+  return issuerVerdict(record.issuer, (verdict) => {
+    let alive = false;
+    try { alive = verdict === 'valid' && candidates.get(c.credentialId) === c && candidateLive(c.dataDir, c.credentialId, clock); } catch { /* Fail closed. */ }
+    // A socket closed during the issuer check must not replace an attached candidate.
+    if (!alive || !connected(ws)) return false;
+    if (c.ws && c.ws !== ws) closeSocket(c.ws);
+    c.ws = ws; c.ready = false;
+    c.lastSeen = new Date().toISOString();
+    return true;
+  });
+}
+
+export function attachWs(agentId, ws, token, { candidate = false, proof } = {}) {
+  if (candidate) return attachCandidate(agentId, ws, token, proof);
   const a = agents.get(agentId);
   if (!a || typeof token !== 'string') return false;
   const hash = createHash('sha256').update(token).digest();
   if (!timingSafeEqual(a.tokenHash, hash)) return false;
+  try {
+    if (a.credentialAuth && (process.env.AGENT_BOOTSTRAP_ENABLED === '1' || combined(a.dataDir ?? defaultDataDir())) && !validCredential(token, a.hostname, a.dataDir, clock, proof)) return false;
+  } catch { return false; }
   a.ws = ws;
   a.lastSeen = new Date().toISOString();
+  // Any reattachment of the active agent resets the absence clock.
+  if (candidateMode && hostIndex.get(a.hostname) === agentId) absentSince.delete(a.hostname);
   return true;
+}
+
+function dropCandidate(credentialId) {
+  const c = candidates.get(credentialId);
+  if (!c) return;
+  candidates.delete(credentialId); candidateAgents.delete(c.id);
+  closeSocket(c.ws, 4401);
+}
+
+// Moves a promoted candidate into the active registry and closes the replaced agent's socket.
+function install(c) {
+  const oldId = hostIndex.get(c.hostname); const old = agents.get(oldId);
+  candidates.delete(c.credentialId); candidateAgents.delete(c.id);
+  agents.set(c.id, { id: c.id, name: c.name, hostname: c.hostname, localUpstream: c.localUpstream, ws: c.ws,
+    registeredAt: c.registeredAt, lastSeen: c.lastSeen, dataDir: c.dataDir, credentialAuth: true, tokenHash: c.tokenHash });
+  hostIndex.set(c.hostname, c.id);
+  absentSince.delete(c.hostname);
+  if (old && oldId !== c.id) { agents.delete(oldId); closeSocket(old.ws); }
+}
+
+// Promotion hold: promote a ready candidate only on owner confirmation, or when the active tunnel is not connected and
+// has been continuously absent for absent_for (or there is no active credential). Otherwise it is held without traffic.
+// A promotion first runs as a dry run; only a promotable candidate costs an issuer check, after which the real
+// transaction rechecks every durable condition and the registry state of that moment. An unavailable check leaves the
+// candidate unchanged until its deadline; an ineligible issuer drops it.
+function evaluate(credentialId, { confirmed = false, keyFingerprint } = {}) {
+  const c = candidates.get(credentialId);
+  if (!c?.ready || !connected(c.ws)) return 'not_ready';
+  if (c.evaluating) return 'busy';
+  const attempt = (dryRun) => {
+    const active = agents.get(hostIndex.get(c.hostname));
+    const activeConnected = connected(active?.ws);
+    const since = Math.max(absentSince.get(c.hostname) ?? startedAt, startedAt);
+    try {
+      return promoteCandidate(c.dataDir, credentialId, clock, { activeConnected, absentLongEnough: !activeConnected && clock() - since >= absentForMs, confirmed, keyFingerprint, dryRun });
+    } catch { return { state: 'unavailable' }; }
+  };
+  const finish = (result) => {
+    if (result.state === 'unavailable') return 'unavailable';
+    if (result.state === 'invalid') { dropCandidate(credentialId); return 'invalid'; }
+    if (result.state === 'promoted') install(c);
+    if (result.state !== 'mismatch') notify(c, result.state);
+    return result.state;
+  };
+  const dry = attempt(true);
+  if (dry.state !== 'promotable') return finish(dry);
+  c.evaluating = true;
+  return issuerVerdict(dry.issuer, (verdict) => {
+    c.evaluating = false;
+    if (verdict === 'invalid') { dropCandidate(credentialId); return 'invalid'; }
+    if (verdict === 'unavailable') return 'unavailable';
+    if (candidates.get(credentialId) !== c || !c.ready || !connected(c.ws)) return 'not_ready';
+    return finish(attempt(false));
+  });
+}
+
+// Called after the candidate's WS welcome: authenticated attachment plus welcome makes it ready.
+export function candidateReady(agentId, ws) {
+  const c = candidates.get(candidateAgents.get(agentId));
+  if (!c || c.ws !== ws) return 'not_ready';
+  c.ready = true;
+  return evaluate(c.credentialId);
+}
+
+export function confirmCandidate(credentialId, keyFingerprint) {
+  const c = candidates.get(credentialId);
+  if (!c || !equalHash(c.keyFingerprint, keyFingerprint)) return 'not_ready';
+  return evaluate(credentialId, { confirmed: true, keyFingerprint });
+}
+
+export function closeCandidates(hostname) {
+  const host = String(hostname).toLowerCase();
+  for (const c of [...candidates.values()]) if (c.hostname === host) dropCandidate(c.credentialId);
+}
+
+// Periodic (enabled only): promote held candidates whose active tunnel stayed absent; drop expired or revoked ones.
+export function sweepCandidates() {
+  for (const c of [...candidates.values()]) {
+    if (c.ready && connected(c.ws)) { quiet(evaluate(c.credentialId)); continue; }
+    let alive = false;
+    try { alive = candidateLive(c.dataDir, c.credentialId, clock); } catch { continue; }
+    if (!alive) dropCandidate(c.credentialId);
+  }
 }
 
 export function touch(agentId) {
@@ -92,7 +278,7 @@ export function touch(agentId) {
 
 export function setOriginStatus(agentId, { origin_reachable: reachable, origin_checked_at: checkedAt, agent_version: version } = {}) {
   const a = agents.get(agentId);
-  if (a && typeof version === 'string' && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(version)) a.agentVersion = version;
+  if (a && validAgentVersion(version)) a.agentVersion = version;
   if (!a || typeof reachable !== 'boolean') return;
   a.originReachable = reachable;
   const parsed = Date.parse(checkedAt);
@@ -101,7 +287,14 @@ export function setOriginStatus(agentId, { origin_reachable: reachable, origin_c
 
 export function detachWs(agentId, ws) {
   const a = agents.get(agentId);
-  if (a && a.ws === ws) { a.ws = null; delete a.originReachable; delete a.originCheckedAt; }
+  if (a && a.ws === ws) {
+    a.ws = null; delete a.originReachable; delete a.originCheckedAt;
+    if (candidateMode && hostIndex.get(a.hostname) === agentId) absentSince.set(a.hostname, clock());
+    return;
+  }
+  // A disconnected candidate returns to pending semantics and may reattach until its deadline.
+  const c = candidates.get(candidateAgents.get(agentId));
+  if (c && c.ws === ws) { c.ws = null; c.ready = false; }
 }
 
 /**
@@ -201,9 +394,14 @@ export function closeHost(hostname) {
   if (agent?.ws) {
     try { agent.ws.terminate ? agent.ws.terminate() : agent.ws.close(); } catch { /* Already closed. */ }
   }
+  // Every revocation path removes the host's candidates too.
+  if (candidateMode) absentSince.set(host, clock());
+  closeCandidates(host);
 }
 
 export function _resetForTests() {
   agents.clear();
   hostIndex.clear();
+  candidates.clear(); candidateAgents.clear(); absentSince.clear();
+  configureCandidates({ enabled: false, issuerCheck: undefined });
 }

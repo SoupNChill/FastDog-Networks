@@ -1,3 +1,4 @@
+import { createBootstrap } from '../onboard/bootstrap.js';
 import http from 'node:http';
 import { isIP } from 'node:net';
 import { equalToken } from '../control/auth.js';
@@ -52,6 +53,7 @@ export function createInternalServer(opts = {}) {
   }
   const server = http.createServer({ requestTimeout: 5000, headersTimeout: 5000, connectionsCheckingInterval: 1000 }, handle);
   server.setTimeout(5000);
+  const bootstrap = opts.bootstrap ?? createBootstrap(opts);
   const claims = createClaims(opts, () => server.emit('routesChanged'));
   const tlsAskEnabled = opts.tlsAskEnabled ?? (process.env.TLS_ASK_ENABLED === '1');
   // Default off: a timeout keeps the legacy 400 invalid_json. On: 408 while the body is incomplete, else 504.
@@ -110,12 +112,17 @@ export function createInternalServer(opts = {}) {
       }
       if (!equalToken(req.headers['x-fastdog-portal-key'], opts.portalKey)) throw fail(401, 'unauthorized');
       const suspension = url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/(suspend|release)$/);
-      const match = suspension ?? url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/hostnames(?:\/([^/]+)(?:\/(verify|credentials\/rotate|agent|status|test))?)?$/);
+      const match = suspension ?? url.pathname.match(/^\/internal\/v1\/tenants\/([^/]+)\/hostnames(?:\/([^/]+)(?:\/(verify|credentials\/rotate|agent|status|test|bootstraps(?:\/candidates\/[^/]+\/confirm|\/agent\/revoke|\/[^/]+)?))?)?$/);
       if (!match) throw fail(404, 'not_found');
       const [, tid, rawHost, action] = match;
-      route = suspension ? `/internal/v1/tenants/:tid/${suspension[2]}` : '/internal/v1/tenants/:tid/hostnames' + (rawHost ? '/:hostname' : '') + (action ? `/${action}` : '');
+      const bootstrapRoute = action?.startsWith('bootstraps');
+      const confirmRoute = bootstrapRoute && /^bootstraps\/candidates\/[^/]+\/confirm$/.test(action);
+      // Explicit owner "Revoke agent": revokes current credentials, cancels codes and candidates, mints nothing.
+      const revokeRoute = action === 'bootstraps/agent/revoke';
+      if (bootstrapRoute && !bootstrap.enabled) throw fail(404, 'not_found');
+      route = suspension ? `/internal/v1/tenants/:tid/${suspension[2]}` : '/internal/v1/tenants/:tid/hostnames' + (rawHost ? '/:hostname' : '') + (action ? `/${confirmRoute ? 'bootstraps/candidates/confirm' : revokeRoute ? action : bootstrapRoute ? 'bootstraps' : action}` : '');
       if (!/^t_[a-z2-7]{20}$/.test(tid)) throw fail(400, 'invalid_tenant');
-      const allowed = suspension ? ['POST'] : !rawHost ? ['GET', 'POST'] : ['agent', 'status'].includes(action) ? ['GET'] : action ? ['POST'] : ['GET', 'DELETE'];
+      const allowed = bootstrapRoute ? (action === 'bootstraps' || confirmRoute || revokeRoute ? ['POST', ...(confirmRoute || revokeRoute ? [] : ['DELETE'])] : ['GET']) : suspension ? ['POST'] : !rawHost ? ['GET', 'POST'] : ['agent', 'status'].includes(action) ? ['GET'] : action ? ['POST'] : ['GET', 'DELETE'];
       if (!allowed.includes(req.method)) throw fail(405, 'method_not_allowed');
       if (Number(req.headers['content-length']) > 16384) throw fail(413, 'payload_too_large');
       const body = await readBody(req);
@@ -131,7 +138,10 @@ export function createInternalServer(opts = {}) {
       try { decoded = decodeURIComponent(rawHost); } catch { throw fail(400, 'invalid_hostname'); }
       const host = normalizeHostname(decoded);
       let result;
-      if (action === 'verify') result = await claims.verify(tid, host, abort.signal);
+      if (confirmRoute) result = await bootstrap.confirm(tid, host, action.split('/')[2], body);
+      else if (revokeRoute) result = claims.revokeAgent(tid, host);
+      else if (bootstrapRoute) result = req.method === 'POST' ? bootstrap.issue(tid, host, body) : req.method === 'DELETE' ? bootstrap.cancel(tid, host) : bootstrap.status(tid, host, action.slice(11));
+      else if (action === 'verify') result = await claims.verify(tid, host, abort.signal);
       else if (action === 'credentials/rotate') result = claims.rotate(tid, host);
       else if (action === 'agent') result = claims.agent(tid, host);
       else if (action === 'status') result = await siteStatus.status(tid, host);

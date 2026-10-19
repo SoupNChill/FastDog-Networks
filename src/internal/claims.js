@@ -1,3 +1,5 @@
+import { cancelBootstraps, chargeRotation } from '../onboard/bootstrap.js';
+import { authTransaction, combined } from '../onboard/json.js';
 import { randomBytes } from 'node:crypto';
 import dns from 'node:dns/promises';
 import { readJson, writeJson, dataDir as defaultDataDir } from '../onboard/json.js';
@@ -104,6 +106,7 @@ export function createClaims(opts, changed) {
   }
   function active(c) { if (c.status !== 'active') throw fail(409, 'not_active'); }
   function revoke(tid, host) {
+    if (combined(directory)) cancelBootstraps(directory, tid, host, now());
     const credentials = read('agent-credentials.json');
     for (const c of credentials) if (c.tenant_id === tid && c.claim_hostname === host && !c.revoked_at) c.revoked_at = new Date(now()).toISOString();
     write('agent-credentials.json', credentials);
@@ -151,35 +154,37 @@ export function createClaims(opts, changed) {
       const outage = results.length >= minOutageSample && inconclusiveTenants > tenants.size / 2;
       for (const { initial, ok } of results) {
         if (ok === null && outage) continue;
-        // DNS yields: never resurrect a deleted/replaced claim or overwrite another owner.
-        const records = claims();
-        const record = records.find((c) => c.tenant_id === initial.tenant_id && c.hostname === initial.hostname);
-        if (!record || record.txt_value !== initial.txt_value || record.credential_id !== initial.credential_id ||
-            record.status !== initial.status) continue;
-        record.last_rechecked_at = stamp;
-        record.recheck_inconclusive = ok === null ? (record.recheck_inconclusive ?? 0) + 1 : 0;
-        if (ok === null && record.recheck_inconclusive < inconclusiveBeforeFailure) {
+        authTransaction(directory, () => {
+          // DNS yields: never resurrect a deleted/replaced claim or overwrite another owner.
+          const records = claims();
+          const record = records.find((c) => c.tenant_id === initial.tenant_id && c.hostname === initial.hostname);
+          if (!record || record.txt_value !== initial.txt_value || record.credential_id !== initial.credential_id ||
+              record.status !== initial.status) return;
+          record.last_rechecked_at = stamp;
+          record.recheck_inconclusive = ok === null ? (record.recheck_inconclusive ?? 0) + 1 : 0;
+          if (ok === null && record.recheck_inconclusive < inconclusiveBeforeFailure) {
+            save(records);
+            return;
+          }
+          record.recheck_failures = ok ? 0 : (record.recheck_failures ?? 0) + 1;
+          const previous = record.status;
+          if (!ok && record.recheck_failures >= failuresBeforeDemote) {
+            record.status = 'suspended';
+            record.expires_at = new Date(Date.parse(stamp) + DAY).toISOString();
+            revoke(record.tenant_id, record.hostname);
+          }
           save(records);
-          continue;
-        }
-        record.recheck_failures = ok ? 0 : (record.recheck_failures ?? 0) + 1;
-        const previous = record.status;
-        if (!ok && record.recheck_failures >= failuresBeforeDemote) {
-          record.status = 'suspended';
-          record.expires_at = new Date(Date.parse(stamp) + DAY).toISOString();
-          revoke(record.tenant_id, record.hostname);
-        }
-        save(records);
-        if (previous !== record.status) {
-          const hosts = read('tunnel_hosts.json');
-          write('tunnel_hosts.json', hosts.filter((h) => h !== record.hostname));
-          registry?.closeHost(record.hostname);
-          changed();
-        }
+          if (previous !== record.status) {
+            const hosts = read('tunnel_hosts.json');
+            write('tunnel_hosts.json', hosts.filter((h) => h !== record.hostname));
+            registry?.closeHost(record.hostname);
+            changed();
+          }
+        });
       }
     } finally { rechecking = false; }
   }
-  return {
+  const api = {
     recheckActiveClaims,
     list(tid) { return { hostnames: claims().filter((c) => c.tenant_id === tid).sort((a, b) => a.created_at.localeCompare(b.created_at)).map(present) }; },
     get(tid, host) { return present(find(claims(), tid, host)); },
@@ -215,29 +220,32 @@ export function createClaims(opts, changed) {
       if (isTestLabelHost(host, attachTarget, altAttachTarget) && !mayClaimTestLabel(tid, host, attachTarget, altAttachTarget, directory)) throw fail(400, 'reserved_hostname');
       const { routing, ownership } = await checkClaimProof(host, initial.txt_value,
         { resolver, attachTarget, altAttachTarget, edgePublicIp: opts.edgePublicIp ?? edgeIp() });
-      // Re-read after DNS: another request may have activated, deleted or replaced this claim.
-      const records = claims();
-      const record = find(records, tid, host);
-      if (administrative(record) || (record.suspension_generation ?? 0) !== (initial.suspension_generation ?? 0)) throw fail(409, 'administratively_suspended');
-      if (record.txt_value !== initial.txt_value || signal?.aborted) throw fail(404, 'hostname_not_found');
-      if (unavailable(records, tid, host)) throw fail(409, 'hostname_unavailable');
-      if (record.status === 'active') return activeResult(record);
-      if (!routing.ok || !ownership.ok) return { hostname: host, status: record.status, verified: false, checks: { routing, ownership } };
-      // Single writer: there are no awaits between the ownership check and these writes.
-      registry?.closeHost(host);
-      if (record.status === 'suspended') revoke(tid, host);
-      const credential = issueCredential({ tenant_id: tid, hostname: host, name: host }, directory, now);
-      Object.assign(record, { status: 'active', verified_at: new Date(now()).toISOString(), method: routing.method, credential_id: credential.id, recheck_failures: 0, recheck_inconclusive: 0 });
-      save(records);
-      write('tunnel_hosts.json', [...new Set([...read('tunnel_hosts.json'), host])]);
-      changed();
-      return { ...activeResult(record), credential };
+      return authTransaction(directory, () => {
+        // Re-read after DNS: another request may have activated, deleted or replaced this claim.
+        const records = claims();
+        const record = find(records, tid, host);
+        if (administrative(record) || (record.suspension_generation ?? 0) !== (initial.suspension_generation ?? 0)) throw fail(409, 'administratively_suspended');
+        if (record.txt_value !== initial.txt_value || signal?.aborted) throw fail(404, 'hostname_not_found');
+        if (unavailable(records, tid, host)) throw fail(409, 'hostname_unavailable');
+        if (record.status === 'active') return activeResult(record);
+        if (!routing.ok || !ownership.ok) return { hostname: host, status: record.status, verified: false, checks: { routing, ownership } };
+        // Single writer: there are no awaits between the ownership check and these writes.
+        registry?.closeHost(host);
+        if (record.status === 'suspended') revoke(tid, host);
+        const credential = issueCredential({ tenant_id: tid, hostname: host, name: host }, directory, now);
+        Object.assign(record, { status: 'active', verified_at: new Date(now()).toISOString(), method: routing.method, credential_id: credential.id, recheck_failures: 0, recheck_inconclusive: 0 });
+        save(records);
+        write('tunnel_hosts.json', [...new Set([...read('tunnel_hosts.json'), host])]);
+        changed();
+        return { ...activeResult(record), credential };
+      });
     },
     rotate(tid, host) {
       const records = claims();
       const record = find(records, tid, host);
       active(record);
-      limit(`rotate:${host}`, 5, DAY);
+      if (combined(directory)) chargeRotation(directory, host, now());
+      else limit(`rotate:${host}`, 5, DAY);
       revoke(tid, host);
       registry?.closeHost(host);
       const credential = issueCredential({ tenant_id: tid, hostname: host, name: host }, directory, now);
@@ -245,10 +253,19 @@ export function createClaims(opts, changed) {
       save(records);
       return { credential };
     },
+    // Owner "Revoke agent" (bootstrap routes only): every credential of the claim, pending codes, recovery responses and
+    // candidates are revoked and the tunnel closed; no replacement credential is minted.
+    revokeAgent(tid, host) {
+      active(find(claims(), tid, host));
+      revoke(tid, host);
+      registry?.closeHost(host);
+      return { hostname: host, revoked: true };
+    },
     agent(tid, host) { active(find(claims(), tid, host)); return agent(host); },
     // When this tenant's current claim became active (verified_at only; null makes the probes fail closed).
     claimSince(tid, host) { const c = find(claims(), tid, host); active(c); return c.verified_at || null; },
     suspendTenant(tid) {
+      if (combined(directory)) cancelBootstraps(directory, tid, undefined, now());
       const raw = read('tenant_hostnames.json');
       const records = claims();
       const owned = records.filter((c) => c.tenant_id === tid);
@@ -283,6 +300,7 @@ export function createClaims(opts, changed) {
       return { tenant_id: tid, suspended: suspended.length, hostnames: suspended.map((c) => c.hostname) };
     },
     releaseTenant(tid) {
+      if (combined(directory)) cancelBootstraps(directory, tid, undefined, now());
       const records = claims();
       const released = records.filter((c) => c.tenant_id === tid && administrative(c));
       // Finish any interrupted suspension cleanup before dropping its reservations.
@@ -302,6 +320,7 @@ export function createClaims(opts, changed) {
       const records = claims();
       const record = find(records, tid, host);
       if (administrative(record)) throw fail(409, 'administratively_suspended');
+      if (combined(directory)) cancelBootstraps(directory, tid, host, now());
       save(records.filter((c) => c !== record));
       write('agent-credentials.json', read('agent-credentials.json').filter((c) => c.tenant_id !== tid || c.claim_hostname !== host));
       if (record.status === 'active') {
@@ -318,4 +337,8 @@ export function createClaims(opts, changed) {
       return claims().some((c) => c.hostname === host && c.status === 'active') || legacy(host)?.status === 'active';
     },
   };
+  for (const name of ['create', 'rotate', 'revokeAgent', 'suspendTenant', 'releaseTenant', 'delete']) {
+    const fn = api[name]; api[name] = (...args) => authTransaction(directory, () => fn(...args));
+  }
+  return api;
 }

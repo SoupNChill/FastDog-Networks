@@ -1,3 +1,4 @@
+import { createBootstrap, bootstrapMiddleware } from '../onboard/bootstrap.js';
 /**
  * Fastdog Edge — Phase 1 reverse proxy + control/DNS API + WS tunnel hub.
  *
@@ -6,7 +7,7 @@
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { WebSocketServer } from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import { env, loadRoutes, defaultUpstream, ROOT } from '../lib/config.js';
 import { forwardHttp } from '../lib/http-forward.js';
 import { inc, get as getMetrics } from '../lib/metrics.js';
@@ -18,7 +19,14 @@ import {
   detachWs,
   getAgentByHost,
   proxyViaTunnel,
+  closeCandidates,
+  confirmCandidate,
+  configureCandidates,
+  candidateReady,
+  sweepCandidates,
+  absentForSetting,
 } from '../control/tunnels.js';
+import { agentAuthContext } from '../control/agent-proof.js';
 import { operatorAuth } from '../control/auth.js';
 import { createInternalServer, assertLoopbackBind } from '../internal/server.js';
 import { dataDir } from '../onboard/json.js';
@@ -84,10 +92,17 @@ app.use('/www', (err, req, res, next) => {
   res.set('X-Content-Type-Options', 'nosniff');
   res.status(code).type('html').send(`<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8"><title>${code} ${text}</title></head><body><h1>${code} ${text}</h1></body></html>\n`);
 });
+const bootstrap = createBootstrap({ registry: { closeCandidates, confirmCandidate } });
+if (bootstrap.enabled) {
+  app.use(bootstrapMiddleware(bootstrap));
+  configureCandidates({ absentForMs: absentForSetting(process.env.AGENT_BOOTSTRAP_ABSENT_FOR_SECONDS), issuerCheck: bootstrap.issuerCheck });
+  setInterval(sweepCandidates, 5000).unref();
+}
 app.post('/_fastdog/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billingWebhook);
 // JSON only for control/billing APIs — never the catch-all reverse proxy.
 // A global express.json() consumes the body; proxyViaTunnel then waits forever on 'end'.
-const jsonParser = express.json({ limit: '1mb' });
+// With bootstrap enabled the raw body is kept for key-bound register proofs (body hash).
+const jsonParser = bootstrap.enabled ? express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody = buf; } }) : express.json({ limit: '1mb' });
 app.use('/_fastdog', jsonParser);
 app.use(billingRouter());
 const requireOperator = operatorAuth(AGENT_TOKEN);
@@ -149,15 +164,21 @@ function agentToken(req, legacyToken) {
   return legacyToken;
 }
 
-app.post('/_fastdog/agents/register', (req, res) => {
+app.post('/_fastdog/agents/register', async (req, res) => {
   try {
-    const result = registerAgent({
+    // Disabled bootstrap yields {}: no candidate mode and no proof context (legacy behaviour).
+    const { candidate, proof } = agentAuthContext(req, { enabled: bootstrap.enabled, audience: bootstrap.audience, body: req.rawBody });
+    let result = registerAgent({
       name: req.body?.name,
       hostname: req.body?.hostname,
       localUpstream: req.body?.localUpstream,
-      token: agentToken(req, req.body?.token || req.headers['x-fastdog-token']),
+      // Candidates authenticate with the Authorization header only, never body or legacy header tokens.
+      token: candidate ? agentToken(req, undefined) : agentToken(req, req.body?.token || req.headers['x-fastdog-token']),
       expectedToken: AGENT_TOKEN,
+      ...(bootstrap.enabled ? { candidate, proof } : {}),
     });
+    // Candidate registration awaits the authenticated issuer recheck; legacy registration stays synchronous.
+    if (typeof result?.then === 'function') result = await result;
     res.status(201).json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
@@ -212,7 +233,7 @@ const internalBind = internalEnabled ? assertLoopbackBind(env('INTERNAL_BIND', '
 const internalPort = Number(env('INTERNAL_PORT', '8789'));
 if (internalEnabled && (!Number.isInteger(internalPort) || internalPort < 1 || internalPort > 65535)) throw new Error('invalid INTERNAL_PORT');
 const internalServer = internalEnabled ? createInternalServer({
-  portalKey: env('PORTAL_KEY', ''), agentToken: AGENT_TOKEN, dataDir: dataDir(),
+  bootstrap, portalKey: env('PORTAL_KEY', ''), agentToken: AGENT_TOKEN, dataDir: dataDir(),
   registry: { getAgentByHost, closeHost }, recheckEnabled: env('RECHECK_ENABLED', '0') === '1',
   timeoutCodes: env('INTERNAL_TIMEOUT_CODES', '0') === '1', claimCreateRateLimit: env('CLAIM_CREATE_RATE_LIMIT', '0'),
 }) : null;
@@ -225,20 +246,39 @@ wss.on('connection', (ws, req) => {
   const agentId = url.searchParams.get('agentId');
   // Deprecated: query tokens support 0.1.0 only; remove after migration to 0.1.1+.
   const queryToken = ALLOW_QUERY_TOKEN ? url.searchParams.get('token') : null;
-  const token = agentToken(req, queryToken || req.headers['x-fastdog-token']);
+  const { candidate, proof } = agentAuthContext(req, { enabled: bootstrap.enabled, audience: bootstrap.audience });
+  const token = candidate ? agentToken(req, undefined) : agentToken(req, queryToken || req.headers['x-fastdog-token']);
 
-  if (!agentId || !attachWs(agentId, ws, token)) {
-    ws.close(4401, 'unauthorized');
-    return;
+  // Guard the socket before an asynchronous candidate issuer check can yield.
+  if (bootstrap.enabled) {
+    ws.on('close', () => detachWs(agentId, ws));
+    ws.on('error', () => { detachWs(agentId, ws); ws.terminate(); });
   }
 
-  if (req.headers.authorization === undefined && queryToken) queryTokenFallbackUses++;
+  const attached = agentId && (bootstrap.enabled ? attachWs(agentId, ws, token, { candidate, proof }) : attachWs(agentId, ws, token));
+  const proceed = (ok) => {
+    if (!agentId || !ok) {
+      if (bootstrap.enabled) detachWs(agentId, ws);
+      ws.close(4401, 'unauthorized');
+      return;
+    }
+    // A candidate socket that closed while its issuer recheck was in flight is detached at once.
+    if (ws.readyState !== WebSocket.OPEN) { detachWs(agentId, ws); return; }
 
-  ws.send(JSON.stringify({ type: 'welcome', agentId, protocol: 'fastdog-tunnel-v0' }));
+    if (req.headers.authorization === undefined && queryToken) queryTokenFallbackUses++;
 
-  watchTunnel(ws, agentId);
-  ws.on('close', () => detachWs(agentId, ws));
-  ws.on('error', () => detachWs(agentId, ws));
+    ws.send(JSON.stringify({ type: 'welcome', agentId, protocol: 'fastdog-tunnel-v0' }));
+    if (candidate) { const ready = candidateReady(agentId, ws); if (typeof ready?.then === 'function') ready.catch(() => {}); }
+
+    watchTunnel(ws, agentId);
+    if (!bootstrap.enabled) {
+      ws.on('close', () => detachWs(agentId, ws));
+      ws.on('error', () => detachWs(agentId, ws));
+    }
+  };
+  // Candidate upgrades await the authenticated issuer recheck; legacy upgrades stay synchronous.
+  if (typeof attached?.then === 'function') attached.then(proceed, () => proceed(false));
+  else proceed(attached);
 });
 
 if (process.env.NODE_ENV !== 'test') {

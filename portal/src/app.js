@@ -16,6 +16,7 @@ import { dockerDetails, serializeDockerEnv, dockerEnvFile, buildCommand, validOr
 import { verifyPassword } from './passwords.js';
 import { createApiKeys, planAllowsKeys, API_KEY_SCOPES, DEFAULT_DAYS, MAX_DAYS } from './api-keys.js';
 import { createSuspensions, effectiveTenant } from './suspensions.js';
+import { createAgentBootstrap, sessionIssuerId } from './agent-bootstrap.js';
 
 const authPaths = new Set(['/api/signup', '/api/login', '/api/logout', '/api/verify-email', '/api/password-reset', '/api/password-reset/confirm']);
 const staticRoutes = new Map([
@@ -55,6 +56,8 @@ async function readBody(request) {
   } catch (error) { throw error.code === 'payload_too_large' ? error : fail('invalid_json'); }
   finally { clearTimeout(timeout); }
 }
+const BOOTSTRAP_NOTE = 'Shown once and never stored by the portal. The code works once and expires at expires_at. If it is lost, cancel pending codes and request a new one.';
+const AGENT_PAGES = { '/agent': 'agent.html' };
 function clientIp(request, trustProxy) {
   const remote = request.socket.remoteAddress || 'unknown';
   const forwarded = request.headers['x-forwarded-for'];
@@ -77,6 +80,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
     || !['openConnectTokensPerHour', 'signupIpPerHour', 'signupDomainPerDay', 'signupBigmailPerDay', 'signupGlobalPerDay'].every((key) => count(config[key], 100000))) {
     throw new Error('Invalid open sign-up settings');
   }
+  // PORTAL_AGENT_BOOTSTRAP_ENABLED: off unless explicitly true. Off, no bootstrap route, page or field exists.
+  if (config.agentBootstrap !== undefined && typeof config.agentBootstrap !== 'boolean') throw new Error('Invalid agent bootstrap setting');
   // Public edge address agents dial (PORTAL_EDGE_URL). Without it the portal never renders a connect command.
   const edgeUrl = config.edgeUrl ? String(config.edgeUrl).replace(/\/$/, '') : null;
   if (edgeUrl) {
@@ -103,6 +108,13 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
   // The edge keeps no per-tenant suspended flag, so every call that creates, verifies or connects re-checks
   // the kill switch at the last moment (after any awaits since authentication).
   const unsuspended = (tid) => { if (suspensions.has(tid)) throw fail('unauthorized'); return tid; };
+  const agentBootstrap = config.agentBootstrap === true ? createAgentBootstrap({ store, edge, limits, now }) : null;
+  // Each bearer type keeps its own 3/day budget on top of the shared 5/day rotate budget, exactly as for commands.
+  const chargeCommand = (own, tid, host) => () => {
+    if (own) limits.take(`${own}:${tid}:${host}`, 3, 86400000, true);
+    try { limits.take(`rotate:${tid}:${host}`, 5, 86400000, true); }
+    catch (error) { if (own) limits.refund(`${own}:${tid}:${host}`, true); throw error; }
+  };
   const docsUrl = typeof config.docsUrl === 'string' && /^https:\/\/[a-z0-9.-]+(?:\/[a-z0-9/_-]*)?$/i.test(config.docsUrl) ? config.docsUrl : null;
   const server = http.createServer(async (request, response) => {
     const started = now();
@@ -127,7 +139,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
       if (!path.startsWith('/api/')) {
         if (request.method !== 'GET') throw fail('method_not_allowed');
         if (pagePath === '/health') return send(200, { ok: true });
-        if (Object.hasOwn(pages, pagePath) && !['/login', '/signup', '/verify-email'].includes(pagePath)) {
+        if ((Object.hasOwn(pages, pagePath) || (agentBootstrap && Object.hasOwn(AGENT_PAGES, pagePath))) && !['/login', '/signup', '/verify-email'].includes(pagePath)) {
           const session = sessions.get(request.headers.cookie);
           if (!auth.identity(session)) {
             response.writeHead(302, { Location: '/login', 'Content-Type': 'text/html; charset=utf-8' });
@@ -136,21 +148,25 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
           response.setHeader('Set-Cookie', session.cookie);
         }
         template = 'static';
-        return serveStatic(path, response);
+        // The flag-only script stays a 404, exactly as before it existed.
+        if (!agentBootstrap && path === '/js/agent-bootstrap.js') throw fail('not_found');
+        return agentBootstrap ? serveStatic(path, response, AGENT_PAGES) : serveStatic(path, response);
       }
       if (path.startsWith('/api/v1/')) {
         // Scoped API keys (Bearer fdak_...). Cookies are ignored, so CSRF does not apply and a key
         // cannot ride on a session; key management itself is session-only (a key never makes a key).
         const m = path.match(/^\/api\/v1\/hostnames(?:\/([^/]+)(?:\/(status|verify|connect))?)?$/);
-        if (!m) { template = '/api/v1/unknown'; throw fail('not_found'); }
-        template = `/api/v1/hostnames${m[1] ? `/:hostname${m[2] ? `/${m[2]}` : ''}` : ''}`;
-        const methods = !m[1] || ['verify', 'connect'].includes(m[2]) ? ['POST'] : ['GET'];
+        // Agent bootstrap issuance (connect scope), only with the portal flag on.
+        const bm = !m && agentBootstrap ? path.match(/^\/api\/v1\/hostnames\/([^/]+)\/bootstraps$/) : null;
+        if (!m && !bm) { template = '/api/v1/unknown'; throw fail('not_found'); }
+        template = bm ? '/api/v1/hostnames/:hostname/bootstraps' : `/api/v1/hostnames${m[1] ? `/:hostname${m[2] ? `/${m[2]}` : ''}` : ''}`;
+        const methods = bm || !m[1] || ['verify', 'connect'].includes(m[2]) ? ['POST'] : ['GET'];
         if (!methods.includes(request.method)) return send(405, { error: 'method_not_allowed' }, { Allow: methods.join(', ') });
         limits.take(`api-ip:${clientIp(request, config.trustProxy)}`, 300, 600000);
         const header = request.headers.authorization;
         const key = apiKeys.find(typeof header === 'string' && /^Bearer /.test(header) ? header.slice(7).trim() : null);
         if (!key) throw fail('unauthorized');
-        const scope = !m[1] || m[2] === 'verify' ? 'hostnames:create' : m[2] === 'status' ? 'status:read' : m[2] === 'connect' ? 'connect' : 'hostnames:read';
+        const scope = bm ? 'connect' : !m[1] || m[2] === 'verify' ? 'hostnames:create' : m[2] === 'status' ? 'status:read' : m[2] === 'connect' ? 'connect' : 'hostnames:read';
         response.on('finish', () => {
           try { apiKeys.audit({ key_id: key.id, tenant_id: key.tenant_id, scope, route: template, method: request.method, status: response.statusCode }); }
           catch { /* Auditing cannot affect a response. */ }
@@ -168,11 +184,19 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         const allowedScope = scope === 'hostnames:read' ? key.scopes.some((s) => ['status:read', 'hostnames:create'].includes(s)) : key.scopes.includes(scope);
         if (!allowedScope) throw fail('forbidden');
         const body = request.method === 'GET' ? {} : await readBody(request);
-        const hostname = normalizeHostname(m[1] ? m[1] : body.hostname);
+        const hostname = normalizeHostname(bm ? bm[1] : m[1] ? m[1] : body.hostname);
         // The tenant always comes from the key; the edge re-checks ownership on every route.
         if (key.hostnames && !key.hostnames.includes(hostname)) throw fail('forbidden');
         apiKeys.touch(key.id);
         const tid = key.tenant_id;
+        if (bm) {
+          const upstream = validOrigin(body.origin);
+          if (!upstream) throw Object.assign(fail('invalid_origin'), { detail: originError(body.origin) });
+          const issued = await agentBootstrap.issue({ tid, hostname, origin: upstream, principal: key.user_id, unsuspended,
+            issuer: { kind: 'api_key', id: key.id, authorization_generation: key.auth_version ?? 0 }, charge: chargeCommand('api-rotate', tid, hostname) });
+          markCommand(tid, hostname);
+          return send(201, { ...issued, note: BOOTSTRAP_NOTE });
+        }
         if (!m[1]) {
           limits.take(`api-create:${tid}`, 10, 3600000, true);
           const created = hostnameRecord(await edge.createHostname(unsuspended(tid), hostname, tenant.hostname_limit));
@@ -219,7 +243,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
       if (path.startsWith('/api/connect/v1/')) {
         // Bearer-only API for AI assistants. Cookies are ignored here, so CSRF does not apply.
         template = path;
-        const routes = { '/api/connect/v1/hostname': 'GET', '/api/connect/v1/command': 'POST' };
+        const routes = { '/api/connect/v1/hostname': 'GET', '/api/connect/v1/command': 'POST', ...(agentBootstrap ? { '/api/connect/v1/bootstrap': 'POST' } : {}) };
         if (!routes[path]) throw fail('not_found');
         if (request.method !== routes[path]) return send(405, { error: 'method_not_allowed' }, { Allow: routes[path] });
         limits.take(`connect-api:${clientIp(request, config.trustProxy)}`, 120, 600000);
@@ -244,6 +268,22 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         // Same tenant re-adding the hostname creates a new claim; tokens for the old claim end.
         if (!record.claim_created_at || claim.created_at !== record.claim_created_at) { connectTokens.revokeAll(record.tenant_id, record.hostname); throw fail('unauthorized'); }
         if (claim.status !== 'active') throw fail('not_active');
+        if (path === '/api/connect/v1/bootstrap') {
+          const body = await readBody(request);
+          const upstream = validOrigin(body.origin);
+          if (!upstream) throw Object.assign(fail('invalid_origin'), { detail: originError(body.origin) });
+          if (!issuer.email_verified_at) throw fail('unauthorized');
+          // One command per token: issuance is the command. Only a definitive refusal releases the reservation.
+          if (record.command_issued_at || !connectTokens.markCommand(record.id)) throw fail('token_used');
+          let issued;
+          try {
+            issued = await agentBootstrap.issue({ tid: record.tenant_id, hostname: record.hostname, origin: upstream, principal: record.user_id, unsuspended,
+              issuer: { kind: 'connect_token', id: record.id, authorization_generation: record.auth_version ?? 0 },
+              charge: chargeCommand('connect-token-rotate', record.tenant_id, record.hostname) });
+          } catch (error) { if (!error.uncertain) connectTokens.unmarkCommand(record.id); throw error; }
+          markCommand(record.tenant_id, record.hostname);
+          return send(201, { ...issued, note: BOOTSTRAP_NOTE });
+        }
         if (path === '/api/connect/v1/hostname') {
           const agent = pick(await edge.getAgent(record.tenant_id, record.hostname), ['connected', 'last_seen', 'origin_reachable', 'origin_checked_at']);
           return send(200, { hostname: record.hostname, scope: 'connect', expires_at: record.expires_at, command_issued: Boolean(record.command_issued_at), agent, docker: dockerDetails(record.hostname) });
@@ -284,9 +324,12 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
       }
       const match = path.match(/^\/api\/hostnames\/([^/]+)(?:\/(verify|rotate|agent|status|test|connect-token))?$/);
       const keyMatch = path.match(/^\/api\/keys\/([0-9a-f-]{36})$/);
-      const allowed = staticRoutes.get(path) || (keyMatch ? ['DELETE'] : match ? (match[2] === 'connect-token' ? ['GET', 'POST', 'DELETE'] : ['agent', 'status'].includes(match[2]) ? ['GET'] : match[2] ? ['POST'] : ['GET', 'DELETE']) : null);
+      // Agent bootstrap session routes (flag on only): codes, cancel, owner confirmation and "Revoke agent".
+      const agentMatch = agentBootstrap && !match ? path.match(/^\/api\/hostnames\/([^/]+)\/(bootstraps|revoke-agent|bootstraps\/candidates\/([A-Za-z0-9_-]{1,128})\/confirm)$/) : null;
+      const agentRoute = agentMatch ? (agentMatch[3] ? 'confirm' : agentMatch[2]) : null;
+      const allowed = staticRoutes.get(path) || (keyMatch ? ['DELETE'] : agentRoute ? (agentRoute === 'bootstraps' ? ['GET', 'POST', 'DELETE'] : ['POST']) : match ? (match[2] === 'connect-token' ? ['GET', 'POST', 'DELETE'] : ['agent', 'status'].includes(match[2]) ? ['GET'] : match[2] ? ['POST'] : ['GET', 'DELETE']) : null);
       if (!allowed) throw fail('not_found');
-      template = keyMatch ? '/api/keys/:id' : match ? `/api/hostnames/:hostname${match[2] ? `/${match[2]}` : ''}` : path;
+      template = keyMatch ? '/api/keys/:id' : agentRoute ? `/api/hostnames/:hostname/${agentRoute === 'confirm' ? 'bootstraps/candidates/:id/confirm' : agentRoute}` : match ? `/api/hostnames/:hostname${match[2] ? `/${match[2]}` : ''}` : path;
       if (!allowed.includes(request.method)) return send(405, { error: 'method_not_allowed' }, { Allow: allowed.join(', ') });
       const ip = clientIp(request, config.trustProxy);
       let session = sessions.get(request.headers.cookie);
@@ -361,7 +404,27 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
         if (delete commands[commandKey(tenant.id, hostname)]) store.write('connect_commands', commands);
         return send(201, created);
       }
-      const hostname = normalizeHostname(match[1]);
+      const hostname = normalizeHostname((match || agentMatch)[1]);
+      if (agentRoute) {
+        // Writes already passed the session, exact-Origin and CSRF checks above; API keys and tokens never reach here.
+        if (agentRoute === 'bootstraps' && request.method === 'GET') return send(200, await agentBootstrap.list(tenant.id, hostname));
+        if (agentRoute === 'bootstraps' && request.method === 'DELETE') return send(200, await agentBootstrap.cancel(tenant.id, hostname));
+        if (agentRoute === 'revoke-agent') {
+          if (body.confirm !== true) throw fail('confirmation_required');
+          return send(200, await agentBootstrap.revokeAgent(tenant.id, hostname));
+        }
+        if (agentRoute === 'confirm') {
+          if (typeof body.key_fingerprint !== 'string' || !/^[0-9a-f]{64}$/.test(body.key_fingerprint)) throw fail('invalid_json');
+          return send(200, await agentBootstrap.confirm(tenant.id, hostname, agentMatch[3], body.key_fingerprint));
+        }
+        if (!user.email_verified_at) throw fail('unauthorized');
+        const upstream = validOrigin(body.origin);
+        if (!upstream) throw Object.assign(fail('invalid_origin'), { detail: originError(body.origin) });
+        const issued = await agentBootstrap.issue({ tid: tenant.id, hostname, origin: upstream, principal: user.id, unsuspended,
+          issuer: { kind: 'session', id: sessionIssuerId(session), authorization_generation: user.auth_version }, charge: chargeCommand(null, tenant.id, hostname) });
+        markCommand(tenant.id, hostname);
+        return send(201, { ...issued, note: BOOTSTRAP_NOTE });
+      }
       if (request.method === 'DELETE' && !match[2]) {
         const removed = pick(await edge.deleteHostname(tenant.id, hostname), ['hostname', 'detached']);
         connectTokens.revokeAll(tenant.id, hostname);
@@ -374,7 +437,15 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
       if (match[2] === 'connect-token') {
         const record = await edge.getHostname(tenant.id, hostname);
         if (request.method === 'GET') return send(200, { tokens: connectTokens.list(tenant.id, hostname) });
-        if (request.method === 'DELETE') return send(200, { revoked: connectTokens.revokeAll(tenant.id, hostname) });
+        if (request.method === 'DELETE') {
+          const revoked = connectTokens.revokeAll(tenant.id, hostname);
+          if (!agentBootstrap) return send(200, { revoked });
+          // Also cancel a revoked token's pending code, recovery and candidates; a connected agent keeps running.
+          // If the edge is unreachable the issuer check still refuses the revoked token.
+          let cancelled = false;
+          try { cancelled = await agentBootstrap.cancelForConnectTokens(tenant.id, hostname); } catch { /* Fail closed via the issuer check. */ }
+          return send(200, { revoked, bootstraps_cancelled: cancelled });
+        }
         if (!user.email_verified_at) throw fail('unauthorized');
         if (record.status !== 'active') throw fail('not_active');
         if (typeof record.created_at !== 'string') throw fail('internal_error');

@@ -83,7 +83,10 @@ test('container uses only agent runtime files and the locked production dependen
   assert.match(docker, /^FROM node:20-bookworm-slim/m);
   assert.match(docker, /USER node/); assert.match(docker, /ENTRYPOINT \["node", "agent\/index.js"\]/);
   assert.ok(!/^ENV /m.test(docker));
-  assert.match(docker, /COPY index.js backoff.js heartbeat.js .\/agent\//);
+  assert.match(docker, /COPY index.js backoff.js heartbeat.js config.js state.js protocol.js bootstrap.js edge-pins.json .\/agent\//);
+  // The state volume mount point is pre-owned by node in the image; no runtime chown or root entrypoint.
+  assert.match(docker, /install -d -o node -g node -m 0700 \/var\/lib\/fastdog-agent/);
+  assert.ok(!/chown|VOLUME|volume-nocopy/.test(docker));
 });
 
 test('installer rejects argv tokens and missing or malformed environment tokens', (t) => {
