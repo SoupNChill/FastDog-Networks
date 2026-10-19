@@ -32,6 +32,8 @@ test('terms acceptance is authenticated, CSRF protected, advisory and survives a
   const f = await fixture(t, { logger: (e) => logs.push(e) });
   assert.equal((await f.client.call('/api/me')).data.terms_update, undefined);
   assert.equal((await f.client.call('/api/terms/status')).status, 401);
+  assert.equal((await f.client.call('/api/terms/status', 'POST', {})).status, 405);
+  assert.equal((await f.client.call('/api/terms/accept')).status, 405);
   assert.equal((await f.client.call('/api/terms/accept', 'POST', { accept_terms: true })).status, 401);
   const { client, password } = await f.seed();
   const me = await client.call('/api/terms/status');

@@ -166,6 +166,8 @@ All JSON, same-origin, `__Host-fd_session` cookie, `Origin` check and `x-fd-csrf
 | GET | `/api/domains/search?q=` | existing domain-search service (unchanged) |
 | GET/POST | `/api/domain-requests` | list / create a request (max 3 open); no registrar write path |
 | GET | `/api/plan` | operator-set plan and limits |
+| GET | `/api/terms/status` | signed-in only: `{}` when the stored Terms/Privacy acceptance is current, else `{terms_update:{required:true, terms_url, privacy_url, tos_version, privacy_version}}`; advisory, never gates any other route |
+| POST | `/api/terms/accept` | `{accept_terms: true}` (CSRF, 20/h per session): records current versions, time and salted IP hash like sign-up and keeps the previous record in `terms_history` (max 10); `{ok:true}`, or `{ok:false}` if it could not be saved (never a 500) |
 
 The portal derives `tenant_id` from the session only. It never accepts a tenant id or hostname-owner field from the browser. Rate limits (per section 3 of the plan): login 5 fails/15 min/account, 20/IP; signup 3/h/IP; verify 6/min/tenant; rotate 5/day.
 
