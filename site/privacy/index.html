@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <meta name="theme-color" content="#222831">
-  <title>Privacy Policy (draft) — FastDog Networks</title>
-  <meta name="description" content="Draft Privacy Policy for FastDog Networks. Not yet in effect.">
+  <title>Privacy Policy — FastDog Networks</title>
+  <meta name="description" content="Privacy Policy for FastDog Networks.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -21,7 +21,7 @@
   <nav aria-label="Main navigation"><a href="/edge/">Edge</a><a href="/domains/">Domains</a><a href="/verdict/">Verdict</a><a href="/docs/">Docs</a></nav>
 </header>
 <main id="main" class="wrap docs">
-<section class="product-hero"><div><span class="eyebrow">Legal</span><h1>Privacy Policy</h1><p class="hero-lede"><strong>DRAFT. Not yet in effect.</strong> This draft is published for review. It does not apply to anyone until we replace it with a final version.</p><p class="small-note">Version 2026-10-17-draft</p></div></section>
+<section class="product-hero"><div><span class="eyebrow">Legal</span><h1>Privacy Policy</h1><p class="hero-lede">How FastDog Networks collects, uses, and keeps personal data when you use the service.</p><p class="small-note">Version 2026-10-19</p></div></section>
 
 <section class="section" id="summary"><h2>In short</h2>
 <p>We collect what we need to run the service and keep it safe. We do not sell your data. We do not use it for advertising.</p>
@@ -52,23 +52,19 @@
 <section class="section" id="retention"><h2>3. How long we keep it</h2>
 <ul>
 <li>Account details and terms acceptance: while your account exists, then deleted, except where we must keep billing records by law.</li>
-<li>Rate-limit entries: each one stops counting when its window ends, from one minute up to 24 hours for daily limits such as agent credential rotation. Ended entries are deleted the next time that limiter is used, so an idle entry can stay stored for longer.</li>
-<li>Verdict decision logs: cleared once the oldest entry is 7 days old or the log reaches 5 MiB. The check runs when the next decision is written, so a log that gets no new traffic is not cleared on a timer.</li>
-<li>Web server access logs: rolled over at 5 MiB; at most five old files are kept, and old files are removed after 7 days when the log next rolls over.</li>
-<li>API key audit list: the latest 1,000 entries per account. It is limited by count, not by time.</li>
-<li>Outbox emails: removed by hand by our operator. Automatic deletion is not built yet.</li>
-<li>Guaranteed time-based deletion for all of the logs above is planned but not in place yet (TODO: set the exact periods before launch).</li>
-<li>Email messages: as long as needed to handle your request.</li>
+<li>Operational logs (rate limits, Verdict decision logs, web server access logs, portal logs, and API key audit entries): kept for at most 30 days, then deleted. Some of these rotate or expire sooner in normal operation (for example rate-limit windows from one minute up to 24 hours, Verdict and access-log files that roll over by size, and an API key audit list capped at the latest 1,000 entries per account). Those shorter windows do not extend past 30 days.</li>
+<li>Outbox emails: removed by hand by our operator. Automatic deletion is not built yet; we treat them under the same 30-day target.</li>
+<li>Email messages: as long as needed to handle your request, and no longer than we reasonably need.</li>
 </ul>
+<p>We aim to delete operational logs within 30 days. Exact deletion timing can depend on the next write or rollover for a given log, so idle files may sit until that happens; we do not promise instantaneous deletion the moment the window ends.</p>
 </section>
 
 <section class="section" id="processors"><h2>4. Who processes it for us</h2>
-<p>We use a small number of providers to run FastDog: hosting providers for our servers and, once we connect one, an email provider for sign-in and service emails. Today sign-in emails go to the private outbox described above and are not sent through an email provider. When paid billing starts, a payment processor will handle card details; we will not see or store full card numbers. Each provider only gets the data it needs to do its job.</p>
-<!-- TODO(owner): confirm and list sub-processors by name, purpose and region before launch. -->
+<p>We use cloud hosting providers and our email provider to run FastDog. Today sign-in emails go to the private outbox described above and are not yet sent through the email provider. When paid plans launch, a payment processor will handle card details; we will not see or store full card numbers. Each provider only gets the data it needs to do its job.</p>
 <ul>
-<li>Hosting: TODO, list before launch.</li>
-<li>Email delivery: none yet (private outbox); TODO, list the provider if one is connected before launch.</li>
-<li>Payments: TODO, list when billing goes live.</li>
+<li>Hosting: cloud hosting providers for our servers.</li>
+<li>Email delivery: our email provider, once connected; until then, sign-in emails stay in the private outbox.</li>
+<li>Payments: a payment processor will be added when paid plans launch.</li>
 </ul>
 </section>
 
@@ -89,7 +85,6 @@
 </section>
 
 <section class="section" id="contact"><h2>9. Contact</h2>
-<!-- TODO(operator): replace the placeholder support address before launch. -->
 <p>Privacy questions and requests: email <a href="mailto:support@example.invalid?subject=Privacy">support@example.invalid</a>. See also our <a href="/terms/">Terms of Service</a> and <a href="/faq/">FAQ</a>.</p>
 </section>
 </main>
