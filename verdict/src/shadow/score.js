@@ -1,7 +1,7 @@
 import { verifyGoodBot } from '../engine/goodbots.js';
 import { localHeuristic } from '../engine/heuristic.js';
 import { lookupAsn } from '../asn/lookup.js';
-import { createDecisionLog } from '../metering/decisions.js';
+export { createShadowWriter } from './retention.js';
 import { ipPrefix } from '../edge/security.js';
 
 export function scoreAccessLogLine(line, { hosting, allowedHosts, verifyBot = verifyGoodBot, dnsEnabled = process.env.VERDICT_EDGE_GOODBOT_DNS === '1' } = {}) {
@@ -46,12 +46,4 @@ export function scoreAccessLogLine(line, { hosting, allowedHosts, verifyBot = ve
   };
   const verified = verifyBot(state, { dnsEnabled });
   return verified?.then ? verified.then(finish) : finish(verified);
-}
-
-export function createShadowWriter(file, opts) {
-  return createDecisionLog(file, {
-    maxBytes: Number(process.env.VERDICT_SHADOW_MAX_BYTES ?? 10 * 1024 * 1024),
-    maxAgeDays: Number(process.env.VERDICT_SHADOW_MAX_AGE_DAYS ?? 7),
-    ...opts,
-  });
 }
