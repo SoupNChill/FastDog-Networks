@@ -65,6 +65,25 @@ test('verification never reads query tokens; failures leave a working manual ret
   }
 });
 
+function signupNodes() {
+  const element = (extra = {}) => ({ hidden: false, textContent: 'original', attributes: {}, listeners: {},
+    setAttribute(name, value) { this.attributes[name] = value; }, removeAttribute(name) { delete this.attributes[name]; },
+    addEventListener(name, cb) { this.listeners[name] = cb; }, focus() { this.focused = true; }, ...extra });
+  return { '#invite': element({ required: true, value: '', attributes: { required: '' } }), '#invite-field': element(),
+    '#invite-label': element({ textContent: 'Invitation code' }), '#invite-toggle': element({ hidden: true }),
+    '#signup-intro': element(), '#signup-help': element() };
+}
+async function signupPage(init) {
+  const nodes = signupNodes();
+  const calls = { sent: null, status: null, callback: null };
+  const all = { ...nodes, '#show-password': { addEventListener() {}, setAttribute() {} }, '#password': { type: 'password' },
+    '#signup': { reset() {} }, '#accept-terms': { checked: true } };
+  await run('signup', { api: async (...args) => { calls.sent = args; return { ok: true }; }, init,
+    form: (_, cb) => { calls.callback = cb; }, message: (text) => { calls.status = text; },
+    document: { querySelector: (id) => all[id] } });
+  return { nodes, calls };
+}
+
 test('signup shows the same inbox copy for a generic response and resets password visibility', async () => {
   let callback;
   let click;
@@ -75,7 +94,8 @@ test('signup shows the same inbox copy for a generic response and resets passwor
   await run('signup', {
     api: async (...args) => { sent = args; return { ok: true }; }, init: async () => ({}),
     form: (_, cb) => { callback = cb; }, message: (text) => { status = text; },
-    document: { querySelector: (id) => ({ '#password': password, '#show-password': toggle, '#signup': { reset() {} }, '#accept-terms': { checked: true } })[id] },
+    document: { querySelector: (id) => ({ '#password': password, '#show-password': toggle, '#signup': { reset() {} }, '#accept-terms': { checked: true },
+      ...signupNodes() })[id] },
   });
   click();
   assert.equal(password.type, 'text');
@@ -89,6 +109,60 @@ test('signup shows the same inbox copy for a generic response and resets passwor
   assert.equal(status, 'Check your inbox. We sent a link to invited@example.test. It expires in one hour.');
   assert.equal(password.type, 'password');
   assert.equal(toggle['aria-pressed'], 'false');
+});
+
+test('signup with open_signup hides an optional invite field behind a toggle and shows trial copy', async () => {
+  const { nodes, calls } = await signupPage(async () => ({ open_signup: true, csrf: 'c' }));
+  assert.equal(nodes['#invite'].required, false);
+  assert.equal('required' in nodes['#invite'].attributes, false);
+  assert.equal(nodes['#invite-field'].hidden, true);
+  assert.equal(nodes['#invite-toggle'].hidden, false);
+  assert.equal(nodes['#signup-intro'].textContent, 'Start your 7-day free trial: 1 hostname, no card needed.');
+  assert.doesNotMatch(nodes['#signup-help'].textContent, /No email yet|invitation/i);
+  assert.equal(calls.status, null);
+  await calls.callback({ email: 'new@example.test', password: 'p', invite_code: '' });
+  assert.deepEqual(calls.sent, ['/api/signup', 'POST', { email: 'new@example.test', password: 'p', accept_terms: true }]);
+  nodes['#invite-toggle'].listeners.click();
+  assert.equal(nodes['#invite-field'].hidden, false);
+  assert.equal(nodes['#invite-toggle'].attributes['aria-expanded'], 'true');
+  assert.equal(nodes['#invite'].focused, true);
+  await calls.callback({ email: 'invited@example.test', password: 'p', invite_code: 'code-1' });
+  assert.equal(calls.sent[2].invite_code, 'code-1', 'an expanded invite field still sends the code');
+  nodes['#invite'].value = 'typed';
+  nodes['#invite-toggle'].listeners.click();
+  assert.equal(nodes['#invite-field'].hidden, true);
+  assert.equal(nodes['#invite'].value, '');
+});
+
+test('signup without open_signup keeps the invite-only form unchanged', async () => {
+  for (const me of [{ open_signup: false }, {}]) {
+    const { nodes, calls } = await signupPage(async () => me);
+    assert.equal(nodes['#invite'].required, true);
+    assert.equal('required' in nodes['#invite'].attributes, true);
+    assert.equal(nodes['#invite-field'].hidden, false);
+    assert.equal(nodes['#invite-toggle'].hidden, true);
+    assert.equal(nodes['#signup-intro'].textContent, 'original');
+    assert.equal(nodes['#signup-help'].textContent, 'original');
+    await calls.callback({ email: 'invited@example.test', password: 'p', invite_code: 'code-1' });
+    assert.equal(calls.sent[2].invite_code, 'code-1');
+  }
+});
+
+test('signup falls back to a visible optional invite field when the status check fails', async () => {
+  const { nodes, calls } = await signupPage(async () => { throw new Error('The request could not be completed. Please try again.'); });
+  assert.equal(nodes['#invite'].required, false);
+  assert.equal(nodes['#invite-field'].hidden, false);
+  assert.match(nodes['#invite-label'].textContent, /optional/);
+  assert.equal(typeof calls.callback, 'function', 'the form still submits');
+  assert.match(calls.status, /could not be completed/);
+});
+
+test('account pages label the sign-up nav link Create account', () => {
+  for (const name of ['login', 'signup', 'verify-email']) {
+    assert.match(read(`${name}.html`), /<a href="\/signup">Create account<\/a>/);
+    assert.doesNotMatch(read(`${name}.html`), /Use an invitation/);
+  }
+  assert.match(read('signup.html'), /id="invite-toggle" aria-controls="invite-field" aria-expanded="false" hidden/);
 });
 
 test('plan renders human labels and singular or plural limits', async () => {
