@@ -22,3 +22,39 @@ export function termsRecord(store, ip, time) {
   return { tos_version: TERMS_VERSION, privacy_version: PRIVACY_VERSION, accepted_at: new Date(time).toISOString(),
     ip_hash: createHash('sha256').update(`${installSalt(store)}:${ip}`).digest('hex') };
 }
+
+export function needsTermsUpdate(user) {
+  const record = user.terms;
+  return !record || typeof record !== 'object' || Array.isArray(record)
+    || record.tos_version !== TERMS_VERSION || record.privacy_version !== PRIVACY_VERSION
+    || typeof record.accepted_at !== 'string' || !Number.isFinite(Date.parse(record.accepted_at))
+    || typeof record.ip_hash !== 'string' || !/^[a-f0-9]{64}$/.test(record.ip_hash);
+}
+export function termsUpdate(user, env, logger) {
+  try {
+    if (!user || !needsTermsUpdate(user)) return {};
+    const urls = termsUrls(env);
+    return { terms_update: { required: true, terms_url: urls.terms, privacy_url: urls.privacy,
+      tos_version: TERMS_VERSION, privacy_version: PRIVACY_VERSION } };
+  } catch {
+    try { logger?.({ event: 'terms_check_failed', reason: 'check_failed' }); } catch { /* Logging is optional. */ }
+    return {};
+  }
+}
+// Keep the read/modify/write synchronous, like the other account updates.
+export function acceptTerms(store, userId, ip, time, logger) {
+  try {
+    const data = store.read('accounts');
+    const user = data.users.find((item) => item.id === userId);
+    const next = termsRecord(store, ip, time);
+    const history = Array.isArray(user.terms_history) ? user.terms_history : [];
+    if (user.terms !== undefined) history.push(user.terms);
+    user.terms_history = history.slice(-10);
+    user.terms = next;
+    store.write('accounts', data);
+    return { ok: true };
+  } catch {
+    try { logger?.({ event: 'terms_accept_failed', reason: 'write_failed' }); } catch { /* Logging is optional. */ }
+    return { ok: false };
+  }
+}
