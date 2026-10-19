@@ -76,7 +76,7 @@ test('terms acceptance is authenticated, CSRF protected, advisory and survives a
 
 test('shared account initialization and login wire the external advisory panel', () => {
   const read = (name) => readFileSync(new URL('../public/js/' + name, import.meta.url), 'utf8');
-  for (const file of ['api.js', 'login.js']) assert.match(read(file), /showTermsUpdate/);
+  assert.match(read('login.js'), /showTermsUpdate/);
   const source = read('terms-update.js');
   assert.match(source, /checkbox.required = true/);
   assert.match(source, /\/api\/terms\/accept/);
@@ -133,27 +133,18 @@ test('prompt continues after successful, refused and failed acceptance', async (
   } finally { globalThis.document = previous; }
 });
 
-test('prompt is skipped when the page has no .portal-body and a skip is remembered for the session', async () => {
+test('prompt is skipped when the page has no .portal-body', async () => {
   const { showTermsUpdate } = await import('../public/js/terms-update.js');
-  const previousDocument = globalThis.document, previousStorage = globalThis.sessionStorage;
+  const previousDocument = globalThis.document;
   try {
     globalThis.document = { querySelector: () => null,
       createElement: (tag) => ({ tag, append() {}, addEventListener() {}, remove() {} }) };
     assert.equal(showTermsUpdate({ required: true, terms_url: '/terms/', privacy_url: '/privacy/' }, async () => ({})), false);
-    const store = new Map();
-    globalThis.sessionStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
-    const nodes = [];
-    globalThis.document = { querySelector: (s) => (s === '#terms-update' ? null : { prepend() {} }),
-      createElement: (tag) => { const n = { tag, append() {}, addEventListener() {}, remove() { this.removed = true; } }; nodes.push(n); return n; } };
-    let continued = 0;
-    assert.equal(showTermsUpdate({ required: true, terms_url: '/terms/', privacy_url: '/privacy/' }, async () => ({}), () => continued++), true);
-    nodes.find((n) => n.textContent === 'Continue for now').onclick();
-    assert.equal(store.get('fd-terms-skip'), '1');
-    assert.equal(continued, 1);
-  } finally { globalThis.document = previousDocument; globalThis.sessionStorage = previousStorage; }
+  } finally { globalThis.document = previousDocument; }
 });
 
-test('account init guards the advisory prompt with the session skip flag and a catch', () => {
-  const source = readFileSync(new URL('../public/js/api.js', import.meta.url), 'utf8');
-  assert.match(source, /try \{ if \(me\.tenant && !sessionStorage\.getItem\('fd-terms-skip'\)\) showTermsUpdate\(me\.terms_update, api\); \} catch/);
+test('the prompt is shown at sign-in only, never from shared page init', () => {
+  const read = (name) => readFileSync(new URL('../public/js/' + name, import.meta.url), 'utf8');
+  assert.doesNotMatch(read('api.js'), /showTermsUpdate|terms-update/);
+  assert.match(read('login.js'), /showTermsUpdate\(me\.terms_update, api, \(\) => location\.assign\(destination\)\)/);
 });

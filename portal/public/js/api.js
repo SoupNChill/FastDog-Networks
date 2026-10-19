@@ -1,4 +1,3 @@
-import { showTermsUpdate } from './terms-update.js';
 let csrf;
 export const message = (text) => { document.querySelector('#message').textContent = text; };
 const errors = {
@@ -42,8 +41,6 @@ export async function init(required = false) {
   if (logout) logout.onclick = async () => {
     try { await api('/api/logout', 'POST'); location.assign('/login'); } catch (error) { message(error.message); }
   };
-  // Advisory only: a skipped prompt stays hidden for this browser session; any error is ignored.
-  try { if (me.tenant && !sessionStorage.getItem('fd-terms-skip')) showTermsUpdate(me.terms_update, api); } catch { /* never block the page */ }
   return me;
 }
 export function form(id, callback) {

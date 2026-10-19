@@ -1,4 +1,4 @@
-// An advisory panel: account pages remain usable even when acceptance cannot be saved.
+// An advisory panel shown once per sign-in (login.js): the user always continues, even when acceptance cannot be saved.
 export function showTermsUpdate(update, api, continueTo = () => {}) {
   if (!update?.required) return false;
   document.querySelector('#terms-update')?.remove();
@@ -28,7 +28,7 @@ export function showTermsUpdate(update, api, continueTo = () => {}) {
   skip.type = 'button';
   skip.textContent = 'Continue for now';
   const finish = () => { panel.remove(); continueTo(); };
-  skip.onclick = () => { try { sessionStorage.setItem('fd-terms-skip', '1'); } catch { /* storage may be off */ } finish(); };
+  skip.onclick = finish;
   panel.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (!checkbox.checked) return;
