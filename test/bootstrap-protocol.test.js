@@ -513,3 +513,20 @@ test('revokeAgent rolls back at crash points and refuses a competing writer with
   assert.ok(state.codes.every((c) => c.cancelled && !c.response));
   assert.equal(f.service.status(tid, hostname, issued.issuance_id).status, 'cancelled');
 });
+
+test('real issuer transport exceptions are redacted and a redeemed orphan cannot be refunded', async t => {
+  const sentinel = fakeSecret();
+  const f = fixture(t, { issuerCheck: async () => { throw new Error(sentinel); } });
+  const issued = f.issue(), body = f.request(issued.code, issued);
+  const response = await invoke(bootstrapHandler(f.service), { body, headers: { authorization: `Bearer ${issued.code}` } });
+  assert.equal(response.status, 503);
+  for (const secret of [sentinel, issued.code, body.proof, readJson('agent-bootstrap.json', {}, f.directory).codes[0].code_hash].filter(Boolean)) assert.ok(!JSON.stringify(response).includes(secret));
+  const working = createBootstrap({ ...f.options, issuerCheck: async () => true });
+  t.after(() => working.close());
+  await working.exchange(issued.code, body, 'ip');
+  working.cancel(tid, hostname);
+  const reconciled = working.reconcile(tid, hostname, issued.issuance_id);
+  assert.equal(reconciled.redeemed, true);
+  assert.equal(reconciled.refunded_units, 0);
+  assert.equal(readJson('agent-bootstrap.json', {}, f.directory).budgets[hostname].rotations, 1);
+});

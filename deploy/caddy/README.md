@@ -11,7 +11,7 @@ caddy adapt --config ./Caddyfile.candidate --adapter caddyfile --pretty
 caddy validate --config ./Caddyfile.candidate --adapter caddyfile
 ```
 
-Inspect the adapted filter and, in an isolated local test, send a synthetic request containing a query, cookie and authorization header. Confirm the log contains only the retained fields, a path without a query, and masked addresses. Caddy versions may differ; adaptation and validation on the target version are required. This repository test checks snippet text only; no Caddy binary was available for validation during this build.
+Inspect the adapted filter and, in an isolated local test, send a synthetic request containing a query, cookie and authorization header. Confirm the log contains only the retained fields, a path without a query, and masked addresses. Caddy versions may differ; adaptation and validation on the target version are required. The repository includes a runtime sentinel test (`test/caddy-sentinel.test.js`). It skips explicitly when Caddy is absent; it must pass where Caddy is available before bootstrap enablement. It verifies access and runtime error logs independently, including rejected upgrades and proxy failures.
 
 After separately approved application, rollback means restore the saved Caddyfile and reload Caddy using the operator's normal procedure. Removing the `import fdlog` lines and snippet import disables this logging configuration. No configuration has been installed or reloaded by this lane.
 
@@ -69,7 +69,7 @@ Over a cap the ask route returns 429 with `retry_after` (reasons `approval_cap_g
 
 ### Known limit
 
-Hosts served only by the catch-all do not get per-host access logs (no `import fdlog <host>` line), so status traffic and shadow counts show not available for them until an explicit site block is added, for example with `scripts/add-customer-host.sh`.
+The catch-all imports `fdlog edge-catch-all` and writes the fixed `/var/log/caddy/edge-catch-all.log`; request hostnames never select filenames. This aggregate file does not provide per-host status/shadow counts. Every named edge-reaching site must also import fdlog with a literal hostname. The candidate must import `access-logs.snippet` before using either form. The global runtime logger separately deletes request, error and message fields; review any existing global logger before merging the candidate.
 
 The offline tests use fixture binaries only; no Caddy binary validation was performed in this repository. Run `caddy adapt` and `caddy validate` with the installed Caddy 2.11 (the script does both) and inspect the adapted ask URL before relying on it.
 

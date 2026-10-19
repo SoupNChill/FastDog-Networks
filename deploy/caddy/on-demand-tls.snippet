@@ -2,6 +2,17 @@
 # Replace 8789 with INTERNAL_PORT. Requires INTERNAL_ENABLED=1 and TLS_ASK_ENABLED=1 on the edge.
 # The global block must be the first block in the Caddyfile; merge into an existing one if present.
 {
+    # Runtime errors are separate from access logs; suppress request-bearing fields.
+    log {
+        format filter {
+            wrap json
+            fields {
+                request delete
+                error delete
+                msg delete
+            }
+        }
+    }
     on_demand_tls {
         ask http://127.0.0.1:8789/tls/ask
     }
@@ -15,5 +26,6 @@ https:// {
     @sni_mismatch not host {http.request.tls.server_name}
     respond @sni_mismatch 421
     import fdctl
+    import fdlog edge-catch-all
     reverse_proxy 127.0.0.1:8787
 }

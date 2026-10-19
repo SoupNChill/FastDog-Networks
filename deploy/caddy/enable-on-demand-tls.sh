@@ -244,6 +244,17 @@ done < <(grep -E '^[[:space:]]*import[[:space:]]+' "$caddyfile" || true)
 
 global_block=$(cat <<BLOCK
 {
+    # Runtime errors are separate from access logs; suppress request-bearing fields.
+    log {
+        format filter {
+            wrap json
+            fields {
+                request delete
+                error delete
+                msg delete
+            }
+        }
+    }
     on_demand_tls {
         ask http://127.0.0.1:${ask_port}/tls/ask
     }
@@ -258,6 +269,7 @@ https:// {
     @sni_mismatch not host {http.request.tls.server_name}
     respond @sni_mismatch 421
     import fdctl
+    import fdlog edge-catch-all
     reverse_proxy 127.0.0.1:${upstream_port}
 }
 BLOCK
@@ -283,7 +295,7 @@ chmod 711 -- "$work"
 build="$work/cand/Caddyfile.candidate"
 if $has_global; then
   # Insert the ask configuration right after the opening brace of the existing global block.
-  ASK=$(printf '    on_demand_tls {\n        ask http://127.0.0.1:%s/tls/ask\n    }' "$ask_port") awk '
+  ASK=$(printf '%s\n' "$global_block" | sed '1d;$d') awk '
     !done && $0 !~ /^[[:space:]]*(#.*)?$/ { print; print ENVIRON["ASK"]; done = 1; next }
     { print }' "$caddyfile" > "$build"
 else

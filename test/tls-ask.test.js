@@ -556,9 +556,10 @@ test('TLS ask 429 responses carry Retry-After and JSON retry_after', async (t) =
 });
 
 test('Caddy snippet is the go-live form: global ask block plus the catch-all site', () => {
-  const snippet = readFileSync(new URL('../deploy/caddy/on-demand-tls.snippet', import.meta.url), 'utf8');
-  assert.match(snippet, /^\{\s*on_demand_tls\s*\{\s*ask http:\/\/127\.0\.0\.1:8789\/tls\/ask\s*\}\s*\}/m);
-  assert.match(snippet, /^https:\/\/ \{\s*tls \{\s*on_demand\s*\}\s*@sni_mismatch not host \{http\.request\.tls\.server_name\}\s*respond @sni_mismatch 421\s*import fdctl\s*reverse_proxy 127\.0\.0\.1:8787\s*\}/m);
+  const snippet = readFileSync(new URL('../deploy/caddy/on-demand-tls.snippet', import.meta.url), 'utf8')
+    .replace(/^\s*#.*$/gm, '').trim();
+  assert.match(snippet, /^\{\s*log\s*\{\s*format filter\s*\{\s*wrap json\s*fields\s*\{\s*request delete\s*error delete\s*msg delete\s*\}\s*\}\s*\}\s*on_demand_tls\s*\{\s*ask http:\/\/127\.0\.0\.1:8789\/tls\/ask\s*\}\s*\}/m);
+  assert.match(snippet, /^https:\/\/ \{\s*tls \{\s*on_demand\s*\}\s*@sni_mismatch not host \{http\.request\.tls\.server_name\}\s*respond @sni_mismatch 421\s*import fdctl\s*import fdlog edge-catch-all\s*reverse_proxy 127\.0\.0\.1:8787\s*\}/m);
 });
 
 test('TLS ask checks external changes once per second and only rereads changed stores', async (t) => {

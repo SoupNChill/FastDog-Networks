@@ -1,3 +1,5 @@
+import { bootstrapError } from './bootstrap-errors.js';
+import { chargeReissue, refundIssuance } from './bootstrap-budget.js';
 import { equalHash } from '../control/auth.js';
 import { randomBytes, createHash, createPublicKey, publicEncrypt, verify, constants } from 'node:crypto';
 import { readJson, writeJson, dataDir, enableAuthState, authTransaction } from './json.js';
@@ -114,9 +116,10 @@ export function createBootstrap(opts = {}) {
     enabled, audience, issuerCheck,
     close() { clearInterval(sweep); },
     issue(tid, host, body) {
-      gate();
+      if (!enabled) throw error(404, 'not_found');
       let fresh = false;
       const result = authTransaction(directory, () => {
+        const time = now();
         expire(); const o = owner(tid, host); const s = state(directory);
         const prior = s.codes.find((c) => c.tenant_id === tid && c.hostname === host && c.issuance_id === body.issuance_id);
         if (prior) return present(prior);
@@ -125,7 +128,9 @@ export function createBootstrap(opts = {}) {
           !(text(body.issuer.authorization_generation) || Number.isSafeInteger(body.issuer.authorization_generation))) throw error(400, 'invalid_request');
         if (!audience) throw error(503, 'bootstrap_unavailable');
         if (s.codes.filter((c) => c.tombstone_at === undefined).length >= 10000) throw error(503, 'bootstrap_unavailable');
-        chargeRotation(directory, host, now(), true);
+        chargeReissue(s, tid, host, body.issuer, time);
+        save(directory, s);
+        chargeRotation(directory, host, time, true);
         // Reissue cancels earlier unused codes, recovery responses and unpromoted candidates; the active credential stays.
         // Redeemed codes keep their used tombstone so different-key reuse still reports bootstrap_used.
         const credentials = readJson('agent-credentials.json', [], directory);
@@ -137,7 +142,8 @@ export function createBootstrap(opts = {}) {
         }
         const code = `fdab_${randomBytes(32).toString('base64url')}`;
         const c = { tenant_id: tid, hostname: host, origin, deployment_id: body.deployment_id, issuer: { kind: body.issuer.kind, id: body.issuer.id, authorization_generation: body.issuer.authorization_generation },
-          issuance_id: body.issuance_id, code_hash: hash(code), expires_at: now() + 900000, audience,
+          charge: { day: Math.floor(time / 86400000), rotations: 1 },
+          issuance_id: body.issuance_id, code_hash: hash(code), expires_at: time + 900000, audience,
           claim_generation: o.created_at, credential_generation: o.credential_id };
         updated.codes.push(c); save(directory, updated);
         return { ...present(c), code, origin };
@@ -148,6 +154,18 @@ export function createBootstrap(opts = {}) {
     status(tid, host, id) {
       gate(); owner(tid, host); const c = state(directory).codes.find((c) => c.tenant_id === tid && c.hostname === host && c.issuance_id === id);
       if (!c) throw error(404, 'bootstrap_not_found'); return present(c);
+    },
+    reconcile(tid, host, id) {
+      if (!enabled) throw error(404, 'not_found');
+      return authTransaction(directory, () => {
+        owner(tid, host);
+        const s = state(directory);
+        const c = s.codes.find((c) => c.tenant_id === tid && c.hostname === host && c.issuance_id === id);
+        if (!c) throw error(404, 'bootstrap_not_found');
+        const result = refundIssuance(s, c, now());
+        save(directory, s);
+        return { ...present(c), redeemed: Boolean(c.request_fingerprint || c.redeemed_at !== undefined), ...result };
+      });
     },
     cancel(tid, host) {
       gate(); const result = authTransaction(directory, () => { owner(tid, host); cancelBootstraps(directory, tid, host, now()); return { cancelled: true }; });
@@ -265,7 +283,7 @@ export function bootstrapHandler(service) {
       });
       const code = /^Bearer (fdab_[A-Za-z0-9_-]{43})$/.exec(req.headers.authorization ?? '')?.[1];
       send(200, await service.exchange(code, body, clientIp(req), abort.signal, true));
-    } catch (e) { const known = [400, 401, 409, 410, 413, 429, 503].includes(e.status); send(known ? e.status : 503, { error: known ? e.code : 'bootstrap_unavailable' }, e.retry_after); }
+    } catch (e) { const safe = bootstrapError(e); send(safe.status, { error: safe.code }, safe.retry_after); }
     finally { clearTimeout(timer); }
   };
 }

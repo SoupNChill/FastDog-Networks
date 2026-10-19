@@ -8,8 +8,9 @@ import { spawnSync } from 'node:child_process';
 const liveHttp = JSON.parse(readFileSync(resolve('test/fixtures/caddy-adapted-live-fdctl.json'), 'utf8'));
 const script = resolve('deploy/caddy/enable-on-demand-tls.sh');
 const initial = '(fdlog) {}\n(fdctl) {\n    @ctl path /_fastdog/*\n}\nexisting.example.test {\n    import fdlog existing.example.test\n    reverse_proxy 127.0.0.1:8787\n}\n';
-const globalBlock = '{\n    on_demand_tls {\n        ask http://127.0.0.1:8789/tls/ask\n    }\n}\n';
-const siteBlock = 'https:// {\n    tls {\n        on_demand\n    }\n    @sni_mismatch not host {http.request.tls.server_name}\n    respond @sni_mismatch 421\n    import fdctl\n    reverse_proxy 127.0.0.1:8787\n}\n';
+const runtimeLog = '    # Runtime errors are separate from access logs; suppress request-bearing fields.\n    log {\n        format filter {\n            wrap json\n            fields {\n                request delete\n                error delete\n                msg delete\n            }\n        }\n    }\n';
+const globalBlock = '{\n' + runtimeLog + '    on_demand_tls {\n        ask http://127.0.0.1:8789/tls/ask\n    }\n}\n';
+const siteBlock = 'https:// {\n    tls {\n        on_demand\n    }\n    @sni_mismatch not host {http.request.tls.server_name}\n    respond @sni_mismatch 421\n    import fdctl\n    import fdlog edge-catch-all\n    reverse_proxy 127.0.0.1:8787\n}\n';
 
 function fixture(t, content = initial) {
   const dir = mkdtempSync(join(tmpdir(), 'on-demand-'));
@@ -132,7 +133,7 @@ test('enable merges into an existing global block instead of adding a second one
   assert.equal(result.status, 0, result.stderr);
   const out = f.read();
   assert.equal(out.match(/^\{$/gm).length, 1);
-  assert.equal(out, `# edge\n{\n    on_demand_tls {\n        ask http://127.0.0.1:8789/tls/ask\n    }\n    email admin@example.test\n}\n${initial}\n${siteBlock}`);
+  assert.equal(out, `# edge\n{\n${runtimeLog}    on_demand_tls {\n        ask http://127.0.0.1:8789/tls/ask\n    }\n    email admin@example.test\n}\n${initial}\n${siteBlock}`);
 });
 
 test('enable refuses a one-line global block it cannot merge safely', (t) => {

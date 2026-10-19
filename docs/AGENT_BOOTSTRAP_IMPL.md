@@ -1,6 +1,6 @@
 # Agent bootstrap implementation
 
-Milestone 1 implements edge issuance and exchange. Milestone 2 adds key-bound register/tunnel proofs, candidate registration, the promotion hold and owner confirmation on the edge. Milestone 3 implements the agent client and its state volume. Milestone 4 adds portal issuance and revocation and the authenticated issuer check (see "Portal and issuer check (milestone 4)"). No deployment, image build or publication, image pin change or default connect command/snippet change is included. Keep both flags disabled until the remaining milestones and operational acceptance gates pass.
+Milestone 1 implements edge issuance and exchange. Milestone 2 adds key-bound register/tunnel proofs, candidate registration, the promotion hold and owner confirmation on the edge. Milestone 3 implements the agent client and its state volume. Milestone 4 adds portal issuance and revocation and the authenticated issuer check (see "Portal and issuer check (milestone 4)"). Milestone 5 adds edge refund accounting, reissue limits, reconciliation and logging/redaction tests. No deployment, image build or publication, image pin change or default connect command/snippet change is included. Keep both flags disabled until the remaining milestones and operational acceptance gates pass.
 
 ## Flags and configuration
 
@@ -14,7 +14,7 @@ TLS ask, recheck, pricing, the agent image pin and portal commands are unchanged
 
 ## Status against the plan
 
-- Section 3: issuance, 15-minute TTL, signed RSA-3072 exchange, pending key-bound credentials, two-minute encrypted recovery, binding-first errors, bounded attempt budgets and durable known-code/claim counters are implemented. Issuance charges the shared five-per-UTC-day hostname budget and eight-per-day absolute ceiling. The latter becomes independently reachable when refund accounting exists.
+- Section 3: issuance, 15-minute TTL, signed RSA-3072 exchange, pending key-bound credentials, two-minute encrypted recovery, binding-first errors, bounded attempt budgets and durable known-code/claim counters are implemented. Issuance charges the shared five-per-UTC-day hostname budget and eight-per-day absolute ceiling. Milestone 5 adds idempotent refund accounting without refunding the absolute ceiling.
 - Section 4: portal-key internal issuance/status/cancel/confirm and (milestone 4) `POST /bootstraps/agent/revoke` endpoints are implemented on the existing internal listener with its limits. The authenticated issuer check (portal listener, HMAC transport and reply authentication) is implemented in milestone 4. Issuer expiry caps a code effectively: an expired connect token is an invalid issuer at every later check.
 - Section 5 is implemented on the edge:
   - Downgrade protection: pending and held credentials never use active registration or tunnel authentication.
@@ -28,9 +28,9 @@ TLS ask, recheck, pricing, the agent image pin and portal commands are unchanged
   - Candidate registration, WS readiness, the default promotion hold, owner confirmation (internal endpoint) and atomic promotion are in place.
   - Cancellation, reissue, rotation, detach, suspension and release revoke candidates and remove them from the registry.
 
-  Since milestone 4, issuer eligibility is rechecked at exchange and matching recovery, candidate registration and upgrade, owner confirmation and promotion, and the portal enforces the cancel-by-reissue limits.
-- Sections 7–9: portal issuance and revocation are implemented (milestone 4). Capability metadata, deployment allocation and templates, Docker image/volume integration, owner-visible redemption diagnostics and refund accounting remain future work.
-- Section 10: offline unit, handler and flag-on HTTP/WS tests cover milestones 1–2, including proof, replay, skew, isolation, hold timing and confirmation tests. Actual Caddy sentinel/redaction tests, Docker tests and end-to-end acceptance remain required before enablement.
+  Since milestone 4, issuer eligibility is rechecked at exchange and matching recovery, candidate registration and upgrade, owner confirmation and promotion. The portal enforces cancel-by-reissue limits; milestone 5 also enforces edge limits of 3 per rolling hour and 6 per UTC day per tenant/issuer-kind/issuer-ID, across hostnames.
+- Sections 7–9: portal issuance and revocation are implemented (milestone 4), as is edge refund accounting (milestone 5). Capability metadata, deployment allocation and templates, Docker image/volume integration, owner-visible redemption diagnostics and portal ledger reconciliation remain future work.
+- Section 10: offline unit, handler and flag-on HTTP/WS tests cover milestones 1–2, including proof, replay, skew, isolation, hold timing and confirmation tests. Milestone 5 adds Caddy sentinel/redaction tests; a passing Caddy runtime sentinel gate, Docker tests and end-to-end acceptance remain required before enablement.
 - Section 11: no rollout is performed. Migration and rollback need the stopped-writer, backup and validation procedures below. Older edge code that ignores combined state is not a supported rollback target.
 
 ## Storage and serialization
@@ -230,7 +230,7 @@ Open after milestone 3 (portal issuance and the issuer checker are milestone 4):
 - The version bump and image build.
 - Docker integration tests (UID 1000, both architectures, read-only root, empty-volume population).
 - Portal deployment metadata and templates.
-- Caddy sentinel tests.
+- Passing the Caddy runtime sentinel gate on a host with Caddy installed.
 
 ## Portal and issuer check (milestone 4)
 
@@ -310,7 +310,7 @@ Portal listener in `portal/src/issuer-check.js`; edge client in `src/onboard/iss
 
 Known milestone-4 limits:
 - Owner-visible redemption diagnostics (redeem time, source IP, version, fingerprint) are not shown in the portal yet. The `/agent` page asks the owner to compare the agent's logged fingerprint.
-- Refund accounting (plan section 4) is not implemented. Failed or orphaned issuances keep their budget charge (M5).
+- Milestone 5 implements edge refund accounting (plan section 4); portal budget reconciliation remains open (see below).
 - The issuer check is a live call per check. A held candidate costs no checks until it becomes promotable.
 
 ## Milestone 2 validation
@@ -332,3 +332,58 @@ Known milestone-4 limits:
 ## Milestone 1 review validation
 
 The review regression file covers trusted proxy buckets, flag-off upgrade/routing parity, authority matching, retention/cap refusal, stale startup/writer locks, idle ciphertext removal and uniform unknown-code errors. Its 27 tests pass offline with no skips. The root, portal and Verdict suites were attempted with the offline preload; this sandbox denies loopback listeners and some child processes (`EPERM`), preventing a clean full-suite run. The unchanged tracked-repository name scanner passes using a Git inventory captured outside the blocked Node child process; scanner fixtures requiring Git subprocesses remain sandbox-blocked. No allowlist baseline was relaxed.
+
+## Milestone 5 (edge only)
+
+`POST /internal/v1/tenants/:tid/hostnames/:hostname/bootstraps/:issuance_id/reconcile`
+uses the existing portal-key authentication and feature flag. It accepts no refund amount or
+client-supplied redemption status. After a lost issuance response, query status and explicitly
+cancel the orphan (the existing DELETE operation), or wait for expiry, then reconcile by ID.
+Reconciliation never returns the code, digest, issuer, credential, or encrypted response.
+It returns issuance status plus `redeemed`, `refunded` and `refunded_units` (0 or 1).
+A successful retry reports the same credited unit, not another credit.
+
+The issuance charge, refund ID and counter update share the existing auth-state writer lock
+and temp/fsync/rename transaction. Only the edge rotation budget is charged here; its original
+one-unit charge is recorded at issuance. Refunds require a known charge and authoritative
+never-redeemed terminal record. Unknown, pending, redeemed and pre-M5 records get no credit.
+At most three issuances per hostname per UTC day are refunded across issuer types. Old-window
+charges never credit a new window. The absolute eight-issuance counter is never decremented.
+The ledger follows existing 24-hour terminal-record retention; a pruned ID returns 404 and
+must not be treated as proof of non-commit. Explicit fresh commands remain required.
+
+M4 seam: the portal must call reconciliation after an ambiguous issuance is resolved, reconcile
+its own charged budgets only on confirmed terminal, never-redeemed status, by the same scoped issuance ID and original window, and retain
+command-used authority. No portal files or issuer-check implementation were changed here.
+Do not interpret a retry's `refunded_units` as a new credit without portal-side idempotency.
+
+Tests: `bootstrap-refunds.test.js` covers expiry/revocation, refusal, retries, caps, rollover,
+interleaved services, persistence failure and reissue rejection without snapshot changes.
+`bootstrap-redaction.test.js` injects random synthetic secrets into input and exceptions across
+400/401/409/410/429/503, scanning response bodies, headers, stdout/stderr and internal audit
+records. Exception codes and Retry-After values are allowlisted; no secret-bearing metric
+labels are introduced. Existing edge tests cover proxy/metrics behavior.
+
+The repository catch-all and its generator now import `fdlog edge-catch-all`, producing the
+fixed `/var/log/caddy/edge-catch-all.log`. Their global runtime logger separately filters
+request, error and message fields. Existing global logger conflicts must be resolved in the
+operator's candidate and validated before deployment. No live configuration was touched.
+`caddy-sentinel.test.js` adapts and runs these logging filters with isolated HTTP loopback
+fixtures, no admin endpoint, automatic HTTPS or ACME. It exercises exchange/register/tunnel
+success and failure, rejected upgrade and proxy failure. If Caddy is absent it explicitly
+skips: **a passing runtime sentinel test with Caddy available, plus coverage review of the
+actual deployment config, gates enablement**. Synthetic upstream responses test proxy logging,
+not bootstrap protocol semantics. Neither bootstrap feature flag is enabled by this milestone.
+
+### M5 validation in this worktree
+
+The protocol file passes 36 tests; the refund file passes eight, the redaction handler file
+passes one, the Caddy config file passes four, and the deployment-script fixture suite passes 34. Caddy is absent on PATH, so the runtime
+sentinel test explicitly skips. The requested combined subset reports six passing files and
+four failing files in this sandbox: agent bootstrap/e2e, edge HTTP/WS and name-scan subprocess
+coverage require denied loopback listeners or child processes (`EPERM`). The edge file was
+rerun alone and still fails at loopback listen. A shell-captured Git inventory fed to the
+unchanged scanner reports zero repository violations; new files were scanned separately too.
+The full root and portal suites were attempted with the offline preload, then interrupted
+after repeated sandbox failures and stalled progress. A clean full-suite run is still required
+in an environment permitting the documented offline loopback/subprocess fixtures.
