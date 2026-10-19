@@ -25,9 +25,10 @@ export const readOverrides = (store) => readTenants(store, 'trial_overrides');
 export const readTrials = (store) => readTenants(store, 'trials');
 const own = (all, tid) => (Object.hasOwn(all.tenants, tid) ? all.tenants[tid] : null);
 
-export const effectivePlan = (tenant, override) => (typeof override?.plan === 'string' && override.plan.trim() ? override.plan : tenant?.plan);
 export const isTrialPlan = (plan) => normal(plan) === 'trial';
 export const isPaidPlan = (plan) => normal(plan) !== '' && !UNPAID_PLANS.has(normal(plan));
+// Overrides may only upgrade: a paid plan in accounts.json wins over any override plan.
+export const effectivePlan = (tenant, override) => (!isPaidPlan(tenant?.plan) && typeof override?.plan === 'string' && override.plan.trim() ? override.plan : tenant?.plan);
 const extraDays = (override) => (Number.isInteger(override?.extra_days) && override.extra_days > 0 ? Math.min(override.extra_days, MAX_EXTRA_DAYS) : 0);
 
 // Pure: trial details for a tenant whose effective plan is trial, else null. now is in ms.
@@ -39,11 +40,13 @@ export function trialInfo(tenant, state, override, now) {
 }
 
 // What the tenant's own pages and hostname creation see: effective plan, its hostname limit and trial details.
+// Fail-safe: an unreadable or wrongly shaped trial file counts as absent, so paid tenants keep working.
 export function tenantPlan(store, tenant, now) {
-  const override = own(readOverrides(store), tenant.id);
+  const safe = (read) => { try { return own(read(store), tenant.id); } catch { return null; } };
+  const override = safe(readOverrides);
   const plan = effectivePlan(tenant, override);
   return { plan, hostname_limit: isTrialPlan(plan) ? Math.min(tenant.hostname_limit, 1) : tenant.hostname_limit,
-    trial: trialInfo(tenant, own(readTrials(store), tenant.id), override, now) };
+    trial: trialInfo(tenant, safe(readTrials), override, now) };
 }
 
 // CLI only (portal/bin/tenant.js, under its lock).

@@ -61,12 +61,13 @@ test('paused hosts: active claims of paused tenants only, including hosts verifi
   const h = await internalHarness(t);
   await h.activate(tenants[0], 'one.example.test');
   await h.activate(tenants[1], 'other.example.test');
-  const paused = createPausedHosts({ dataDir: h.dataDir, now: h.clock.now, warn: () => {} });
+  const paused = createPausedHosts({ dataDir: h.dataDir, ttlMs: 0, warn: () => {} });
+  t.after(() => paused.stop());
   assert.equal(paused.isPaused('one.example.test'), false);
   await h.request(tenantPath(tenants[0], 'pause'), { method: 'POST' });
-  // Cached until invalidated (routesChanged) or 30 seconds pass.
+  // Lookups never rebuild: cached until invalidated (routesChanged) or the timer runs.
   assert.equal(paused.isPaused('one.example.test'), false);
-  h.clock.advance(30000);
+  paused.invalidate();
   assert.equal(paused.isPaused('one.example.test'), true);
   assert.equal(paused.isPaused('ONE.example.test:443'), true);
   assert.equal(paused.isPaused('other.example.test'), false);
@@ -78,13 +79,33 @@ test('paused hosts: active claims of paused tenants only, including hosts verifi
   assert.equal(paused.isPaused('one.example.test'), false);
 });
 
+test('paused hosts are built at creation and rebuilt by the background timer until stopped', async (t) => {
+  const h = await internalHarness(t);
+  await h.activate(tenants[0], 'one.example.test');
+  await h.request(tenantPath(tenants[0], 'pause'), { method: 'POST' });
+  const paused = createPausedHosts({ dataDir: h.dataDir, ttlMs: 10, warn: () => {} });
+  t.after(() => paused.stop());
+  assert.equal(paused.isPaused('one.example.test'), true, 'built at creation');
+  await h.request(tenantPath(tenants[0], 'unpause'), { method: 'POST' });
+  const until = async (expected) => {
+    for (let i = 0; i < 200 && paused.isPaused('one.example.test') !== expected; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(paused.isPaused('one.example.test'), expected);
+  };
+  await until(false);
+  paused.stop();
+  await h.request(tenantPath(tenants[0], 'pause'), { method: 'POST' });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(paused.isPaused('one.example.test'), false, 'no rebuilds after stop');
+});
+
 test('paused hosts fail open: unreadable state keeps the last good set, starts empty and never throws', async (t) => {
   const h = await internalHarness(t);
   await h.activate(tenants[0], 'one.example.test');
   const warnings = [];
   const file = join(h.dataDir, 'paused_tenants.json');
   writeFileSync(file, '{not json');
-  const paused = createPausedHosts({ dataDir: h.dataDir, now: h.clock.now, warn: (message) => warnings.push(message) });
+  const paused = createPausedHosts({ dataDir: h.dataDir, ttlMs: 0, warn: (message) => warnings.push(message) });
+  t.after(() => paused.stop());
   assert.equal(paused.isPaused('one.example.test'), false);
   writeFileSync(file, JSON.stringify({ tenants: { [tenants[0]]: { at: '2026-10-19T00:00:00.000Z' } } }));
   paused.invalidate();
@@ -101,7 +122,10 @@ test('paused hosts fail open: unreadable state keeps the last good set, starts e
   for (const value of [undefined, null, 42, {}, ['x']]) assert.equal(paused.isPaused(value), false);
   assert.equal(warnings.length, 2, 'one warning per failure streak');
   assert.ok(warnings.every((w) => !w.includes('example.test')));
-  const throwing = createPausedHosts({ dataDir: h.dataDir, now: () => { throw new Error('clock'); }, warn: () => {} });
+  assert.equal(paused.isPaused({ toString() { throw new Error('host'); } }), false);
+  // Claims are still unreadable here: startup is empty and a throwing logger never escapes a rebuild.
+  const throwing = createPausedHosts({ dataDir: h.dataDir, ttlMs: 0, warn: () => { throw new Error('warn'); } });
+  assert.doesNotThrow(() => throwing.invalidate());
   assert.equal(throwing.isPaused('one.example.test'), false);
 });
 

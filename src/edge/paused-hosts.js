@@ -1,16 +1,15 @@
 // Trial pause on the request path (docs/decisions/2026-10-19-trial-pause.md). The set of paused hostnames is
-// the active claims of tenants listed in paused_tenants.json, rebuilt on routesChanged and at most every 30s.
+// the active claims of tenants listed in paused_tenants.json, built at creation and rebuilt off the request path
+// on routesChanged (invalidate) and every ttlMs by an unref'd timer; isPaused is a Set lookup only.
 // Fail-open: a read or parse error keeps the last good set (empty at startup), so a bad file never takes sites down.
 import { readJson, dataDir as defaultDataDir } from '../onboard/json.js';
 
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-export function createPausedHosts({ dataDir = defaultDataDir(), ttlMs = 30000, now = Date.now, warn = (message) => console.warn(message) } = {}) {
+export function createPausedHosts({ dataDir = defaultDataDir(), ttlMs = 30000, warn = (message) => console.warn(message) } = {}) {
   let hosts = new Set();
-  let builtAt = -Infinity;
   let failing = false;
   function rebuild() {
-    builtAt = now();
     try {
       const state = readJson('paused_tenants.json', { tenants: {} }, dataDir);
       if (!plain(state) || !plain(state.tenants)) throw new Error('invalid');
@@ -29,13 +28,14 @@ export function createPausedHosts({ dataDir = defaultDataDir(), ttlMs = 30000, n
       failing = true;
     }
   }
+  rebuild();
+  const timer = ttlMs > 0 ? setInterval(rebuild, ttlMs) : null;
+  timer?.unref();
   return {
-    invalidate() { builtAt = -Infinity; },
+    invalidate: rebuild,
+    stop() { clearInterval(timer); },
     isPaused(hostname) {
-      try {
-        if (now() - builtAt >= ttlMs) rebuild();
-        return hosts.has(String(hostname || '').split(':')[0].toLowerCase());
-      } catch { return false; }
+      try { return hosts.has(String(hostname || '').split(':')[0].toLowerCase()); } catch { return false; }
     },
   };
 }

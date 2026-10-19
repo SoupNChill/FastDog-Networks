@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fixture, temporary, request, tids } from './helpers.js';
 import { createStore, emptyAccounts } from '../src/store.js';
@@ -48,7 +48,8 @@ test('trialInfo: rolling 7 days from creation, ceil days left, extension and eff
   assert.equal(at(0, null, { extra_days: 3 }).ends_at, '2026-10-11T09:30:00.000Z');
   assert.equal(at(0, null, { plan: 'hobby' }), null);
   assert.equal(trialInfo({ ...tenant, plan: 'hobby' }, null, null, start), null);
-  assert.equal(trialInfo({ ...tenant, plan: 'hobby' }, null, { plan: 'trial' }, start).active, true);
+  // Overrides only upgrade: a paid accounts.json plan is never masked by an override to trial.
+  assert.equal(trialInfo({ ...tenant, plan: 'hobby' }, null, { plan: 'trial' }, start), null);
   // Without created_at the recorded start applies.
   assert.equal(trialInfo({ ...tenant, created_at: undefined }, { started_at: '2026-10-05T00:00:00.000Z' }, null, start).ends_at, '2026-10-12T00:00:00.000Z');
 });
@@ -163,14 +164,60 @@ test('trial tenants get one hostname on session and API-key paths; /api/plan and
   f.advance(8 * DAY);
   assert.deepEqual({ ...(await a.client.call('/api/plan')).data.trial, started_at: undefined, ends_at: undefined },
     { active: false, started_at: undefined, ends_at: undefined, days_left: 0, paused: true });
-  // Paid tenant: no trial; an override to trial limits the API-key path too.
+  // Paid tenant: no trial; an override to trial cannot downgrade it, on the API-key path either.
   assert.deepEqual((await b.client.call('/api/plan')).data, { plan: 'hobby', hostname_limit: 3, trial: null });
   const key = (await b.client.call('/api/keys', 'POST', { password: b.password, scopes: ['hostnames:create'] })).data.key;
   f.store.write('trial_overrides', { tenants: { [tids[1]]: { plan: 'trial' } } });
   const created = await request(f.port, '/api/v1/hostnames', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: { hostname: 'api.example.test' } });
   assert.equal(created.status, 201);
-  assert.deepEqual(f.calls.filter(([name]) => name === 'create').at(-1), ['create', tids[1], 'api.example.test', 1]);
-  assert.equal(tenantPlan(f.store, f.store.read('accounts').tenants[1], f.now()).plan, 'trial');
+  assert.deepEqual(f.calls.filter(([name]) => name === 'create').at(-1), ['create', tids[1], 'api.example.test', 3]);
+  assert.equal(tenantPlan(f.store, f.store.read('accounts').tenants[1], f.now()).plan, 'hobby');
+});
+
+test('corrupt or wrongly shaped trial files never break the portal: paid tenants keep full limits, trial stays at 1', async (t) => {
+  const f = await fixture(t);
+  const a = await f.seed();
+  const b = await f.seed(1);
+  const accounts = f.store.read('accounts');
+  accounts.tenants[0] = { ...accounts.tenants[0], plan: 'trial', hostname_limit: 3, created_at: new Date(f.now()).toISOString() };
+  accounts.tenants[1] = { ...accounts.tenants[1], plan: 'hobby', hostname_limit: 3 };
+  f.store.write('accounts', accounts);
+  const key = (await b.client.call('/api/keys', 'POST', { password: b.password, scopes: ['hostnames:create'] })).data.key;
+  const lastCreate = () => f.calls.filter(([name]) => name === 'create').at(-1);
+  let n = 0;
+  for (const [overrides, trials] of [['{not json', '{not json'], ['[]', '{"tenants":[]}'], ['{"tenants":{"x":1}}', 'null']]) {
+    writeFileSync(join(f.dataDir, 'trial_overrides.json'), overrides);
+    writeFileSync(join(f.dataDir, 'trials.json'), trials);
+    const label = `${overrides} / ${trials}`;
+    assert.deepEqual((await b.client.call('/api/plan')).data, { plan: 'hobby', hostname_limit: 3, trial: null }, label);
+    assert.deepEqual((await b.client.call('/api/me')).data.tenant, { id: tids[1], plan: 'hobby', hostname_limit: 3, trial: null }, label);
+    assert.equal((await b.client.call('/api/hostnames', 'POST', { hostname: `paid${++n}.example.test` })).status, 201, label);
+    assert.deepEqual(lastCreate(), ['create', tids[1], `paid${n}.example.test`, 3], label);
+    const viaKey = await request(f.port, '/api/v1/hostnames', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: { hostname: `key${n}.example.test` } });
+    assert.equal(viaKey.status, 201, label);
+    assert.deepEqual(lastCreate(), ['create', tids[1], `key${n}.example.test`, 3], label);
+    const plan = (await a.client.call('/api/plan')).data;
+    assert.equal(plan.hostname_limit, 1, label);
+    assert.equal(plan.trial.paused, false, label);
+    assert.equal((await a.client.call('/api/me')).data.tenant.hostname_limit, 1, label);
+    assert.equal((await a.client.call('/api/hostnames', 'POST', { hostname: `trial${n}.example.test` })).status, 201, label);
+    assert.deepEqual(lastCreate(), ['create', tids[0], `trial${n}.example.test`, 1], label);
+  }
+});
+
+test('override plan trial cannot mask a paid accounts.json plan: not paused, unpaused if paused, full limit', async (t) => {
+  const s = state(t, [{ ...trialTenant(), plan: 'pro', hostname_limit: 5 }, { ...trialTenant(tids[1]), plan: 'pro', hostname_limit: 5 }]);
+  s.store.write('trial_overrides', { tenants: { [tids[0]]: { plan: 'trial' }, [tids[1]]: { plan: 'trial' } } });
+  s.store.write('trials', { tenants: { [tids[1]]: { paused_at: new Date(start + 7 * DAY).toISOString() } } });
+  const { edge, calls } = recordingEdge();
+  s.set(start + 30 * DAY);
+  assert.deepEqual(await s.sweep(edge), { paused: 0, unpaused: 1, failed: 0 });
+  assert.deepEqual(calls, [['unpauseTenant', tids[1]]]);
+  assert.equal(s.trials()[tids[0]], undefined);
+  assert.equal(s.trials()[tids[1]].paused_at, undefined);
+  for (const tenant of s.store.read('accounts').tenants) {
+    assert.deepEqual(tenantPlan(s.store, tenant, start + 30 * DAY), { plan: 'pro', hostname_limit: 5, trial: null });
+  }
 });
 
 async function cli(env, ...args) {
