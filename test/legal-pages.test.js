@@ -35,7 +35,7 @@ for (const [page, title] of [['terms/index.html', 'Terms of Service'], ['faq/ind
   test(`${page} is final copy (no DRAFT), version 2026-10-19, noindex kept`, () => {
     const html = read(page);
     assert.doesNotMatch(html, /draft/i);
-    assert.doesNotMatch(html, /-draft/);
+    assert.doesNotMatch(html, /not yet in effect/i);
     assert.match(html, /Version 2026-10-19/);
     assert.ok(html.includes(`<title>${title} — FastDog Networks</title>`));
     assert.doesNotMatch(html, /TODO|example\.invalid/);
