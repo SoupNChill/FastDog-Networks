@@ -16,11 +16,13 @@ for (const page of ['edge/index.html', 'index.html']) {
   });
 }
 
-test('edge pricing explains the trial and retains exactly the three monthly plans', () => {
-  const pricing = read('edge/index.html').match(/<section[^>]*aria-labelledby="pricing"[\s\S]*?<\/section>/)?.[0];
+for (const page of ['edge/index.html', 'index.html']) test(`${page} pricing explains the trial and retains exactly the three monthly plans`, () => {
+  const pricing = read(page).match(/<section[^>]*aria-labelledby="pricing"[\s\S]*?<\/section>/)?.[0];
   assert.ok(pricing);
   assert.ok(pricing.includes('7-day free trial: 1 hostname, no card needed'));
   assert.ok(pricing.includes('paused, not deleted'));
+  assert.ok(pricing.includes('Email us to pick a plan'));
+  assert.doesNotMatch(pricing, /Email us to start/);
   assert.deepEqual([...pricing.matchAll(/\$(\d+) <small>\/ mo/g)].map(([, price]) => price), ['9', '29', '149']);
   assert.deepEqual([...pricing.matchAll(/<div><span>([^<]+)<small>[^<]*<\/small><\/span><strong>\$(\d+) <small>\/ mo<\/small><\/strong><\/div>/g)]
     .map(([, plan, price]) => [plan, price]), [['Hobby', '9'], ['Pro', '29'], ['Agency', '149']]);

@@ -36,8 +36,9 @@ test('AI setup section sits between hero and products with scoped guidance', () 
   assert.doesNotMatch(ai, /same[- ]business[- ]day/i);
 });
 
-test('pricing markup remains byte-identical to the pre-review homepage', () => {
-  // SHA-256 of the unchanged pricing section before this review (also identical to origin/master).
-  const baseline = '5b80f3aea1d01280000283ad4690b2c3ff1b5e3c239ff922a8e7e34af786203d';
+test('pricing markup matches the reviewed launch copy', () => {
+  // SHA-256 of the reviewed pricing section: plans unchanged; the launch copy (PR #96) adds the trial line and the
+  // "Email us to pick a plan" link text. Any other change needs review.
+  const baseline = 'd36fff2c931acfc728e91acc202cf50d4f1916893e642290227efbcd3325bf18';
   assert.equal(createHash('sha256').update(section('pricing'), 'utf8').digest('hex'), baseline);
 });

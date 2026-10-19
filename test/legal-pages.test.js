@@ -112,7 +112,7 @@ test('privacy and FAQ describe retention, logging and email delivery as implemen
   for (const claim of ['does not store them', 'remove both if you leave', 'DNS servers’ lookup logs',
     'the requesting IP address, the name and record type asked for, and the result', 'Logs are deleted automatically',
     'Many are gone within 30 days', 'some are kept longer', 'Is there a free trial?', '7-day free trial with 1 hostname',
-    'don’t need a card', 'On day 8 we pause the hostname', 'We don’t delete it']) assert.ok(faq.includes(claim), claim);
+    'don’t need a card', 'On day 8 we pause the hostname', 'To pick one, email support from your account’s email address', 'We don’t delete the hostname']) assert.ok(faq.includes(claim), claim);
   assert.ok(!faq.includes('status and user agent'));
   assert.doesNotMatch(faq, /(all|every) logs?[^.]*within 30 days/i);
   assert.match(faq, /<dt>Is there a free trial\?<\/dt><dd>[^\n]+<\/dd>\n<dt>How much does it cost\?<\/dt>/);
@@ -120,6 +120,7 @@ test('privacy and FAQ describe retention, logging and email delivery as implemen
   assert.ok(terms.includes('stay blocked for every other account until we review them and release them'));
   for (const claim of ['Domain registration is billed separately. You can cancel at any time.', 'To ask for a refund, email support at the address under <a href="#contact">Contact</a>',
     'we handle refund requests case by case.']) assert.ok(terms.includes(claim), claim);
+  assert.ok(terms.includes('New accounts start with a free trial that lasts 7 days from sign-up and covers 1 hostname. When the trial ends, we pause your hostnames, without deleting anything, until you are on a paid plan.'));
   for (const stale of ['setup promise', 'fees already paid are not refunded']) assert.ok(!terms.includes(stale), stale);
   assert.doesNotMatch(terms, /refunds? (are|is|will be) (guaranteed|always)|refund[^.]*within \d+ (business )?days/i, 'no new money promise');
 });
