@@ -1,0 +1,11 @@
+[Unit]
+Description=FastDog portal daily owner summary at 08:00 Mountain time
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 America/Denver
+Persistent=true
+AccuracySec=1min
+Unit=fastdog-owner-digest.service
+
+[Install]
+WantedBy=timers.target
