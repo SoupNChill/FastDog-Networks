@@ -221,6 +221,10 @@ test('maskIp and page path rules', () => {
   assert.equal(maskIp('2001:0db8:0001:ffff:0:0:0:9'), '2001:db8:1::/48');
   assert.equal(maskIp('::ffff:203.0.113.5'), '203.0.113.0/24');
   assert.equal(maskIp('fe80::1%eth0'), 'fe80:0:0::/48');
+  // Values a log may already hold in masked or CIDR form are masked again in memory.
+  assert.equal(maskIp('203.0.113.0/24'), '203.0.113.0/24');
+  assert.equal(maskIp('2001:db8:1::/48'), '2001:db8:1::/48');
+  assert.equal(maskIp('2001:db8:1:2::/64'), '2001:db8:1::/48');
   for (const bad of ['', 'nope', undefined, '203.0.113.7:443']) assert.equal(maskIp(bad), '');
   for (const path of ['/', '/docs/', '/about.html', '/pricing', '/a/b']) assert.equal(isPagePath(path), true, path);
   for (const path of ['/a.css', '/a.JS', '/i.svg', '/f.woff2', '/favicon.ico', '/sitemap.xml', '/x.json', '/a.js.map', '/m.webmanifest',
@@ -234,15 +238,16 @@ test('countVisitors: page views, unique visitors and bots; masked and unmasked l
   writeLog(join(dir, 'masked.json'), siteEntries.map((entry) => logLine(maskedCopy(entry))));
   const full = await countVisitors({ files: [join(dir, 'full.json')], window: WINDOW });
   assert.deepEqual(full, { available: true, partial: false, page_views: 7, unique_visitors: 4, bot_hits: 1,
-    top_paths: [['/', 2], ['/pricing', 2], ['/about.html', 1], ['/docs/', 1], ['/x', 1]] });
+    top_paths: [['/', 2], ['/pricing', 2], ['/about.html', 1], ['/docs/', 1], ['/x', 1]], skipped_lines: 4 });
   const masked = await countVisitors({ files: [join(dir, 'masked.json')], window: WINDOW });
-  assert.deepEqual(masked, full);
+  assert.equal(masked.skipped_lines, 0);
+  assert.deepEqual({ ...masked, skipped_lines: full.skipped_lines }, full);
   assert.doesNotMatch(JSON.stringify(full), LEAK);
   // A per-run cap keeps memory bounded.
   assert.equal((await countVisitors({ files: [join(dir, 'full.json')], window: WINDOW, cap: 2 })).unique_visitors, '2+');
   // Missing files are unavailable without throwing; a mix is partial.
   assert.deepEqual(await countVisitors({ files: [join(dir, 'missing.json')], window: WINDOW }),
-    { available: false, partial: true, page_views: 0, unique_visitors: 0, bot_hits: 0, top_paths: [] });
+    { available: false, partial: true, page_views: 0, unique_visitors: 0, bot_hits: 0, top_paths: [], skipped_lines: 0 });
   const mixed = await countVisitors({ files: [join(dir, 'full.json'), join(dir, 'missing.json')], window: WINDOW });
   assert.equal(mixed.available, true);
   assert.equal(mixed.partial, true);
@@ -275,6 +280,46 @@ test('logFiles and countVisitors: rolled .gz siblings count only when written si
   assert.deepEqual(logFiles({ logDir: join(dir, 'missing'), names: ['a.json'], window: WINDOW }).map((file) => relative(dir, file)), ['missing/a.json']);
 });
 
+test('countVisitors and countFunnel: logs truncated in place (leading NULs), junk and oversized lines are skipped and counted', async (t) => {
+  const dir = temporary(t);
+  const fragment = logLine({ uri: '/fragment' }).slice(0, -20);
+  const text = [
+    `${'\0'.repeat(600000)}${logLine({ ip: '203.0.113.7', uri: '/' })}`, // glued to the NUL run, no newline between
+    '\0'.repeat(1000),
+    fragment,
+    `{"pad":"${'x'.repeat(1024 * 1024 + 10)}"}`,
+    logLine({ ip: '198.51.100.4', uri: '/pricing' }),
+    logLine({ ip: '203.0.113.0', uri: '/signup' }), // already masked: same visitor as 203.0.113.7 with the same user agent
+  ].join('\n');
+  const mtime = (WINDOW.end + HOUR) / 1000;
+  const live = join(dir, 'access-apex.json');
+  const rolled = join(dir, 'access-apex-2026-10-19T18-00-00.000.json.gz');
+  writeFileSync(live, `${text}\n`);
+  writeFileSync(rolled, gzipSync(`${text}\n`));
+  for (const file of [live, rolled]) utimesSync(file, mtime, mtime);
+  assert.ok(readFileSync(live).subarray(0, 600000).every((byte) => byte === 0));
+
+  const one = await countVisitors({ files: [live], window: WINDOW });
+  assert.deepEqual(one, { available: true, partial: false, page_views: 3, unique_visitors: 2, bot_hits: 0,
+    top_paths: [['/', 1], ['/pricing', 1], ['/signup', 1]], skipped_lines: 2 });
+  assert.deepEqual(await countVisitors({ files: [rolled], window: WINDOW }), one);
+  const files = logFiles({ logDir: dir, names: ['access-apex.json'], window: WINDOW });
+  assert.equal(files.length, 2);
+  const both = await countVisitors({ files, window: WINDOW });
+  assert.deepEqual([both.page_views, both.unique_visitors, both.skipped_lines, both.partial], [6, 2, 4, false]);
+  const funnel = await countFunnel({ files, window: WINDOW });
+  assert.deepEqual(funnel, { available: true, partial: false, signup_views: 2, unique_networks: 1, skipped_lines: 4 });
+
+  // Only the count reaches the digest, never the skipped content.
+  const lines = renderDigest({ day: WINDOW.day, visitors: both, funnel });
+  assert.ok(lines.includes('Visitors: 6 page views, 2 unique visitors, 0 bot hits (4 malformed log lines skipped)'));
+  assert.ok(lines.includes('Funnel: 2 sign-up page views from 1 networks (4 malformed log lines skipped)'));
+  const rendered = lines.join('\n');
+  assert.doesNotMatch(rendered, LEAK);
+  assert.ok(!rendered.includes('fragment') && !rendered.includes('pad') && !rendered.includes('\0'));
+  assert.doesNotMatch(JSON.stringify([both, funnel]), LEAK);
+});
+
 test('countFunnel: GET 200 /signup views and distinct masked networks', async (t) => {
   const dir = temporary(t);
   writeLog(join(dir, 'portal.json'), [
@@ -283,7 +328,7 @@ test('countFunnel: GET 200 /signup views and distinct masked networks', async (t
     logLine({ uri: '/signup', ua: 'curl/8.0' }), logLine({ uri: '/login' }), logLine({ uri: '/signup', ts: WINDOW.end }),
   ]);
   const result = await countFunnel({ files: [join(dir, 'portal.json')], window: WINDOW });
-  assert.deepEqual(result, { available: true, partial: false, signup_views: 4, unique_networks: 3 });
+  assert.deepEqual(result, { available: true, partial: false, signup_views: 4, unique_networks: 3, skipped_lines: 0 });
   assert.doesNotMatch(JSON.stringify(result), LEAK);
   assert.equal((await countFunnel({ files: [join(dir, 'none.json')], window: WINDOW })).available, false);
 });

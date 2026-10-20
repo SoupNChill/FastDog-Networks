@@ -189,10 +189,11 @@ function expandV6(ip) {
   const groups = rest === undefined ? left : [...left, ...Array(8 - left.length - right.length).fill('0'), ...right];
   return groups.map((group) => parseInt(group, 16));
 }
-// IPv4 to /24 and IPv6 to /48 (IPv4-mapped IPv6 as IPv4); the same result whether or not the input was already masked.
+// IPv4 to /24 and IPv6 to /48 (IPv4-mapped IPv6 as IPv4); the same result whether or not the input was already
+// masked, including a CIDR form such as '203.0.113.0/24'.
 export function maskIp(value) {
   if (typeof value !== 'string') return '';
-  const ip = value.trim();
+  const ip = value.trim().replace(/\/\d{1,3}$/, '');
   if (isIPv4(ip)) return `${ip.split('.').slice(0, 3).join('.')}.0/24`;
   if (!isIPv6(ip)) return '';
   const groups = expandV6(ip);
@@ -200,15 +201,21 @@ export function maskIp(value) {
   return `${groups.slice(0, 3).map((g) => g.toString(16)).join(':')}::/48`;
 }
 
-// Parsed access-log entry, or null for anything malformed.
-function readEntry(line) {
-  if (line.length > 65536) return null;
+// Parsed access-log entry, null for a line that is empty once NUL bytes are removed, or SKIP for anything
+// malformed or longer than LOG_LINE_MAX. Raw NULs are dropped first: a log truncated in place while Caddy kept
+// it open without O_APPEND starts with a run of NULs glued to the next JSON line.
+const LOG_LINE_MAX = 1024 * 1024;
+const SKIP = Symbol('skip');
+function readEntry(raw) {
+  const line = raw.includes('\0') ? raw.replaceAll('\0', '') : raw;
+  if (line.trim() === '') return null;
+  if (line.length > LOG_LINE_MAX) return SKIP;
   let entry;
-  try { entry = JSON.parse(line); } catch { return null; }
-  if (!plain(entry) || !plain(entry.request)) return null;
+  try { entry = JSON.parse(line); } catch { return SKIP; }
+  if (!plain(entry) || !plain(entry.request)) return SKIP;
   const ts = entry.ts;
   const ms = typeof ts === 'number' ? (ts > 1e11 ? ts : ts * 1000) : parse(ts);
-  if (!Number.isFinite(ms)) return null;
+  if (!Number.isFinite(ms)) return SKIP;
   const request = entry.request;
   const uri = typeof request.uri === 'string' ? request.uri : '';
   const cut = uri.search(/[?#]/);
@@ -235,9 +242,9 @@ function eachLine(path, onLine) {
 }
 
 // Feeds every in-window entry to onEntry. A missing or unreadable file counts as failed; a file last written before
-// the window cannot hold window lines and is skipped unread.
+// the window cannot hold window lines and is skipped unread. Malformed lines are counted, never kept.
 async function scanLogs(files, window, onEntry) {
-  let read = 0, failed = 0;
+  let read = 0, failed = 0, skipped = 0;
   for (const file of files) {
     try {
       const stat = statSync(file);
@@ -245,13 +252,14 @@ async function scanLogs(files, window, onEntry) {
       if (stat.mtimeMs >= window.start) {
         await eachLine(file, (line) => {
           const entry = readEntry(line);
-          if (entry && entry.ms >= window.start && entry.ms < window.end) onEntry(entry);
+          if (entry === SKIP) skipped++;
+          else if (entry && entry.ms >= window.start && entry.ms < window.end) onEntry(entry);
         });
       }
       read++;
     } catch { failed++; }
   }
-  return { read, failed };
+  return { read, failed, skipped };
 }
 
 // Each configured log plus its rolled siblings ('<base>-<timestamp>.<ext>.gz') written since the window start.
@@ -282,7 +290,7 @@ export async function countVisitors({ files, window, salt = randomBytes(32).toSt
   const unique = new Set();
   const paths = new Map();
   let views = 0, bots = 0, capped = false;
-  const { read, failed } = await scanLogs(files, window, (entry) => {
+  const { read, failed, skipped } = await scanLogs(files, window, (entry) => {
     if (entry.method !== 'GET' || !Number.isInteger(entry.status) || entry.status < 200 || entry.status > 399 || !isPagePath(entry.path)) return;
     if (isBot(entry.ua)) { bots++; return; }
     views++;
@@ -293,7 +301,8 @@ export async function countVisitors({ files, window, salt = randomBytes(32).toSt
     if (unique.size < cap) unique.add(key); else if (!unique.has(key)) capped = true;
   });
   const top = [...paths].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 5);
-  return { available: read > 0, partial: failed > 0, page_views: views, unique_visitors: capped ? `${cap}+` : unique.size, bot_hits: bots, top_paths: top };
+  return { available: read > 0, partial: failed > 0, page_views: views, unique_visitors: capped ? `${cap}+` : unique.size, bot_hits: bots, top_paths: top,
+    skipped_lines: skipped };
 }
 
 // Sign-up page funnel: successful GET /signup requests (bots excluded) and how many distinct masked networks made them.
@@ -301,13 +310,14 @@ export async function countFunnel({ files, window, salt = randomBytes(32).toStri
   const hash = hasher(salt);
   const networks = new Set();
   let views = 0, capped = false;
-  const { read, failed } = await scanLogs(files, window, (entry) => {
+  const { read, failed, skipped } = await scanLogs(files, window, (entry) => {
     if (entry.method !== 'GET' || entry.status !== 200 || entry.path !== '/signup' || isBot(entry.ua)) return;
     views++;
     const key = hash(maskIp(entry.ip));
     if (networks.size < cap) networks.add(key); else if (!networks.has(key)) capped = true;
   });
-  return { available: read > 0, partial: failed > 0, signup_views: views, unique_networks: capped ? `${cap}+` : networks.size };
+  return { available: read > 0, partial: failed > 0, signup_views: views, unique_networks: capped ? `${cap}+` : networks.size,
+    skipped_lines: skipped };
 }
 
 // ---- Rendering ----
@@ -322,6 +332,8 @@ const clip = (line) => {
 export function renderDigest({ day, showEmail = false, accounts, trials, hostnames, mail, visitors, funnel } = {}) {
   const who = (email) => (typeof email !== 'string' || !email ? '?' : showEmail ? email : maskEmail(email));
   const lines = [`FastDog daily summary for ${/^\d{4}-\d{2}-\d{2}$/.test(day) ? day : '?'} (Mountain time)`, ''];
+  // Only the number of skipped log lines is shown, never their content.
+  const skipped = (result) => (Number.isInteger(result?.skipped_lines) && result.skipped_lines > 0 ? ` (${result.skipped_lines} malformed log lines skipped)` : '');
   const list = (items, format) => {
     for (const item of items.slice(0, LIST_MAX)) lines.push(format(item));
     if (items.length > LIST_MAX) lines.push(`  ... and ${items.length - LIST_MAX} more`);
@@ -348,11 +360,11 @@ export function renderDigest({ day, showEmail = false, accounts, trials, hostnam
   else if (visitors.reason === 'not_configured') lines.push('Visitors: not configured');
   else if (!visitors.available) lines.push('Visitors: unavailable');
   else {
-    lines.push(`Visitors: ${visitors.page_views} page views, ${visitors.unique_visitors} unique visitors, ${visitors.bot_hits} bot hits${visitors.partial ? ' (some logs unreadable)' : ''}`);
+    lines.push(`Visitors: ${visitors.page_views} page views, ${visitors.unique_visitors} unique visitors, ${visitors.bot_hits} bot hits${visitors.partial ? ' (some logs unreadable)' : ''}${skipped(visitors)}`);
     if (visitors.top_paths.length) lines.push(`  Top pages: ${visitors.top_paths.map(([path, n]) => `${path} ${n}`).join(', ')}`);
   }
   if (funnel) {
-    lines.push(funnel.available ? `Funnel: ${funnel.signup_views} sign-up page views from ${funnel.unique_networks} networks${funnel.partial ? ' (some logs unreadable)' : ''}`
+    lines.push(funnel.available ? `Funnel: ${funnel.signup_views} sign-up page views from ${funnel.unique_networks} networks${funnel.partial ? ' (some logs unreadable)' : ''}${skipped(funnel)}`
       : 'Funnel: unavailable');
   }
   return lines.map(clip);
