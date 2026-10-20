@@ -52,11 +52,11 @@ for (const [page, title] of [['terms/index.html', 'Terms of Service'], ['faq/ind
   });
 }
 
-test('privacy/index.html is final copy (no DRAFT), version 2026-10-19', () => {
+test('privacy/index.html is final copy (no DRAFT), version 2026-10-20', () => {
   const html = read('privacy/index.html');
   assert.doesNotMatch(html, /DRAFT/);
   assert.doesNotMatch(html, /-draft/);
-  assert.match(html, /Version 2026-10-19/);
+  assert.match(html, /Version 2026-10-20/);
   assert.match(html, /<title>Privacy Policy — FastDog Networks<\/title>/);
   const canonical = read('index.html').match(/<link rel=\x22canonical\x22 href=\x22([^\x22]+)\x22>/);
   assert.ok(canonical, 'homepage has a canonical origin');
@@ -108,6 +108,15 @@ test('privacy and FAQ describe retention, logging and email delivery as implemen
   assert.ok(outgoing, 'outgoing emails entry exists');
   assert.ok(outgoing.includes('whether it was sent'));
   assert.doesNotMatch(outgoing, /\bthe link\b/);
+  assert.ok(outgoing.includes('These notices include the account\'s email address and go only to us; the outbox record keeps only the message type and whether it was sent.'));
+  for (const claim of ['on our own website the log also keeps the browser\'s user agent; other headers and cookies are removed.',
+    '<li>To count visits to our own website: daily totals are worked out from its access logs, and only the totals are kept.</li>',
+    '<li>Email delivery: our email provider sends sign-in emails and our own account notices.</li>']) assert.ok(privacy.includes(claim), claim);
+  assert.ok(!privacy.includes('shortened IP address; headers and cookies are removed'), 'access logs no longer claim all headers are dropped');
+  assert.ok(!privacy.includes('It stores only a decision log'), 'Verdict no longer claims a decision log only');
+  for (const claim of ['It stores a decision log: time, IP address, path without the query string, and the decision.',
+    'Verdict also keeps a scoring log with the time, hostname, a shortened IP address (last part removed), network (ASN), method, path (without the query string), user agent and the score it would have given, which is deleted automatically after about 30 days.',
+    '<li>Verdict scoring log (our own sites): deleted automatically after about 30 days.</li>']) assert.ok(privacy.includes(claim), claim);
   const faq = read('faq/index.html');
   for (const claim of ['does not store them', 'remove both if you leave', 'DNS servers’ lookup logs',
     'the requesting IP address, the name and record type asked for, and the result', 'Logs are deleted automatically',
