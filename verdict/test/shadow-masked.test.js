@@ -7,15 +7,16 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scoreAccessLogLine } from '../src/shadow/score.js';
+import { DEMO_HOST } from '../src/edge/security.js'; // a first-party shadow host, without hard-coding a name
 import { localHeuristic } from '../src/engine/heuristic.js';
 
 // Each test uses its own documentation-range IPs/prefixes so the module-level velocity maps never collide.
 const CHROME = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
 const HEADERS = { 'User-Agent': [CHROME], Accept: ['text/html'], 'Accept-Language': ['en-US,en;q=0.9'] };
 const opts = { verifyBot: () => null };
-const unmasked = (ip, uri, headers) => JSON.stringify({ ts: 1792535152.64, request: { remote_ip: ip, client_ip: ip, method: 'GET', host: 'fastdognetworks.com', uri, headers } });
+const unmasked = (ip, uri, headers) => JSON.stringify({ ts: 1792535152.64, request: { remote_ip: ip, client_ip: ip, method: 'GET', host: DEMO_HOST, uri, headers } });
 const masked = (prefix, uri, ua) => JSON.stringify({ level: 'info', ts: 1792535152.64, logger: 'http.log.access.log3', msg: 'handled request',
-  request: { client_ip: prefix, method: 'GET', host: 'fastdognetworks.com', uri }, duration: 0.001, status: 200, user_agent: ua });
+  request: { client_ip: prefix, method: 'GET', host: DEMO_HOST, uri }, duration: 0.001, status: 200, user_agent: ua });
 const pick = r => ({ action: r.action, score: r.score, reasons: r.reasons });
 const notRawIp = r => assert.ok(r.ip_prefix === null || (!isIP(r.ip_prefix) && /\/(24|64)$/.test(r.ip_prefix)), r.ip_prefix);
 
