@@ -1,0 +1,35 @@
+[Unit]
+Description=FastDog portal daily owner summary (oneshot; started by fastdog-owner-digest.timer)
+Documentation=file:///opt/fastdog-portal/docs/runbooks/owner-notify.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=fdportal
+Group=fdportal
+# Read access to Caddy access logs (only with OWNER_DIGEST_VISITORS=1).
+SupplementaryGroups=caddy
+WorkingDirectory=/opt/fastdog-portal
+EnvironmentFile=/etc/fastdog/portal.env
+# Same state directory as the portal unit; sets $STATE_DIRECTORY=/var/lib/fastdog-portal. The mode is pinned
+# because systemd re-applies StateDirectoryMode (default 0755) on every start.
+StateDirectory=fastdog-portal
+StateDirectoryMode=0700
+ExecStart=/usr/bin/node --max-old-space-size=64 portal/bin/owner-digest.js
+Nice=10
+CPUQuota=20%
+MemoryMax=96M
+IOSchedulingClass=idle
+TimeoutStartSec=180
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/fastdog-portal
+# "-": a host without Caddy logs still starts (visitors then report unavailable).
+ReadOnlyPaths=-/var/log/caddy
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes

@@ -57,6 +57,42 @@ dedupe keys (IDs and times only) for 8 days. Logs carry reason codes only.
 | `OWNER_NOTIFY_BATCH_MINUTES` | Coalescing window, 1–120 minutes, default `15` |
 | `OWNER_NOTIFY_SHOW_EMAIL` | `1` includes full account addresses; otherwise masked (`u***@example.com`) |
 
+### Owner digest (default off)
+
+`portal/bin/owner-digest.js` mails one summary per day for the previous
+Mountain-time calendar day (DST-aware), run by `deploy/fastdog-owner-digest.timer`
+at 08:00 America/Denver every day (`Persistent=true` catches up after downtime).
+It reports aggregates only: sign-ups (open/invite) and verifications, account
+totals, active trials, trials ending within 48 hours and paused trials (with
+account addresses, masked unless `OWNER_NOTIFY_SHOW_EMAIL=1`), hostname counts
+from the edge (one call at a time), outbox mail counts by kind and status, and
+optionally visitors and the sign-up funnel from Caddy JSON access logs. Visitor
+uniqueness uses a per-run random salt over the address masked to /24 (IPv4) or
+/48 (IPv6) plus the user agent, held in memory only; no IP, user agent or hash
+is written, logged or mailed. Each section that cannot be read says
+`unavailable`; the run never fails because of one. `owner_digest.json` records
+only `last_sent_day`, written after the mailer accepts the message.
+
+| Variable | Meaning |
+| --- | --- |
+| `OWNER_DIGEST_ENABLED` | `1` runs the digest; anything else prints `owner digest disabled` and exits 0 |
+| `OWNER_NOTIFY_EMAIL` | Recipient (shared with owner notifications); empty disables, invalid exits 1 |
+| `OWNER_NOTIFY_SHOW_EMAIL` | `1` shows full account addresses in trial lists |
+| `OWNER_DIGEST_VISITORS` | `1` adds visitor counts from Caddy logs |
+| `OWNER_DIGEST_LOG_DIR` | Absolute Caddy log directory, default `/var/log/caddy` |
+| `OWNER_DIGEST_SITE_LOGS` | Comma list of log file names (no slashes, no default), for example `access-site.json`; rolled siblings `access-site-<timestamp>.json.gz` written since the window start are read too |
+| `OWNER_DIGEST_FUNNEL_LOG` | Optional single log file name; counts successful `GET /signup` and distinct masked networks (bots excluded) |
+
+It also uses `STATE_DIRECTORY`, `OUTBOX_DIR`, `EDGE_INTERNAL_URL`, `PORTAL_KEY`
+and the `MAIL_*`/`SMTP_*` settings exactly as the server does. Flags:
+`--dry-run` prints the lines and sends or writes nothing (works while disabled);
+`--force` sends even if today's digest went out; `--test-notice` sends one
+owner-event mail (`Test notice from the FastDog portal (owner notifications are on).`)
+and exits; `--now=<ISO time>` is for tests. Exit codes: 0 sent, skipped or
+disabled; 1 invalid configuration; 2 send failed. stdout carries one JSON line
+(`{"event":"owner_digest","result":...,"reason":...}`) without addresses or
+settings. See [owner notifications runbook](../docs/runbooks/owner-notify.md).
+
 ## Factory and browser authentication
 
 `src/app.js` exports `createApp({dataDir, edge, mailer, domainSearch, now, config})`,
