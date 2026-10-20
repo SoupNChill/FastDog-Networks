@@ -48,7 +48,10 @@ for (const [page, title] of [['terms/index.html', 'Terms of Service'], ['faq/ind
     // Subject strings stay as written in the page; they are not repeated here (the name scan reads test literals).
     const contactLink = html.match(new RegExp(`<a href="mailto:${address.replaceAll('.', '\\.')}\\?subject=[^"]+">${address.replaceAll('.', '\\.')}</a>`))?.[0];
     assert.ok(contactLink, 'contact keeps a subject and the visible address');
-    assert.ok(!html.replace(contactLink, '').includes(host), 'public host appears only in the contact link');
+    // The FAQ header also carries the site-wide sign-up button (Terms and Privacy do not).
+    const signupLink = `<a class="nav-cta" href="https://portal.${host}/signup">Start free: 7 days, no card</a>`;
+    assert.equal(html.includes(signupLink), page === 'faq/index.html');
+    assert.ok(!html.replace(contactLink, '').replace(signupLink, '').includes(host), 'public host appears only in the contact and sign-up links');
   });
 }
 
