@@ -10,8 +10,12 @@ const host = new URL(homepage.match(/<link rel="canonical" href="([^"]+)"/)[1]).
 for (const page of ['edge/index.html', 'index.html']) {
   test(`${page} offers self-serve hostname setup with support`, () => {
     const html = read(page);
-    const expected = `<p class="small-note">Add your hostname yourself: <a href="https://portal.${host}/signup">sign up in the portal</a> and add it there. Need help? Email <a href="mailto:support@${host}?subject=Attach%20a%20hostname">support@${host}</a> and we reply the same business day.</p>`;
+    const expected = `<p class="small-note">Add your hostname yourself: <a href="https://portal.${host}/signup">sign up in the portal</a> and add it there. Need help? Email <a href="mailto:support@${host}?subject=Attach%20a%20hostname">support@${host}</a>. Agency plans get a same-business-day first reply.</p>`;
     assert.ok(html.includes(expected));
+    // Same-business-day replies are an Agency-plan promise, not a promise to everyone.
+    assert.doesNotMatch(html, /we reply the same business day/);
+    assert.ok(html.includes('<li>On the Agency plan: same-business-day first reply (America/Denver).'));
+    assert.equal([...html.matchAll(/same-business-day/gi)].length, 3, 'small note, guarantee and the Agency plan row');
     assert.doesNotMatch(html, /goes through us/);
     assert.ok(html.includes(`<p class="guarantee-start">How to start: <a href="https://portal.${host}/signup">sign up in the portal</a> and add your hostname. For guided setup, email`));
     assert.doesNotMatch(html, /How to start: email/);
