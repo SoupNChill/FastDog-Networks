@@ -7,6 +7,7 @@ import { createFileMailer, scheduleOutboxPurge } from './src/mailer-file.js';
 import { createSmtpMailer } from './src/mailer-smtp.js';
 import { supportEmail } from './src/static.js';
 import { createStore } from './src/store.js';
+import { createOwnerNotify, ownerNotifyConfig } from './src/owner-notify.js';
 import { scheduleTrialSweep } from './src/trials.js';
 
 const logJson = (entry) => console.log(JSON.stringify(entry));
@@ -31,11 +32,14 @@ export function start(env = process.env) {
   const dataDir = resolve(env.STATE_DIRECTORY);
   const outboxDir = env.OUTBOX_DIR ? resolve(env.OUTBOX_DIR) : join(dataDir, 'outbox');
   const mailer = selectMailer(env, { outboxDir });
+  const store = createStore(dataDir);
+  // Owner notifications (OWNER_NOTIFY_EMAIL, default off): a no-op unless configured.
+  const ownerNotify = createOwnerNotify({ ...ownerNotifyConfig(env), mailer, store, logger: logJson });
 
   const edge = createEdgeClient({ baseUrl: env.EDGE_INTERNAL_URL || 'http://127.0.0.1:8789', portalKey: env.PORTAL_KEY });
   const app = createApp({ dataDir, edge,
     domainSearch: createDomainClient({ baseUrl: env.DOMAIN_SEARCH_URL || 'http://127.0.0.1:8791' }),
-    mailer,
+    mailer, ownerNotify,
     config: { origin: env.PORTAL_ORIGIN, edgeUrl: env.PORTAL_EDGE_URL, docsUrl: env.PORTAL_DOCS_URL, outboxDir, trustProxy: env.TRUST_PROXY === '1',
       defaultPlan: env.DEFAULT_PLAN || 'assigned', defaultHostnameLimit: Number(env.DEFAULT_HOSTNAME_LIMIT || 3),
       openSignup: env.OPEN_SIGNUP === '1', openSignupPlan: env.OPEN_SIGNUP_PLAN || 'trial',
@@ -46,9 +50,11 @@ export function start(env = process.env) {
   });
   const purgeTimer = scheduleOutboxPurge(outboxDir);
   app.once('close', () => clearInterval(purgeTimer));
+  // Best effort: hand any pending owner notice to the mailer, then drop the timers.
+  app.once('close', () => { try { ownerNotify.flush().catch(() => {}).finally(() => ownerNotify.stop()); } catch { /* ignore */ } });
   // Trial pause sweep (TRIAL_PAUSE_ENABLED=1, default off): first run after a minute, then hourly.
   if (env.TRIAL_PAUSE_ENABLED === '1') {
-    const sweep = scheduleTrialSweep({ store: createStore(dataDir), edge, logger: logJson });
+    const sweep = scheduleTrialSweep({ store, edge, logger: logJson, notify: ownerNotify.notify });
     app.once('close', () => sweep.stop());
   }
   app.listen(port, '127.0.0.1');

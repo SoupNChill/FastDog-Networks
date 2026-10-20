@@ -9,9 +9,11 @@ import { createSignupGuard, emailDomain } from './signup-guard.js';
 import { createSuspensions, effectiveTenant } from './suspensions.js';
 import { termsRecord } from './terms.js';
 
-export function createAuth({ store, sessions, limits, now, mailer, config }) {
+export function createAuth({ store, sessions, limits, now, mailer, config, ownerNotify }) {
   const read = () => store.read('accounts', emptyAccounts());
   const generic = { ok: true };
+  // Owner mail is synchronous fire-and-forget; it never changes a response or stored state.
+  const notify = (event) => { try { ownerNotify?.notify(event); } catch { /* ignore */ } };
   // Delivery failures must not change the response (account enumeration); log a reason code only.
   const sendMail = async (message) => {
     try { await (mailer.enqueue ? mailer.enqueue(message) : mailer.send(message)); }
@@ -95,6 +97,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
           store.write('accounts', data);
           sessions.revokeUser(stale.id);
           log('reclaimed', null);
+          notify({ type: 'signup', source: 'open', reclaimed: true, tenant_id: stale.tenant_id, user_id: stale.id, email });
           await sendMail({ to: email, kind: 'verify-email', link: url });
           return send(200, generic);
         }
@@ -118,6 +121,7 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
         const url = link(data, user, 'verify-email');
         store.write('accounts', data);
         if (open) log('created', null);
+        notify({ type: 'signup', source: open ? 'open' : 'invite', tenant_id: tenant.id, user_id: user.id, email });
         await sendMail({ to: email, kind: 'verify-email', link: url });
         return send(200, generic);
       }
@@ -171,9 +175,11 @@ export function createAuth({ store, sessions, limits, now, mailer, config }) {
           data.links = data.links.filter((item) => item.user_id !== user.id);
           sessions.revokeUser(user.id);
         }
+        const first = !user.email_verified_at;
         user.email_verified_at = new Date(now()).toISOString();
         data.links = data.links.filter((item) => item !== entry);
         store.write('accounts', data);
+        if (first) notify({ type: 'verify', tenant_id: user.tenant_id, user_id: user.id, email: normalizeEmail(user.email) });
         return send(200, generic);
       }
       if (path === '/api/password-reset/confirm') {

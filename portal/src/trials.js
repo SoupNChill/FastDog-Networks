@@ -76,8 +76,15 @@ function audit(store, entry) {
 
 // Idempotent. Pauses trials that have ended and unpauses paused tenants that became paid (or were extended).
 // Never deletes, releases or suspends anything; an edge failure retains the pause request for the next run.
-export async function sweepTrials({ store, edge, now = Date.now, logger }) {
+export async function sweepTrials({ store, edge, now = Date.now, logger, notify = () => {} }) {
   const log = (entry) => { try { logger?.({ event: 'trial_sweep', ...entry }); } catch { /* Logging cannot affect the sweep. */ } };
+  // Owner mail for a newly recorded pause only; it cannot affect the sweep.
+  const paused = (accounts, tid, at) => {
+    try {
+      const user = Array.isArray(accounts.users) ? accounts.users.find((u) => u?.tenant_id === tid) : null;
+      notify({ type: 'trial_pause', tenant_id: tid, paused_at: at, ...(typeof user?.email === 'string' ? { email: user.email } : {}) });
+    } catch { /* ignore */ }
+  };
   const summary = { paused: 0, unpaused: 0, failed: 0 };
   let accounts, overrides, suspensions;
   try {
@@ -118,7 +125,7 @@ export async function sweepTrials({ store, edge, now = Date.now, logger }) {
       // The CLI can unpause without clearing paused_at; reconcile quietly on every expired sweep.
       if (ok && reassert) continue;
       const at = iso(now());
-      if (ok && action === 'trial_pause') { record(store, tenant.id, { paused_at: at }); summary.paused++; }
+      if (ok && action === 'trial_pause') { record(store, tenant.id, { paused_at: at }); summary.paused++; paused(freshAccounts, tenant.id, at); }
       else if (ok) { record(store, tenant.id, { unpaused_at: at }, ['paused_at', 'pause_requested_at']); summary.unpaused++; }
       else { summary.failed++; log({ action, result: 'failed', reason: 'edge_failed' }); }
       audit(store, { at, action, tenant_id: tenant.id, edge: ok ? 'ok' : 'failed' });
@@ -129,11 +136,11 @@ export async function sweepTrials({ store, edge, now = Date.now, logger }) {
 }
 
 // First run after delayMs, then every intervalMs; runs never overlap. Timers do not keep the process alive.
-export function scheduleTrialSweep({ store, edge, logger, now = Date.now, delayMs = 60000, intervalMs = 3600000 }) {
+export function scheduleTrialSweep({ store, edge, logger, notify, now = Date.now, delayMs = 60000, intervalMs = 3600000 }) {
   let running = null;
   let interval = null;
   const run = () => {
-    if (!running) running = sweepTrials({ store, edge, now, logger }).catch(() => null).finally(() => { running = null; });
+    if (!running) running = sweepTrials({ store, edge, now, logger, notify }).catch(() => null).finally(() => { running = null; });
     return running;
   };
   const first = setTimeout(() => { run(); interval = setInterval(run, intervalMs); interval.unref(); }, delayMs);

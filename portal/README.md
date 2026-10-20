@@ -38,6 +38,25 @@ When enabling proxy trust, the proxy must replace incoming forwarded headers
 with the direct client IP. With trust disabled, all proxied clients share the
 loopback IP's limits. The portal never holds the operator credential.
 
+### Owner notifications (default off)
+
+With `OWNER_NOTIFY_EMAIL` set, the portal mails the operator on a new sign-up
+(open, invite or reclaimed), a first email verification and a new trial pause,
+through the configured mailer (with the default `file` transport the outbox
+records only that a notice was queued, never its lines). Delivery is
+fire-and-forget: a mail failure never changes an API response or stored account.
+The first event after a quiet period is sent at once; later events in the batch
+window go out as one mail. `owner_notify.json` in the state directory keeps
+dedupe keys (IDs and times only) for 8 days. Logs carry reason codes only.
+
+| Variable | Meaning |
+| --- | --- |
+| `OWNER_NOTIFY_EMAIL` | Operator address (for example `owner@example.test`); unset or empty disables; an invalid address disables and logs `invalid_address` once |
+| `OWNER_NOTIFY_EVENTS` | Comma list of `signup`, `verify`, `trial_pause`; default all three; unknown names are ignored |
+| `OWNER_NOTIFY_MAX_PER_HOUR` | Owner mails per rolling hour, 1–3 (default `3`; higher values clamp to the mail budget's per-recipient cap of 3); overflow waits for the next slot |
+| `OWNER_NOTIFY_BATCH_MINUTES` | Coalescing window, 1–120 minutes, default `15` |
+| `OWNER_NOTIFY_SHOW_EMAIL` | `1` includes full account addresses; otherwise masked (`u***@example.com`) |
+
 ## Factory and browser authentication
 
 `src/app.js` exports `createApp({dataDir, edge, mailer, domainSearch, now, config})`,

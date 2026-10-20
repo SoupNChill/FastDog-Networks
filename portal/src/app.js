@@ -66,7 +66,7 @@ function clientIp(request, trustProxy) {
   }
   return remote;
 }
-export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now, config = {} } = {}) {
+export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, now = Date.now, config = {} } = {}) {
   config = { defaultPlan: 'assigned', defaultHostnameLimit: 3, openSignup: false, openSignupPlan: 'trial', openSignupHostnameLimit: 1,
     openConnectTokensPerHour: 3, signupIpPerHour: 3, signupDomainPerDay: 5, signupBigmailPerDay: 200, signupGlobalPerDay: 100, ...config,
     origin: config.origin || config.portalOrigin || 'https://portal.example.test' };
@@ -98,7 +98,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
   const notifications = createFileMailer({ outboxDir: config.outboxDir || join(dataDir, 'outbox') });
   const sessions = createSessions(store, now);
   const limits = createRateLimits(now, store);
-  const auth = createAuth({ store, sessions, limits, now, mailer, config });
+  const auth = createAuth({ store, sessions, limits, now, mailer, config, ownerNotify });
   const connectTokens = createConnectTokens(store, now);
   const apiKeys = createApiKeys(store, now);
   const suspensions = createSuspensions(store);
