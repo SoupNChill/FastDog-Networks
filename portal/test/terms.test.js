@@ -12,7 +12,7 @@ const publicDir = new URL('../public/', import.meta.url);
 
 test('terms versions and site URLs default to a safe placeholder origin', () => {
   assert.equal(TERMS_VERSION, '2026-10-19');
-  assert.equal(PRIVACY_VERSION, '2026-10-19');
+  assert.equal(PRIVACY_VERSION, '2026-10-20');
   for (const value of [undefined, '', 'http://site.example.test', 'https://site.example.test/path', 'javascript:alert(1)', 'not a url']) {
     assert.equal(siteOrigin({ SITE_ORIGIN: value }), 'https://example.invalid', String(value));
   }
