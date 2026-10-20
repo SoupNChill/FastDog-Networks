@@ -44,9 +44,43 @@ for (const page of ['edge/index.html', 'index.html']) test(`${page} pricing expl
   assert.ok(pricing);
   assert.ok(pricing.includes('7-day free trial: 1 hostname, no card needed'));
   assert.ok(pricing.includes('paused, not deleted'));
-  assert.ok(pricing.includes('Email us to pick a plan'));
-  assert.doesNotMatch(pricing, /Email us to start/);
+  assert.ok(pricing.includes(`<p class="cta-repeat"><a class="cta" href="https://portal.${host}/signup">Start free: 7 days, no card</a></p>`));
+  const note = pricing.match(/<p class=\x22small-note\x22>Free for 7 days on one hostname\. No card\. When you\x27re ready to pick a plan, email <a href=\x22mailto:([^\x22?]+)\?subject=FastDog%20plan\x22>([^<]+)<\/a> from your account\x27s email address\.<\/p>/);
+  assert.deepEqual(note?.slice(1), [`support@${host}`, `support@${host}`]);
+  assert.doesNotMatch(pricing, /Email us to (start|pick a plan)/);
   assert.deepEqual([...pricing.matchAll(/\$(\d+) <small>\/ mo/g)].map(([, price]) => price), ['9', '29', '149']);
   assert.deepEqual([...pricing.matchAll(/<div><span>([^<]+)<small>[^<]*<\/small><\/span><strong>\$(\d+) <small>\/ mo<\/small><\/strong><\/div>/g)]
     .map(([, plan, price]) => [plan, price]), [['Hobby', '9'], ['Pro', '29'], ['Agency', '149']]);
+});
+
+const signup = () => `<a class="cta" href="https://portal.${host}/signup">Start free: 7 days, no card</a>`;
+const navCta = () => `<a class="nav-cta" href="https://portal.${host}/signup">Start free: 7 days, no card</a></nav>`;
+const storyPath = homepage.match(/<a class="text-link" href="\/(customers\/[^/]+\/)">Read the customer story/)[1];
+for (const page of ['index.html', 'edge/index.html', 'domains/index.html', 'verdict/index.html', `${storyPath}index.html`, 'faq/index.html', 'docs/index.html']) {
+  test(`${page} header ends with one sign-up button`, () => {
+    const html = read(page);
+    assert.equal(html.split('class="nav-cta"').length - 1, 1);
+    assert.ok(html.match(/<nav aria-label="Main navigation">.*<\/nav>/)[0].endsWith(navCta()));
+    assert.doesNotMatch(html, /signup\x22>[^<]*<span aria-hidden=\x22true\x22>↗/, 'sign-up buttons have no external-link arrow');
+  });
+}
+
+test('legal pages keep their header without the sign-up button', () => {
+  for (const page of ['privacy/index.html', 'terms/index.html']) assert.doesNotMatch(read(page), /nav-cta/);
+});
+
+test('homepage repeats the sign-up button after the proof line and the customer story', () => {
+  const hero = homepage.match(/<section class="hero wrap"[\s\S]*?<\/section>/)[0];
+  assert.match(hero, new RegExp(`<div class="hero-actions">${signup().replace(/[.?]/g, '\\$&')}<a class="text-link" href="/docs/">Read the docs</a></div><p class="small-note">In our Oct 17 production test`));
+  const story = homepage.match(/<section[^>]*aria-labelledby="customer-story"[\s\S]*?<\/section>/)[0];
+  assert.ok(story.includes(`Read the customer story <span aria-hidden="true">↗</span></a><p class="cta-repeat">${signup()}</p></div>`));
+  assert.equal(homepage.split(signup()).length - 1, 3, 'hero, customer story and pricing');
+});
+
+test('sign-up buttons are styled as a compact filled button that fits small screens', () => {
+  const css = readFileSync(new URL('../site/css/site.css', import.meta.url), 'utf8');
+  assert.match(css, /\n\.nav-cta\{[^}]*background:var\(--cyan\);color:var\(--button-ink\);white-space:nowrap\}/);
+  assert.match(css, /\.nav-cta:hover\{color:var\(--button-ink\)/, 'hover keeps the label readable on the cyan fill');
+  assert.match(css, /@media\(max-width:760px\)\{[^\n]*\.nav-cta\{padding:0 12px;font-size:12px\}/);
+  assert.match(css, /\.section-body>\.cta-repeat\{margin-top:28px\}/);
 });
