@@ -59,8 +59,14 @@ journalctl -u fastdog-owner-digest.service -n 5 --no-pager
 The journal line is `{"event":"owner_digest","result":"sent"}` (or `skipped`,
 `disabled`, `failed` with a reason code). Exit 1 means invalid configuration;
 exit 2 means the mailer did not deliver (the day is not marked sent, so the next
-run or `--force` retries). With `MAIL_TRANSPORT=file` the outbox holds only an
-audit record (`to`, `kind`), never the summary lines.
+run or `--force` retries). Exit 3 (`sent` with reason `state_write_failed`) means
+the mail went out but the day could not be recorded, so check the state directory
+before the next run or it sends again. With `MAIL_TRANSPORT=file` the outbox holds
+only an audit record (`to`, `kind`), never the summary lines, so the result is
+`queued_file` and the day is never marked sent. `--dry-run` always masks
+addresses, whatever `OWNER_NOTIFY_SHOW_EMAIL` says. One run at a time: a second run
+while the lock directory `owner-digest.lock` is held logs `skipped`/`locked`; a
+lock older than 10 minutes is treated as left by a crash and taken over.
 
 ## Disable
 

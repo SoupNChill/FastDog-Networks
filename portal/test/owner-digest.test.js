@@ -10,6 +10,7 @@ import { join, relative } from 'node:path';
 import { digestWindow, mtDay, collectAccounts, collectHostnames, collectMailHealth, countVisitors, countFunnel, logFiles, maskIp, isPagePath,
   renderDigest } from '../src/owner-digest.js';
 import { renderMail } from '../src/mail-templates.js';
+import { main } from '../bin/owner-digest.js';
 import { createStore, emptyAccounts } from '../src/store.js';
 import { temporary, fakeSecret } from './helpers.js';
 
@@ -320,6 +321,20 @@ test('countVisitors and countFunnel: logs truncated in place (leading NULs), jun
   assert.doesNotMatch(JSON.stringify([both, funnel]), LEAK);
 });
 
+test('countVisitors: a 3 MB line without a newline is discarded while streaming, with bounded memory', async (t) => {
+  const dir = temporary(t);
+  const live = join(dir, 'access-apex.json');
+  // 3 MB of garbage, then 2 MB of NULs, then valid lines: the reader never holds more than one 1 MB line.
+  writeFileSync(live, Buffer.concat([Buffer.from('x'.repeat(3 * 1024 * 1024)), Buffer.from('\n'), Buffer.alloc(2 * 1024 * 1024),
+    Buffer.from(`${logLine({ ip: '198.51.100.4', uri: '/' })}\n${logLine({ ip: '203.0.113.9', uri: '/pricing' })}\n`)]));
+  const mtime = (WINDOW.end + HOUR) / 1000;
+  utimesSync(live, mtime, mtime);
+  const before = process.memoryUsage().arrayBuffers;
+  const result = await countVisitors({ files: [live], window: WINDOW });
+  assert.deepEqual([result.page_views, result.unique_visitors, result.skipped_lines, result.partial], [2, 2, 1, false]);
+  assert.ok(process.memoryUsage().arrayBuffers - before < 32 * 1024 * 1024);
+});
+
 test('countFunnel: GET 200 /signup views and distinct masked networks', async (t) => {
   const dir = temporary(t);
   writeLog(join(dir, 'portal.json'), [
@@ -451,24 +466,31 @@ test('CLI: disabled, dry run, send once a day, force, test notice; stdout never 
     assert.ok(dry.stdout.split('\n').includes(line), line);
   }
   assert.deepEqual(c.snapshot(), before, 'disabled and dry runs write nothing');
-  const sent = c.run();
-  assert.equal(sent.status, 0);
-  assert.deepEqual(sent.log, { event: 'owner_digest', result: 'sent' });
+  // The file transport keeps no body, so it never marks the day as sent.
+  const filed = c.run();
+  assert.deepEqual([filed.status, filed.log], [0, { event: 'owner_digest', result: 'queued_file' }]);
   assert.deepEqual(c.outbox(), [{ to: OWNER, kind: 'owner-digest' }], 'audit record only, no lines');
-  assert.deepEqual(c.store.read('owner_digest'), { last_sent_day: '2026-10-20' });
+  assert.equal(existsSync(join(c.state, 'owner_digest.json')), false);
+  assert.equal(c.run().log.result, 'queued_file');
+  assert.equal(c.outbox().length, 2);
+  // A day already marked sent (by an SMTP run) is skipped unless forced.
+  c.store.write('owner_digest', { last_sent_day: '2026-10-20' });
   const again = c.run();
   assert.deepEqual([again.status, again.log], [0, { event: 'owner_digest', result: 'skipped', reason: 'already_sent' }]);
-  assert.equal(c.outbox().length, 1);
-  assert.equal(c.run(['--force']).log.result, 'sent');
   assert.equal(c.outbox().length, 2);
+  assert.equal(c.run(['--force']).log.result, 'queued_file');
+  assert.equal(c.outbox().length, 3);
   const notice = c.run(['--test-notice'], { OWNER_DIGEST_ENABLED: '' });
   assert.deepEqual([notice.status, notice.log], [0, { event: 'owner_digest', result: 'test_sent' }]);
-  assert.deepEqual(c.outbox().map((record) => record.kind).sort(), ['owner-digest', 'owner-digest', 'owner-event']);
-  // A held lock skips rather than racing another run.
-  writeFileSync(join(c.state, 'owner-digest.lock'), String(process.pid));
+  assert.deepEqual(c.outbox().map((record) => record.kind).sort(), ['owner-digest', 'owner-digest', 'owner-digest', 'owner-event']);
+  // A held lock (atomic mkdir) skips rather than racing another run; one older than the stale limit is taken over.
+  const held = join(c.state, 'owner-digest.lock');
+  mkdirSync(held);
   assert.deepEqual(c.run(['--force']).log, { event: 'owner_digest', result: 'skipped', reason: 'locked' });
-  writeFileSync(join(c.state, 'owner-digest.lock'), '999999999');
-  assert.equal(c.run(['--force']).log.result, 'sent', 'a stale lock is taken over');
+  assert.equal(c.outbox().length, 4);
+  utimesSync(held, new Date(Date.now() - 20 * 60000), new Date(Date.now() - 20 * 60000));
+  assert.equal(c.run(['--force']).log.result, 'queued_file', 'a stale lock is taken over');
+  assert.equal(existsSync(held), false, 'the lock is released after the run');
   const all = c.outputs.join('\n');
   for (const secret of [OWNER, 'customer@example.com', c.secrets.PORTAL_KEY, c.secrets.SMTP_PASS]) assert.ok(!all.includes(secret));
 });
@@ -493,6 +515,26 @@ test('CLI: invalid configuration exits 1; an SMTP failure exits 2 without markin
   assert.equal(c.run(['--test-notice'], smtp).status, 2);
   const all = c.outputs.join('\n');
   for (const secret of [OWNER, c.secrets.PORTAL_KEY, c.secrets.SMTP_PASS]) assert.ok(!all.includes(secret));
+});
+
+test('CLI: --dry-run masks account emails even with OWNER_NOTIFY_SHOW_EMAIL=1', async (t) => {
+  const c = await cli(t);
+  c.store.write('trials', { tenants: { [tid('a')]: { paused_at: '2026-10-19T13:00:00.000Z' } } });
+  const dry = c.run(['--dry-run'], { OWNER_NOTIFY_SHOW_EMAIL: '1' });
+  assert.equal(dry.status, 0);
+  assert.ok(dry.stdout.includes(`  Paused: tenant ${tid('a')} (c***@example.com)`), dry.stdout);
+  assert.ok(!dry.stdout.includes('customer@example.com'));
+});
+
+test('CLI: a send whose state cannot be saved exits 3 (state_write_failed)', async (t) => {
+  const state = temporary(t);
+  mkdirSync(join(state, 'owner_digest.json'));
+  const lines = [];
+  const mailer = { async send() { return { delivered: 'smtp' }; } };
+  const code = await main([], { STATE_DIRECTORY: state, OWNER_NOTIFY_EMAIL: OWNER, OWNER_DIGEST_ENABLED: '1', EDGE_INTERNAL_URL: await refusedUrl() },
+    { stdout: (text) => lines.push(text), stderr: () => {} }, { clock: () => Date.parse('2026-10-20T14:00:00Z'), mailer });
+  assert.equal(code, 3);
+  assert.deepEqual(JSON.parse(lines.at(-1)), { event: 'owner_digest', result: 'sent', reason: 'state_write_failed' });
 });
 
 // ---- Units ----

@@ -3,10 +3,11 @@
 // OWNER_NOTIFY_EMAIL are set. Reads portal state, the edge, the outbox and (with OWNER_DIGEST_VISITORS=1) Caddy
 // access logs; writes only owner_digest.json ({ last_sent_day }) after the mailer accepts the message.
 // stdout carries one JSON line with reason codes, never an address, an env value or a secret.
-import { openSync, writeSync, closeSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, resolve, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createStore } from '../src/store.js';
+import { acquireLock } from '../src/mail-lock.js';
 import { createEdgeClient } from '../src/edge-client.js';
 import { normalizeEmail } from '../src/tokens.js';
 import { ownerNotifyConfig } from '../src/owner-notify.js';
@@ -61,21 +62,10 @@ const readOnlyStore = (dir) => ({
   },
 });
 
-// One run at a time per state directory, so a manual --force cannot race the timer into two sends.
-function lock(dir) {
-  const file = join(dir, 'owner-digest.lock');
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try { const fd = openSync(file, 'wx', 0o600); writeSync(fd, String(process.pid)); closeSync(fd); return () => rmSync(file, { force: true }); }
-    catch (error) { if (error.code !== 'EEXIST') return null; }
-    let pid = NaN;
-    try { pid = Number(readFileSync(file, 'utf8')); } catch { /* treated as stale */ }
-    let alive = false;
-    try { if (Number.isInteger(pid) && pid > 0) { process.kill(pid, 0); alive = true; } } catch (error) { alive = error.code !== 'ESRCH'; }
-    if (alive) return null;
-    rmSync(file, { force: true });
-  }
-  return null;
-}
+// One run at a time per state directory, so a manual --force cannot race the timer into two sends. The mkdir lock is
+// created atomically; it is treated as stale only after LOCK_STALE_MS, longer than the unit's TimeoutStartSec=180.
+const LOCK_STALE_MS = 10 * 60000;
+const lock = (dir) => acquireLock(join(dir, 'owner-digest.lock'), { staleMs: LOCK_STALE_MS });
 
 export async function collect(config, env, now) {
   const window = digestWindow(now);
@@ -93,15 +83,16 @@ export async function collect(config, env, now) {
   return { day: window.day, lines: renderDigest({ day: window.day, showEmail: config.showEmail, accounts, trials, hostnames, mail, visitors, funnel }) };
 }
 
+// delivered: 'smtp' means the message left; 'outbox' (file transport) keeps an audit record without the body.
 async function deliver(mailer, message) {
   try {
     const result = await mailer.send(message);
-    if (result?.delivered === 'smtp' || result?.delivered === 'outbox') return { ok: true };
+    if (result?.delivered === 'smtp' || result?.delivered === 'outbox') return { ok: true, smtp: result.delivered === 'smtp' };
     return { ok: false, reason: typeof result?.reason === 'string' && /^[a-z][a-z_]{0,39}$/.test(result.reason) ? result.reason : 'send_failed' };
   } catch { return { ok: false, reason: 'send_failed' }; }
 }
 
-export async function main(argv, env, out, { clock = Date.now } = {}) {
+export async function main(argv, env, out, { clock = Date.now, mailer: injected = null } = {}) {
   const log = (result, reason) => out.stdout(`${JSON.stringify({ event: 'owner_digest', result, ...(reason ? { reason } : {}) })}\n`);
   const flags = parse(argv);
   if (!flags) { out.stderr(usage); log('invalid_config', 'usage'); return 1; }
@@ -110,14 +101,15 @@ export async function main(argv, env, out, { clock = Date.now } = {}) {
   if (config.error) { log('invalid_config', config.error); return 1; }
   const now = flags.now ?? clock();
   if (flags.dryRun) {
-    const { lines } = await collect(config, env, now);
+    // Terminal output never shows a full address, whatever OWNER_NOTIFY_SHOW_EMAIL says; only the mailed body may.
+    const { lines } = await collect({ ...config, showEmail: false }, env, now);
     out.stdout(`${lines.join('\n')}\n`);
     log('dry_run');
     return 0;
   }
   if (!config.to) { out.stdout('owner digest disabled\n'); log('disabled', 'no_recipient'); return 0; }
-  let mailer;
-  try { mailer = selectMailer(env, { outboxDir: config.outboxDir, logger: () => {} }); } catch { log('invalid_config', 'mail_config'); return 1; }
+  let mailer = injected;
+  if (!mailer) try { mailer = selectMailer(env, { outboxDir: config.outboxDir, logger: () => {} }); } catch { log('invalid_config', 'mail_config'); return 1; }
   if (flags.testNotice) {
     const sent = await deliver(mailer, { to: config.to, kind: 'owner-event', lines: [TEST_LINE], count: 1 });
     log(sent.ok ? 'test_sent' : 'failed', sent.ok ? null : sent.reason);
@@ -134,7 +126,9 @@ export async function main(argv, env, out, { clock = Date.now } = {}) {
     const { day, lines } = await collect(config, env, now);
     const sent = await deliver(mailer, { to: config.to, kind: 'owner-digest', lines, date: day });
     if (!sent.ok) { log('failed', sent.reason); return 2; }
-    try { store.write('owner_digest', { last_sent_day: today }); } catch { log('sent', 'state_write_failed'); return 0; }
+    // The file transport keeps no body, so only an SMTP hand-off marks the day as sent.
+    if (!sent.smtp) { log('queued_file'); return 0; }
+    try { store.write('owner_digest', { last_sent_day: today }); } catch { log('sent', 'state_write_failed'); return 3; }
     log('sent');
     return 0;
   } finally { unlock(); }

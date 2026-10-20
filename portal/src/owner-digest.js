@@ -207,6 +207,7 @@ export function maskIp(value) {
 const LOG_LINE_MAX = 1024 * 1024;
 const SKIP = Symbol('skip');
 function readEntry(raw) {
+  if (raw === OVERSIZE) return SKIP;
   const line = raw.includes('\0') ? raw.replaceAll('\0', '') : raw;
   if (line.trim() === '') return null;
   if (line.length > LOG_LINE_MAX) return SKIP;
@@ -225,19 +226,38 @@ function readEntry(raw) {
     ua: Array.isArray(agents) && typeof agents[0] === 'string' ? agents[0].slice(0, 1024) : '' };
 }
 
+const OVERSIZE = Symbol('oversize');
+const NL = 0x0a;
+const dropNul = (chunk) => (chunk.includes(0) ? Buffer.from(chunk.filter((byte) => byte !== 0)) : chunk);
+// Streams a (optionally gzipped) log line by line with bounded memory: NUL bytes are dropped as they arrive, and a
+// line that grows past LOG_LINE_MAX is discarded up to its newline and reported once as OVERSIZE.
 function eachLine(path, onLine) {
   return new Promise((resolve, reject) => {
     const source = createReadStream(path);
     const input = path.endsWith('.gz') ? source.pipe(createGunzip()) : source;
-    let failed = false;
-    const lines = createInterface({ input, crlfDelay: Infinity });
-    const fail = (error) => { if (failed) return; failed = true; lines.close(); source.destroy(); reject(error); };
-    // readline re-emits input errors on the interface, so all three need a listener.
+    let failed = false, parts = [], size = 0, oversize = false;
+    const fail = (error) => { if (failed) return; failed = true; source.destroy(); input.destroy?.(); reject(error); };
+    const add = (piece) => {
+      if (oversize || !piece.length) return;
+      if (size + piece.length > LOG_LINE_MAX) { oversize = true; parts = []; size = 0; return; }
+      parts.push(piece); size += piece.length;
+    };
+    const end = () => {
+      if (oversize) onLine(OVERSIZE);
+      else if (size) onLine(Buffer.concat(parts, size).toString('utf8'));
+      parts = []; size = 0; oversize = false;
+    };
     source.on('error', fail);
     input.on('error', fail);
-    lines.on('error', fail);
-    lines.on('line', (line) => { if (!failed) onLine(line); });
-    lines.on('close', () => { if (!failed) resolve(); });
+    input.on('data', (chunk) => {
+      if (failed) return;
+      try {
+        let at = 0;
+        for (let nl = chunk.indexOf(NL); nl !== -1; nl = chunk.indexOf(NL, at)) { add(dropNul(chunk.subarray(at, nl))); end(); at = nl + 1; }
+        add(dropNul(chunk.subarray(at)));
+      } catch (error) { fail(error); }
+    });
+    input.on('end', () => { if (failed) return; try { end(); resolve(); } catch (error) { fail(error); } });
   });
 }
 
