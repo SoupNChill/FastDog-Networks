@@ -248,8 +248,9 @@ test('smtp transport via selectMailer uses PORTAL_SUPPORT_EMAIL as Reply-To and 
 });
 
 test('templates cover every kind with fixed subjects and plain text', () => {
-  assert.deepEqual(mailKinds, ['verify-email', 'password-reset', 'invite', 'domain-request']);
-  for (const kind of mailKinds) {
+  assert.deepEqual(mailKinds, ['verify-email', 'password-reset', 'invite', 'domain-request', 'owner-event', 'owner-digest']);
+  // Owner kinds take lines instead of a link (owner-notify.test.js).
+  for (const kind of mailKinds.filter((name) => !name.startsWith('owner-'))) {
     const link = `https://portal.example.test/${kind}`;
     const { subject, text } = renderMail({ kind, link, code: 'invite-code-123' });
     assert.match(subject, /^[\x20-\x7e]+$/);

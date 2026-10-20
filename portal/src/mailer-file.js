@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, readdirSync, lstatSync, unlinkSync } from 'no
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { acquireLock } from './mail-lock.js';
+import { OWNER_KINDS } from './mail-templates.js';
 export const OUTBOX_TTL_MS = 7 * 24 * 3600 * 1000;
 export function createFileMailer({ outboxDir, maxFiles = 10000, logger = () => {} }) {
   if (!outboxDir) throw new Error('Outbox directory required');
@@ -14,7 +15,9 @@ export function createFileMailer({ outboxDir, maxFiles = 10000, logger = () => {
       if (!release) throw new Error('Outbox locked');
       try {
         if (readdirSync(outboxDir).filter((name) => name.endsWith('.json')).length >= maxFiles) throw new Error('Outbox full');
-        writeFileSync(join(outboxDir, `${randomUUID()}.json`), `${JSON.stringify({ to, kind, link, code, status })}\n`, { mode: 0o600, flag: 'wx' });
+        // Owner notices name other accounts: the outbox keeps only that one was queued, never their lines.
+        const record = OWNER_KINDS.has(kind) ? { to, kind, status } : { to, kind, link, code, status };
+        writeFileSync(join(outboxDir, `${randomUUID()}.json`), `${JSON.stringify(record)}\n`, { mode: 0o600, flag: 'wx' });
         return { delivered: 'outbox' };
       } finally { release(); }
     },

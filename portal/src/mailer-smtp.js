@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createMailBudget } from './mail-budget.js';
 import tls from 'node:tls';
 import { randomUUID } from 'node:crypto';
-import { renderMail } from './mail-templates.js';
+import { renderMail, OWNER_KINDS } from './mail-templates.js';
 import { normalizeEmail } from './tokens.js';
 
 const HOST = /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*$/;
@@ -150,14 +150,15 @@ export function createSmtpMailer({ host, port = 2525, user, pass, from, replyTo,
       queue.push({ ...message });
       if (!running) { running = true; setImmediate(drain); }
     },
-    async send({ to, kind, link, code }) {
+    async send({ to, kind, link, code, lines, count, date }) {
       const message = { to, kind, link, code };
       let rendered;
       try {
         to = normalizeEmail(to);
         if (!to) throw failure('invalid_address');
-        if (!headerSafe(link) || (code !== undefined && !headerSafe(code))) throw failure('invalid_message');
-        rendered = renderMail({ kind, link, code });
+        // Owner kinds carry no link; renderMail validates their lines instead.
+        if (!OWNER_KINDS.has(kind) && (!headerSafe(link) || (code !== undefined && !headerSafe(code)))) throw failure('invalid_message');
+        rendered = renderMail({ kind, link, code, lines, count, date });
       } catch (error) { return toOutbox(message, error.reason || 'invalid_message'); }
       const current = now();
       sent = sent.filter((at) => current - at.at < 3600000);
