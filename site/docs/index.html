@@ -100,7 +100,7 @@
 </section>
 
 <section class="section" id="api-keys"><h2>API keys</h2>
-<p>For scripts and AI assistants that do more than one connection, create an API key on the portal?s <strong>API keys</strong> page (every paid plan). You choose what it can do, optionally which websites it covers, and when it expires (30 days by default, 90 at most). It is shown once, stored only as a hash, and you can revoke it at any time. Changing your password ends all your keys.</p>
+<p>For scripts and AI assistants that do more than one connection, create an API key on the portal’s <strong>API keys</strong> page (every paid plan). You choose what it can do, optionally which websites it covers, and when it expires (30 days by default, 90 at most). It is shown once, stored only as a hash, and you can revoke it at any time. Changing your password ends all your keys.</p>
 <ul>
 <li><code>hostnames:create</code>: add a website and check its DNS records.</li>
 <li><code>status:read</code>: read the live status of your websites.</li>
@@ -114,7 +114,7 @@
 <li><code>GET /api/v1/hostnames/&lt;hostname&gt;/status</code>: the same data as the Status page.</li>
 <li><code>POST /api/v1/hostnames/&lt;hostname&gt;/connect</code> with <code>{"origin":"http://127.0.0.1:PORT","platform":"docker","format":"env"}</code> (or <code>"linux"</code>): returns a connect command.</li>
 </ul>
-<p>Limits: 60 requests a minute per key, 5 new keys an hour, 10 active keys per account. Every use is logged with the key?s name, never the key itself, and the portal shows when each key was last used.</p>
+<p>Limits: 60 requests a minute per key, 5 new keys an hour, 10 active keys per account. Every use is logged with the key’s name, never the key itself, and the portal shows when each key was last used.</p>
 </section>
 <section class="section" id="troubleshooting"><h2>Troubleshooting</h2>
 <dl>

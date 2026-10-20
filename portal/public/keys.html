@@ -6,7 +6,7 @@
 <noscript><p>JavaScript is needed to manage API keys.</p></noscript>
 <p>An API key lets a script or your AI assistant work on your websites without your password. Each key does only what you tick, can be limited to certain websites, and stops working when it expires or you revoke it.</p>
 <p id="message" role="status" aria-live="polite"></p>
-<p id="keys-unavailable" hidden>API keys come with every paid plan. Your account doesn?t have one right now.</p>
+<p id="keys-unavailable" hidden>API keys come with every paid plan. Your account doesn’t have one right now.</p>
 <form id="key-form" hidden>
 <label for="key-name">Name (so you recognise it later)</label><input id="key-name" name="name" maxlength="60" autocomplete="off">
 <fieldset><legend>What can it do?</legend>
@@ -16,10 +16,10 @@
 <p class="small-note">Removing a website is only possible here in the portal, never with a key.</p></fieldset>
 <label for="key-hosts">Only these websites (optional, one per line; empty means all of yours)</label><textarea id="key-hosts" name="hostnames" rows="3" autocomplete="off"></textarea>
 <label for="key-days">Expires after</label><select id="key-days" name="expires_in_days"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="60">60 days</option><option value="90">90 days (longest)</option></select>
-<label for="key-password">Your current password (to confirm it?s you)</label><input id="key-password" name="password" type="password" autocomplete="current-password" required>
+<label for="key-password">Your current password (to confirm it’s you)</label><input id="key-password" name="password" type="password" autocomplete="current-password" required>
 <button type="submit">Create key</button>
 </form>
-<section id="key-new" hidden aria-labelledby="key-new-title"><h2 id="key-new-title">Your new key</h2><p><strong>Copy it now. It won?t be shown again.</strong> Keep it out of URLs, logs, commits and chats.</p><pre><code id="key-secret"></code></pre><button type="button" id="key-copy">Copy key</button></section>
+<section id="key-new" hidden aria-labelledby="key-new-title"><h2 id="key-new-title">Your new key</h2><p><strong>Copy it now. It won’t be shown again.</strong> Keep it out of URLs, logs, commits and chats.</p><pre><code id="key-secret"></code></pre><button type="button" id="key-copy">Copy key</button></section>
 <section aria-labelledby="keys-title"><h2 id="keys-title">Your keys</h2><p id="keys-empty">No keys yet.</p><ul id="keys-list" class="keys-list"></ul></section>
 <p>How to use a key: see the API keys section of the FastDog docs. Stuck? <a href="mailto:{{SUPPORT_EMAIL}}">Email {{SUPPORT_EMAIL}}</a></p>
 </div></main><footer class="footer wrap"><a class="brand" href="/login">FastDog <span class="brand-second">Networks</span></a><div><span>Private customer portal</span></div></footer></body></html>
