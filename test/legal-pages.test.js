@@ -121,7 +121,8 @@ test('privacy and FAQ describe retention, logging and email delivery as implemen
     'Verdict also keeps a scoring log with the time, hostname, a shortened IP address (last part removed), network (ASN), method, path (without the query string), user agent and the score it would have given, which is deleted automatically after about 30 days.',
     '<li>Verdict scoring log (our own sites): deleted automatically after about 30 days.</li>']) assert.ok(privacy.includes(claim), claim);
   const faq = read('faq/index.html');
-  for (const claim of ['does not store them', 'remove both if you leave', 'DNS servers’ lookup logs',
+  assert.ok(!faq.includes('does not store them'));
+  for (const claim of ['Other headers and cookies are not stored', 'scoring log for about 30 days', 'also the browser’s user agent', 'remove both if you leave', 'DNS servers’ lookup logs',
     'the requesting IP address, the name and record type asked for, and the result', 'Logs are deleted automatically',
     'Many are gone within 30 days', 'some are kept longer', 'Is there a free trial?', 'When you sign up in the portal without an invitation, you get a 7-day free trial with 1 hostname',
     'don’t need a card', 'On day 8 we pause the hostname', 'To pick one, email support from your account’s email address', 'We don’t delete the hostname']) assert.ok(faq.includes(claim), claim);
