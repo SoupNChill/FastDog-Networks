@@ -1,6 +1,6 @@
 // Owner visibility (default off, fail-open): operator mail on a new sign-up, a first email verification and a
-// trial pause, through the portal mailer. notify() is synchronous and never throws, so no API response, timing
-// class or stored account state depends on it. owner_notify.json holds dedupe keys (IDs and times only).
+// trial pause, through the portal mailer. notify() is synchronous, in-memory only and never throws, so no API
+// response, timing class or stored account state depends on it. owner_notify.json holds dedupe keys (IDs and times only).
 // Logs carry reason codes and counts only, never an address.
 import { normalizeEmail } from './tokens.js';
 
@@ -70,9 +70,9 @@ export function createOwnerNotify({ mailer, to, store, logger, now = Date.now, e
     log('fail_open', 'state_unreadable');
     return {};
   };
-  const markSent = (keys) => {
+  const markSent = (keys, previous) => {
     const cutoff = now() - KEEP_MS;
-    const sent = Object.fromEntries(Object.entries(readSent()).filter(([, at]) => at >= cutoff));
+    const sent = Object.fromEntries(Object.entries(previous).filter(([, at]) => at >= cutoff));
     for (const key of keys) sent[key] = now();
     try { store.write('owner_notify', { sent }); } catch { log('fail_open', 'state_write_failed'); }
   };
@@ -103,18 +103,23 @@ export function createOwnerNotify({ mailer, to, store, logger, now = Date.now, e
     const current = now();
     sentTimes = sentTimes.filter((at) => current - at < HOUR);
     if (sentTimes.length >= cap) { arm(sentTimes[0] + HOUR - current); return Promise.resolve(); }
-    const batch = queue.splice(0);
+    // Persisted dedupe is read here, off the request path; keys sent before (also by an earlier process) are dropped.
+    const previous = readSent();
+    const batch = queue.splice(0).filter((item) => !Object.hasOwn(previous, item.key));
+    if (!batch.length) return Promise.resolve();
     sentTimes.push(current);
     // Further events in the next window coalesce into one mail at its end.
     arm(batchMs);
     // Marked at hand-off: a failed delivery is not retried, so a mail outage cannot cause a resend storm.
-    markSent(batch.map((item) => item.key));
+    markSent(batch.map((item) => item.key), previous);
     const lines = batch.length > 1 ? [`${batch.length} new events`, ...batch.map((item) => item.line)] : [batch[0].line];
     const message = { to: address, kind: 'owner-event', lines, count: batch.length };
     try {
       return Promise.resolve(mailer.enqueue ? mailer.enqueue(message) : mailer.send(message))
         // send() reports SMTP failures as { delivered: 'failed' } rather than rejecting.
-        .then((result) => (result?.delivered === 'failed' ? log('failed', 'send_failed', batch.length) : log('sent', null, batch.length)),
+        // enqueue() only hands off to the mailer's background queue, so it is logged as queued, not sent.
+        .then((result) => (result?.delivered === 'failed' ? log('failed', 'send_failed', batch.length)
+          : log(mailer.enqueue ? 'queued' : 'sent', null, batch.length)),
           () => log('failed', 'send_failed', batch.length));
     } catch { log('failed', 'send_failed', batch.length); return Promise.resolve(); }
   }
@@ -125,7 +130,8 @@ export function createOwnerNotify({ mailer, to, store, logger, now = Date.now, e
         if (stopped || !plain(event) || !wanted.has(event.type)) return;
         const item = describe(event, now());
         if (item.line.length > LINE_MAX) item.line = `${item.line.slice(0, LINE_MAX - 3)}...`;
-        if (queue.some((entry) => entry.key === item.key) || Object.hasOwn(readSent(), item.key)) return;
+        // In-memory only: no file read on the request path (the worker applies the persisted dedupe).
+        if (queue.some((entry) => entry.key === item.key)) return;
         if (queue.length >= QUEUE_MAX) { log('dropped', 'owner_queue_full'); return; }
         queue.push(item);
         // Quiet period: send soon, but never inline with the request that raised the event.

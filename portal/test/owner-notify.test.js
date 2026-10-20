@@ -211,6 +211,38 @@ test('a mailer that throws or rejects is contained and logged by reason only', a
   assert.equal(queued.length, 1);
 });
 
+test('notify() never reads the state file on the request path; persisted dedupe is applied by the worker', async (t) => {
+  const first = harness(t);
+  first.store.write('owner_notify', { sent: { [`signup:${signup(1).tenant_id}`]: first.now() } });
+  const store = createStore(first.dir);
+  let reads = 0;
+  const spy = { read: (...args) => { reads++; return store.read(...args); }, write: (...args) => store.write(...args) };
+  const sent = [];
+  const owner = createOwnerNotify({ mailer: { async send(message) { sent.push(message); } }, to: OWNER, store: spy, now: first.now,
+    schedule: () => ({ unref() {} }), cancel: () => {} });
+  t.after(() => owner.stop());
+  owner.notify(signup(1));
+  owner.notify(signup(2));
+  owner.notify(signup(2));
+  assert.equal(reads, 0, 'no file read inside notify()');
+  await tick();
+  assert.ok(reads >= 1, 'the worker reads the dedupe state');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].count, 1, 'signup 1 was already sent by an earlier process; signup 2 is sent once');
+  assert.ok(sent[0].lines[0].includes(signup(2).tenant_id));
+  // A batch that is entirely already-sent sends nothing and uses no slot of the hourly cap.
+  owner.notify(signup(1));
+  await owner.flush();
+  assert.equal(sent.length, 1);
+});
+
+test('enqueue hand-off is logged as queued, not sent', async (t) => {
+  const h = harness(t, { mailer: { enqueue() {} } });
+  h.owner.notify(signup(1));
+  await tick(); await tick();
+  assert.deepEqual(h.logs, [{ event: 'owner_notify', result: 'queued', count: 1 }]);
+});
+
 // ---- Templates and mailers ----
 
 test('owner templates take validated lines and use fixed subjects with an operator footer', () => {
@@ -276,6 +308,15 @@ test('budget: owner kinds are not reserved and are refused before invite and pas
   assert.equal(reserve('invited@example.test', 'invite'), null);
   assert.equal(reserve('reset@example.test', 'password-reset'), null);
   assert.equal(reserve('late@example.test', 'invite'), 'rate_cap');
+});
+
+test('budget: owner kinds stop at 80% of the hour so verification mail keeps capacity', (t) => {
+  const reserve = createMailBudget({ directory: temporary(t), mailbox: 'mail.example.test:u', maxPerHour: 20 });
+  for (let i = 0; i < 15; i++) assert.equal(reserve(`u${i}@example.test`, 'verify-email'), null);
+  assert.equal(reserve(OWNER, 'owner-event'), null, 'below 80% an owner notice is allowed');
+  assert.equal(reserve(OWNER, 'owner-digest'), 'rate_cap', 'at 80% owner kinds are refused');
+  assert.equal(reserve('u16@example.test', 'verify-email'), null, 'verification still goes through');
+  assert.equal(reserve('u17@example.test', 'verify-email'), null);
 });
 
 test('file mailer writes only to, kind and status for owner kinds', async (t) => {
