@@ -65,6 +65,17 @@ for (const page of ['index.html', 'edge/index.html', 'domains/index.html', 'verd
   });
 }
 
+test('no page promises a free month', () => {
+  const files = ['index.html', 'edge/index.html', 'domains/index.html', 'verdict/index.html', `${storyPath}index.html`, 'faq/index.html',
+    'docs/index.html', 'privacy/index.html', 'terms/index.html', 'llms.txt'];
+  for (const page of files) assert.doesNotMatch(read(page), /month is free|first month is free|free month/i, page);
+  for (const page of ['index.html', 'edge/index.html']) {
+    const html = read(page);
+    assert.ok(html.includes('<li>On the Agency plan: same-business-day first reply (America/Denver).</li>'));
+    assert.ok(html.includes('            <li>If it doesn\'t work out, remove the CNAME (or we help flip nameservers back) and we remove the hostname on our side.</li>'));
+  }
+});
+
 test('legal pages keep their header without the sign-up button', () => {
   for (const page of ['privacy/index.html', 'terms/index.html']) assert.doesNotMatch(read(page), /nav-cta/);
 });
