@@ -113,6 +113,10 @@ test('privacy and FAQ describe retention, logging and email delivery as implemen
     '<li>To count visits to our own website: daily totals are worked out from its access logs, and only the totals are kept.</li>',
     '<li>Email delivery: our email provider sends sign-in emails and our own account notices.</li>']) assert.ok(privacy.includes(claim), claim);
   assert.ok(!privacy.includes('shortened IP address; headers and cookies are removed'), 'access logs no longer claim all headers are dropped');
+  assert.ok(!privacy.includes('It stores only a decision log'), 'Verdict no longer claims a decision log only');
+  for (const claim of ['It stores a decision log: time, IP address, path without the query string, and the decision.',
+    'Verdict also keeps a scoring log with the time, hostname, a shortened IP address (last part removed), network (ASN), method, path (without the query string), user agent and the score it would have given, which is deleted automatically after about 30 days.',
+    '<li>Verdict scoring log (our own sites): deleted automatically after about 30 days.</li>']) assert.ok(privacy.includes(claim), claim);
   const faq = read('faq/index.html');
   for (const claim of ['does not store them', 'remove both if you leave', 'DNS servers’ lookup logs',
     'the requesting IP address, the name and record type asked for, and the result', 'Logs are deleted automatically',
