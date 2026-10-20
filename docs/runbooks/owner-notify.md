@@ -15,9 +15,9 @@ tickets or logs. Keys and behaviour: [portal README](../../portal/README.md)
 
 ## Enable
 
-1. Back up as in the [deploy runbook](deploy.md) and stage the portal release.
-2. In `/etc/fastdog/portal.env` set `OWNER_NOTIFY_EMAIL=owner@example.test`
-   (the real operator address) and `OWNER_DIGEST_ENABLED=1`. For visitor counts
+1. Back up as in the [deploy runbook](deploy.md) and stage the new portal build.
+2. In the portal environment file set `OWNER_NOTIFY_EMAIL` to the operator
+   address and `OWNER_DIGEST_ENABLED=1`. For visitor counts
    also set `OWNER_DIGEST_VISITORS=1` and `OWNER_DIGEST_SITE_LOGS=access-site.json`
    (file names in `/var/log/caddy` only); optionally `OWNER_DIGEST_FUNNEL_LOG`.
    The `fdportal` account reads the logs through the `caddy` group
