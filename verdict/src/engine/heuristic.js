@@ -19,7 +19,8 @@ export function localHeuristic(input, { now = Date.now(), goodBot } = {}) {
   if (goodBot === 'verified') return { action: 'allow', confidence: 1, score: 0, reason: 'verified_good_bot', reasons: ['verified_good_bot'], engine, request_id };
   const fired = structuredSignals(state);
   if (claimedGoodBot(state)) fired.push({ id: goodBot === 'pending' ? 'good_bot_pending' : goodBot === 'timeout' ? 'good_bot_dns_timeout' : 'spoofed_good_bot', weight: 0.35 });
-  if (typeof state.ip === 'string' && state.ip && count(velocity, state.ip, now) > 30) fired.push({ id: 'ip_velocity', weight: 0.2 });
+  // ip_velocity: false is an explicit opt-out for callers whose ip is a shared prefix (masked logs).
+  if (state.ip_velocity !== false && typeof state.ip === 'string' && state.ip && count(velocity, state.ip, now) > 30) fired.push({ id: 'ip_velocity', weight: 0.2 });
   if (state.hosting_asn && goodBot !== 'verified') fired.push({ id: 'datacenter_asn', weight: 0.12 });
   const asn = String(state.asn ?? '').trim().replace(/^AS/i, '');
   if (/^\d+$/.test(asn) && count(asnVelocity, String(Number(asn)), now) > 300) fired.push({ id: 'asn_velocity', weight: 0.2 });

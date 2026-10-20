@@ -13,18 +13,25 @@ export function scoreAccessLogLine(line, { hosting, allowedHosts, verifyBot = ve
   const req = row.request || {};
   const ip = row.client_ip || row.remote_ip || row.request?.client_ip || '';
   const one = v => Array.isArray(v) ? v.join(', ') : (v == null ? '' : String(v)); // Caddy logs header values as arrays
-  const ua = one(req.headers?.['User-Agent'] ?? req.headers?.['user-agent'] ?? row.headers?.['User-Agent']);
+  // Masked lines (Caddy filter encoder): no header context at all, client_ip already a /24 or /48,
+  // UA moved to a top-level user_agent field.
+  const masked = !req.headers && !row.headers;
+  const ua = one(req.headers?.['User-Agent'] ?? req.headers?.['user-agent'] ?? row.headers?.['User-Agent'] ?? row.user_agent);
   const path = req.uri || req.url || row.uri || '/';
   const method = req.method || row.method || 'GET';
-  const headers = {};
-  const rawHeaders = req.headers || row.headers || {};
-  for (const [k, v] of Object.entries(rawHeaders)) headers[String(k).toLowerCase()] = one(v).slice(0, 2048);
+  let headers;
+  if (!masked) {
+    headers = {};
+    for (const [k, v] of Object.entries(req.headers || row.headers)) headers[String(k).toLowerCase()] = one(v).slice(0, 2048);
+  }
   const asnInfo = ip ? lookupAsn(ip) : null;
   const state = {
     ip, path, method, ua, headers,
     asn: asnInfo?.asn,
     hosting_asn: hosting && asnInfo ? hosting.has(asnInfo.asn) : false,
   };
+  // Header signals are unknown (headers undefined), and a /24 is not one client, so no per-IP rate.
+  if (masked) state.ip_velocity = false;
   const finish = goodBot => {
     const decision = localHeuristic(state, { goodBot });
     const ts = typeof row.ts === 'number' ? new Date(row.ts * 1000).toISOString() : (row.ts || new Date().toISOString());
