@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { renderHtml, signupCopy } from '../src/static.js';
 
 const read = (file) => readFileSync(new URL(`../public/${file}`, import.meta.url), 'utf8');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -73,8 +74,7 @@ function signupNodes() {
     '#invite-label': element({ textContent: 'Invitation code' }), '#invite-toggle': element({ hidden: true }),
     '#signup-intro': element(), '#signup-help': element() };
 }
-async function signupPage(init) {
-  const nodes = signupNodes();
+async function signupPage(init, nodes = signupNodes()) {
   const calls = { sent: null, status: null, callback: null };
   const all = { ...nodes, '#show-password': { addEventListener() {}, setAttribute() {} }, '#password': { type: 'password' },
     '#signup': { reset() {} }, '#accept-terms': { checked: true } };
@@ -139,15 +139,24 @@ test('signup with open_signup hides an optional invite field behind a toggle and
   assert.equal(nodes['#invite'].value, '');
 });
 
-test('signup without open_signup keeps the invite-only form unchanged', async () => {
-  for (const me of [{ open_signup: false }, {}]) {
-    const { nodes, calls } = await signupPage(async () => me);
+test('signup without open_signup shows the invite-only form, even on a page rendered while sign-up was open', async () => {
+  const renderedOpen = () => {
+    const nodes = signupNodes();
+    nodes['#invite'].required = false;
+    delete nodes['#invite'].attributes.required;
+    nodes['#invite-label'].textContent = 'Invitation code (optional)';
+    return nodes;
+  };
+  for (const me of [{ open_signup: false }, {}]) for (const initial of [signupNodes(), renderedOpen()]) {
+    const { nodes, calls } = await signupPage(async () => me, initial);
     assert.equal(nodes['#invite'].required, true);
     assert.equal('required' in nodes['#invite'].attributes, true);
+    assert.equal(nodes['#invite-label'].textContent, 'Invitation code');
     assert.equal(nodes['#invite-field'].hidden, false);
     assert.equal(nodes['#invite-toggle'].hidden, true);
-    assert.equal(nodes['#signup-intro'].textContent, 'original');
-    assert.equal(nodes['#signup-help'].textContent, 'original');
+    assert.equal(nodes['#signup-intro'].textContent, signupCopy.closed.SIGNUP_INTRO);
+    assert.equal(nodes['#signup-help'].textContent, signupCopy.closed.SIGNUP_HELP);
+    assert.equal(calls.status, null);
     await calls.callback({ email: 'invited@example.test', password: 'p', invite_code: 'code-1' });
     assert.equal(calls.sent[2].invite_code, 'code-1');
   }
@@ -188,7 +197,7 @@ test('lane C pages include support, plain step names and accessible password and
     assert.match(html, /class="footer-support" href="mailto:{{SUPPORT_EMAIL}}"/);
     assert.doesNotMatch(html, /Private access|\d\d \/ (Plan|Domains)|Assigned plan|Contact the operator/);
   }
-  assert.match(read('signup.html'), /exact email address/);
+  assert.match(renderHtml(Buffer.from(read('signup.html')), {}).toString(), /exact email address/);
   assert.match(read('signup.html'), /type="button" id="show-password" aria-controls="password" aria-pressed="false"/);
   assert.match(read('verify-email.html'), /id="continue"[^>]+href="\/login" hidden/);
   assert.match(read('css/portal.css'), /nav a \{ min-width: 44px/);

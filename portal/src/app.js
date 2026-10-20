@@ -138,7 +138,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, now = Date.now,
           response.setHeader('Set-Cookie', session.cookie);
         }
         template = 'static';
-        return serveStatic(path, response);
+        return serveStatic(path, response, { openSignup: config.openSignup });
       }
       if (path.startsWith('/api/v1/')) {
         // Scoped API keys (Bearer fdak_...). Cookies are ignored, so CSRF does not apply and a key
