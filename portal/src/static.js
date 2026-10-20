@@ -13,9 +13,21 @@ export function supportEmail(env = process.env) {
   const value = String(env.PORTAL_SUPPORT_EMAIL || '').trim();
   return /^[A-Za-z0-9._+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$/.test(value) ? value : supportFallback;
 }
-export function renderHtml(buffer, env = process.env) {
+// /signup is rendered for the server's open_signup flag so the page is right before (or without) JavaScript.
+// Anything but openSignup === true renders the invite-only form; signup.js applies the same copy after /api/me.
+export const signupCopy = Object.freeze({
+  closed: Object.freeze({ SIGNUP_INTRO: 'Use the exact email address that received your invitation. Copy the invitation code from that email.',
+    INVITE_LABEL: 'Invitation code', INVITE_REQUIRED: ' required',
+    SIGNUP_HELP: 'No email yet? Check your spam folder and the email address and code in your invitation. If you already have an account, sign in below.' }),
+  open: Object.freeze({ SIGNUP_INTRO: 'Start your 7-day free trial: 1 hostname, no card needed.',
+    INVITE_LABEL: 'Invitation code (optional)', INVITE_REQUIRED: '',
+    SIGNUP_HELP: 'After you create your account, check your inbox and spam folder for a verification link. If you already have an account, sign in below.' }),
+});
+export function renderHtml(buffer, env = process.env, { openSignup = false } = {}) {
   const urls = termsUrls(env);
-  return Buffer.from(buffer.toString('utf8').replaceAll('{{SUPPORT_EMAIL}}', supportEmail(env))
+  let html = buffer.toString('utf8');
+  for (const [name, value] of Object.entries(signupCopy[openSignup === true ? 'open' : 'closed'])) html = html.replaceAll(`{{${name}}}`, value);
+  return Buffer.from(html.replaceAll('{{SUPPORT_EMAIL}}', supportEmail(env))
     .replaceAll('{{TERMS_URL}}', urls.terms).replaceAll('{{PRIVACY_URL}}', urls.privacy));
 }
 export function safePath(raw) {
@@ -25,7 +37,7 @@ export function safePath(raw) {
   if (/[\\\x00-\x1f\x7f%]/.test(path) || path.split('/').some((part) => part === '.' || part === '..')) throw fail('not_found');
   return path;
 }
-export function serveStatic(path, response) {
+export function serveStatic(path, response, { openSignup = false } = {}) {
   let base = publicRoot;
   let relative = pages[path.replace(/\/$/, '') || '/'];
   if (/^\/js\/[a-z-]+\.js$/.test(path)) relative = path.slice(1);
@@ -38,7 +50,7 @@ export function serveStatic(path, response) {
   try {
     const file = realpathSync(resolve(base, relative));
     if (!file.startsWith(`${base}${sep}`)) throw fail('not_found');
-    const content = extname(file) === '.html' ? renderHtml(readFileSync(file)) : readFileSync(file);
+    const content = extname(file) === '.html' ? renderHtml(readFileSync(file), process.env, { openSignup }) : readFileSync(file);
     response.writeHead(200, { 'Content-Type': types[extname(file)], 'Cache-Control': 'no-store' });
     response.end(content);
   } catch { throw fail('not_found'); }
