@@ -18,7 +18,7 @@ export function scoreAccessLogLine(line, { hosting, allowedHosts, verifyBot = ve
   // Masked lines (Caddy filter encoder): no header context at all, client_ip already a /24 or /48,
   // UA moved to a top-level user_agent field.
   const masked = !req.headers && !row.headers;
-  const ua = one(req.headers?.['User-Agent'] ?? req.headers?.['user-agent'] ?? row.headers?.['User-Agent'] ?? row.user_agent);
+  const ua = one(masked ? row.user_agent : req.headers?.['User-Agent'] ?? req.headers?.['user-agent'] ?? row.headers?.['User-Agent']);
   const path = req.uri || req.url || row.uri || '/';
   const method = req.method || row.method || 'GET';
   let headers;
@@ -32,10 +32,9 @@ export function scoreAccessLogLine(line, { hosting, allowedHosts, verifyBot = ve
     asn: asnInfo?.asn,
     hosting_asn: hosting && asnInfo ? hosting.has(asnInfo.asn) : false,
   };
-  // Header signals are unknown (headers undefined), and a /24 is not one client, so no per-IP rate.
-  if (masked) state.ip_velocity = false;
   const finish = goodBot => {
-    const decision = localHeuristic(state, { goodBot });
+    // Header signals are unknown (headers undefined), and a /24 is not one client, so no per-IP rate.
+    const decision = localHeuristic(state, { goodBot, ipVelocity: !masked });
     const ts = typeof row.ts === 'number' ? new Date(row.ts * 1000).toISOString() : (row.ts || new Date().toISOString());
     return {
       ts,

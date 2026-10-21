@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scoreAccessLogLine } from '../src/shadow/score.js';
 import { buildShadowSummary } from '../src/shadow/summary.js';
 import { cleanLine } from '../src/shadow/lines.js';
-import { consumeLog, loadOffsets, offsetsFile, resumeOffset, saveOffsets } from '../src/shadow/offsets.js';
+import { CHECKPOINT_LINES, consumeLog, loadOffsets, offsetsFile, resumeOffset, saveOffsets } from '../src/shadow/offsets.js';
 import { DEMO_HOST, ipPrefix } from '../src/edge/security.js';
 import { ipBucketKey } from '../src/middleware/rateLimit.js';
 
@@ -60,7 +60,8 @@ test('consumeLog: a 600000-byte NUL hole before a masked and a normal line yield
   });
   assert.equal(rows.length, 2);
   assert.deepEqual(rows.map(r => r.ip_prefix), ['198.51.110.0/24', '192.0.2.0/24']);
-  assert.deepEqual(next, { ino: statSync(log).ino, offset: size });
+  assert.deepEqual([next.ino, next.offset], [statSync(log).ino, size]);
+  assert.match(next.head, /^[0-9a-f]{64}$/);
   assert.ok(next.offset > 600000);
   let again = 0;
   assert.deepEqual(await consumeLog(log, next, () => { again++; }), next);
@@ -81,6 +82,83 @@ test('consumeLog leaves a line still being written for the next poll (never scor
   assert.deepEqual(seen, [full, full]);
   assert.equal(second.offset, statSync(log).size);
   await assert.rejects(consumeLog(join(dir, 'missing.json'), undefined, () => {}), { code: 'ENOENT' });
+});
+
+test('consumeLog on an unseen log starts at the last complete line, so a half-written row is later read whole', async (t) => {
+  const dir = tempDir(t, 'vunseen-');
+  const log = join(dir, 'access.json');
+  const full = unmasked('192.0.2.112', '/');
+  writeFileSync(log, full + '\n' + full.slice(0, 30));
+  const seen = [];
+  const first = await consumeLog(log, undefined, line => { seen.push(line); });
+  assert.deepEqual(seen, []);
+  assert.equal(first.offset, Buffer.byteLength(full) + 1);
+  appendFileSync(log, full.slice(30) + '\n');
+  await consumeLog(log, first, line => { seen.push(line); });
+  assert.deepEqual(seen, [full]);
+  writeFileSync(log, full.slice(0, 30)); // no newline at all: start at 0
+  assert.equal((await consumeLog(log, undefined, () => {})).offset, 0);
+});
+
+test('consumeLog detects a same-inode truncate + regrow past the saved offset via the head fingerprint', async (t) => {
+  const dir = tempDir(t, 'vregrow-');
+  const log = join(dir, 'access.json');
+  writeFileSync(log, unmasked('192.0.2.113', '/a') + '\n');
+  const ino = statSync(log).ino;
+  const first = await consumeLog(log, { ino, offset: 0 }, () => {});
+  const replacement = [unmasked('198.51.100.113', '/x'), unmasked('198.51.100.113', '/y'), unmasked('198.51.100.113', '/z')];
+  writeFileSync(log, replacement.join('\n') + '\n'); // same inode, now larger than first.offset
+  assert.equal(statSync(log).ino, ino);
+  assert.ok(statSync(log).size > first.offset);
+  const seen = [];
+  await consumeLog(log, first, line => { seen.push(line); });
+  assert.deepEqual(seen, replacement);
+});
+
+test('consumeLog drains a rotated log through the retained descriptor before reading the replacement', async (t) => {
+  const dir = tempDir(t, 'vrot-');
+  const log = join(dir, 'access.json');
+  const [l1, l2, l3, l4] = ['/1', '/2', '/3', '/4'].map(p => unmasked('192.0.2.114', p));
+  writeFileSync(log, l1 + '\n');
+  const handles = new Map();
+  t.after(async () => { for (const { fh } of handles.values()) await fh.close(); });
+  const seen = [];
+  const onLine = line => { seen.push(line); };
+  let state = await consumeLog(log, { ino: statSync(log).ino, offset: 0 }, onLine, { handles });
+  appendFileSync(log, l2 + '\n');
+  renameSync(log, log + '.1'); // rotated, replacement not created yet
+  appendFileSync(log + '.1', l3 + '\n'); // writer still has the old file open
+  state = await consumeLog(log, state, onLine, { handles });
+  assert.deepEqual(seen, [l1, l2, l3]);
+  writeFileSync(log, l4 + '\n');
+  state = await consumeLog(log, state, onLine, { handles });
+  assert.deepEqual(seen, [l1, l2, l3, l4]);
+  assert.equal(state.ino, statSync(log).ino);
+  await assert.rejects(consumeLog(join(dir, 'missing.json'), undefined, () => {}, { handles }), { code: 'ENOENT' });
+});
+
+test('consumeLog checkpoints only acknowledged lines: every CHECKPOINT_LINES, at the end, and before a failure', async (t) => {
+  const dir = tempDir(t, 'vack-');
+  const log = join(dir, 'access.json');
+  const lines = Array.from({ length: 150 }, (_, i) => JSON.stringify({ n: i }));
+  writeFileSync(log, lines.join('\n') + '\n');
+  const ino = statSync(log).ino;
+  const endOf = n => lines.slice(0, n).reduce((sum, l) => sum + Buffer.byteLength(l) + 1, 0);
+  const points = [];
+  await consumeLog(log, { ino, offset: 0 }, () => {}, { checkpoint: s => { points.push(s.offset); } });
+  assert.deepEqual(points, [endOf(CHECKPOINT_LINES), endOf(2 * CHECKPOINT_LINES), endOf(150)]);
+
+  // Interrupted mid-batch by a failed write on line 70: the checkpoint covers lines 0-69 only.
+  points.length = 0;
+  const seen = [];
+  await assert.rejects(consumeLog(log, { ino, offset: 0 }, line => {
+    if (JSON.parse(line).n === 70) throw new Error('write failed');
+    seen.push(line);
+  }, { checkpoint: s => { points.push(s); } }), /write failed/);
+  assert.deepEqual(points.map(p => p.offset), [endOf(CHECKPOINT_LINES), endOf(70)]);
+  const retried = [];
+  await consumeLog(log, points.at(-1), line => { retried.push(line); });
+  assert.deepEqual([...seen, ...retried], lines); // nothing lost, nothing scored twice
 });
 
 test('scoreAccessLogLine returns null for JSON that is not an object', () => {
@@ -131,10 +209,13 @@ test('daily summary strips query strings from samples built from older rows', as
 
 // --- 3. Persisted offsets --------------------------------------------------------------------
 
-test('resumeOffset: resume, start at end when unseen, 0 on rotation or truncation', () => {
+test('resumeOffset: resume, start at the last line end when unseen, 0 on rotation, truncation or a new head', () => {
   assert.equal(resumeOffset({ ino: 7, offset: 100 }, { ino: 7, size: 150 }), 100); // resume
   assert.equal(resumeOffset({ ino: 7, offset: 100 }, { ino: 7, size: 100 }), 100); // nothing new
   assert.equal(resumeOffset(undefined, { ino: 7, size: 150 }), 150); // never seen: no history rescan
+  assert.equal(resumeOffset(undefined, { ino: 7, size: 150, lineEnd: 120 }), 120); // ...nor start in a half-written row
+  assert.equal(resumeOffset({ ino: 7, offset: 100, head: 'a' }, { ino: 7, size: 150, head: 'a' }), 100);
+  assert.equal(resumeOffset({ ino: 7, offset: 100, head: 'a' }, { ino: 7, size: 150, head: 'b' }), 0); // truncated + regrown
   assert.equal(resumeOffset({ ino: 7, offset: 100 }, { ino: 8, size: 150 }), 0); // rotated
   assert.equal(resumeOffset({ ino: 7, offset: 100 }, { ino: 8, size: 50 }), 0);
   assert.equal(resumeOffset({ ino: 7, offset: 100 }, { ino: 7, size: 40 }), 0); // truncated
@@ -202,6 +283,34 @@ test('shadow-tail.js starts unseen logs at the end and resumes after a restart w
   assert.equal(await tail.stop(), '');
 });
 
+test('shadow-tail.js does not checkpoint rows whose append failed and writes them once the output recovers', async (t) => {
+  const dir = tempDir(t, 'vtailfail-');
+  const log = join(dir, 'access.json');
+  const out = join(dir, 'data', 'shadow.jsonl');
+  const state = join(dir, 'state', 'shadow-offsets.json');
+  writeFileSync(log, unmasked('192.0.2.131', '/old') + '\n');
+  mkdirSync(out, { recursive: true }); // the output path is a directory: every append fails
+  const env = { VERDICT_SHADOW_LOGS: log, VERDICT_SHADOW_FILE: out, VERDICT_SHADOW_OFFSETS_FILE: state, VERDICT_SHADOW_POLL_MS: '500', VERDICT_ASN_FILE: '' };
+  if (process.env.NODE_OPTIONS) env.NODE_OPTIONS = process.env.NODE_OPTIONS;
+  const savedOffset = () => { try { return JSON.parse(readFileSync(state, 'utf8'))[log]?.offset; } catch { return undefined; } };
+  const child = spawn(process.execPath, [join(scripts, 'shadow-tail.js')], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+  let stderr = '';
+  child.stderr.on('data', d => { stderr += d; });
+  const exited = new Promise(r => child.on('exit', r));
+  t.after(() => child.kill('SIGKILL'));
+  const initial = statSync(log).size;
+  await waitFor(() => savedOffset() === initial, 'initial offsets');
+  appendFileSync(log, unmasked('192.0.2.131', '/new-1') + '\n' + unmasked('192.0.2.131', '/new-2') + '\n');
+  await waitFor(() => stderr.includes('SHADOW_WRITE_FAILED') || stderr.includes('shadow write failed'), 'write failure');
+  await sleep(600);
+  assert.equal(savedOffset(), initial); // failed rows not checkpointed
+  rmSync(out, { recursive: true });
+  await waitFor(() => savedOffset() === statSync(log).size, 'offset after recovery');
+  assert.deepEqual(readRows(out).map(r => r.path), ['/new-1', '/new-2']);
+  child.kill('SIGTERM');
+  await exited;
+});
+
 // --- masked-replay.mjs asis ------------------------------------------------------------------
 
 test('masked-replay.mjs asis scores every line as it is (NUL-prefixed too) and prints counts only', (t) => {
@@ -267,7 +376,8 @@ test('shadow-cleanup.mjs plan reports counts only and finds re-scan runs of >= 5
   assert.equal(plan.dup_runs[0].first_ts, '2026-10-20T00:00:00.000Z');
   assert.equal(plan.dup_runs[1].last_ts, '2026-10-20T00:00:54.000Z');
   assert.equal(plan.would_drop, 55);
-  assert.deepEqual(plan.summaries_with_query, ['shadow-summary-20261020.json']);
+  assert.equal(plan.summaries_with_query, 1); // a count, never file names
+  assert.ok(!/shadow-summary/.test(res.stdout));
   assert.equal(plan.summary_paths_changed, 2);
   assert.equal(plan.applied, undefined);
   assert.ok(!/198\.51|curl|Mozilla|\/p\d|secret|\/spaced/.test(res.stdout));
@@ -326,5 +436,20 @@ test('shadow-cleanup.mjs --dedupe latest drops only the last run; bad usage exit
   assert.equal(rows.at(-1).path, '/p503');
   for (const args of [['nope', f.shadow, f.summaries], ['plan', f.shadow], ['plan', f.shadow, f.summaries, '--dedupe', 'some'], ['plan', f.shadow, f.summaries, '--x']]) {
     assert.equal(cleanup(...args).status, 2, args.join(' '));
+  }
+});
+
+test('maintenance scripts report filesystem errors by code only, never the path', (t) => {
+  const dir = tempDir(t, 'vfserr-');
+  const missing = join(dir, 'secret-name', 'shadow.jsonl');
+  const results = [
+    cleanup('plan', missing, dir),
+    cleanup('apply', missing, dir),
+    spawnSync(process.execPath, [join(scripts, 'masked-replay.mjs'), 'asis', '10', missing], { encoding: 'utf8' }),
+  ];
+  for (const res of results) {
+    assert.equal(res.status, 1);
+    assert.equal(res.stderr.trim(), 'error ENOENT');
+    assert.ok(!/secret-name|vfserr/.test(res.stdout + res.stderr));
   }
 });

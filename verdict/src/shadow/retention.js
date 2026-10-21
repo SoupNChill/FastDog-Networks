@@ -21,8 +21,9 @@ export function createShadowWriter(file, {
   let pending = Promise.resolve();
   let nextCheck = 0;
   const report = error => { try { warn(error.code || 'IO_ERROR'); } catch {} };
+  // Fail open: a failed task resolves false (after a warning) instead of rejecting.
   const enqueue = fn => {
-    const task = pending.then(fn).catch(report);
+    const task = pending.then(fn).catch(error => { report(error); return false; });
     pending = task;
     return task;
   };
@@ -78,6 +79,7 @@ export function createShadowWriter(file, {
     }
     return includeIncoming;
   }
+  // Resolves true once the record is durably handled (written, or deliberately skipped), false on I/O failure.
   const append = record => enqueue(async () => {
     await mkdir(dirname(file), { recursive: true });
     const line = JSON.stringify(record) + '\n';
@@ -85,11 +87,12 @@ export function createShadowWriter(file, {
     const ts = Date.parse(record.ts);
     // Skip oversized/expired incoming records without evicting useful history.
     if (!Number.isFinite(ts) || ts <= now() - days * DAY || (cap && bytes > cap)) {
-      await trim();
-      return;
+      try { await trim(); } catch (error) { report(error); }
+      return true;
     }
-    try { if (await trim(bytes, line)) return; } catch (error) { report(error); }
+    try { if (await trim(bytes, line)) return true; } catch (error) { report(error); }
     await appendFile(file, line, { mode: 0o600 });
+    return true;
   });
   append.trim = () => enqueue(() => trim());
   append.ready = () => pending;

@@ -10,6 +10,11 @@ import { loadHostingAsns } from '../src/asn/lookup.js';
 import { scoreAccessLogLine } from '../src/shadow/score.js';
 import { cleanLine } from '../src/shadow/lines.js';
 
+// Filesystem errors print only their code (messages carry paths).
+const fail = error => { console.error('error', error?.code || 'ERROR'); process.exit(1); };
+process.on('uncaughtException', fail);
+process.on('unhandledRejection', fail);
+
 const [mode, maxArg, ...logs] = process.argv.slice(2);
 const maxLines = Number(maxArg);
 if (!['raw', 'masked', 'asis'].includes(mode) || !Number.isInteger(maxLines) || maxLines < 1 || !logs.length) {

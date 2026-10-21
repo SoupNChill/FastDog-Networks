@@ -15,6 +15,11 @@ import { randomUUID } from 'node:crypto';
 import { stripQuery } from '../src/shadow/summary.js';
 import { cleanLine } from '../src/shadow/lines.js';
 
+// Filesystem errors print only their code (messages carry paths).
+const fail = error => { console.error('error', error?.code || 'ERROR'); process.exit(1); };
+process.on('uncaughtException', fail);
+process.on('unhandledRejection', fail);
+
 const MIN_RUN = 50;
 const usage = () => {
   console.error('usage: node shadow-cleanup.mjs plan|apply <shadow.jsonl> <summary-dir> [--dedupe latest|all]');
@@ -119,7 +124,7 @@ const result = {
   dedupe,
   dup_runs: runs,
   would_drop: drop.size,
-  summaries_with_query: summariesWithQuery,
+  summaries_with_query: summariesWithQuery.length,
   summary_paths_changed: summaryPathsChanged,
   summaries_unreadable: summariesUnreadable,
 };

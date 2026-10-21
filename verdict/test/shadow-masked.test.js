@@ -101,13 +101,24 @@ test('masked-replay.mjs scores only unmasked lines, per mode, and prints counts 
   for (const text of [raw, out]) assert.ok(!/192\.0\.2|Mozilla|sqlmap/.test(text));
 });
 
-test('heuristic default is unchanged without the opt-out field; ip_velocity: false skips only the IP rate', () => {
+test('heuristic: ip_velocity in state is ignored; only the trusted ipVelocity: false option skips the IP rate', () => {
   const now = Date.now();
-  let on, off;
+  let on, injected, off;
   for (let i = 0; i < 31; i++) {
     on = localHeuristic({ ip: '203.0.113.77', path: '/' }, { now });
-    off = localHeuristic({ ip: '203.0.113.78', path: '/', ip_velocity: false }, { now });
+    injected = localHeuristic({ ip: '203.0.113.79', path: '/', ip_velocity: false }, { now });
+    off = localHeuristic({ ip: '203.0.113.78', path: '/' }, { now, ipVelocity: false });
   }
   assert.deepEqual(on.reasons, ['ip_velocity']);
+  assert.deepEqual(injected.reasons, ['ip_velocity']);
   assert.deepEqual(off.reasons, []);
+});
+
+test('top-level user_agent is read only for masked lines, not when request.headers lacks User-Agent', () => {
+  const headers = { Accept: ['text/html'], 'Accept-Language': ['en'] };
+  const plain = scoreAccessLogLine(unmasked('192.0.2.14', '/', headers), opts);
+  const withTopLevel = scoreAccessLogLine(JSON.stringify({ ...JSON.parse(unmasked('192.0.2.15', '/', headers)), user_agent: 'sqlmap/1.7' }), opts);
+  assert.equal(withTopLevel.ua, '');
+  assert.deepEqual(pick(withTopLevel), pick(plain));
+  assert.ok(!withTopLevel.reasons.includes('malicious_tool'));
 });
