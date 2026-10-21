@@ -207,7 +207,9 @@ export function proxyViaTunnel(agent, req, res, { maxBodyBytes = DEFAULT_MAX_BOD
 
   // Defense in depth: if a prior middleware already consumed the stream (e.g. express.json),
   // 'end' will never fire again — proceed with an empty body rather than hang forever.
-  if (req.readableEnded || req.complete) {
+  // A request that is merely complete (fully received, still buffered) must not take this
+  // path: its data and 'end' are still pending, so it is read and counted below.
+  if (req.readableEnded) {
     sendFrame(Buffer.alloc(0));
     return;
   }
@@ -232,6 +234,8 @@ export function proxyViaTunnel(agent, req, res, { maxBodyBytes = DEFAULT_MAX_BOD
       res.end(JSON.stringify({ error: 'request_body_error', detail: err.message }));
     }
   });
+  // A 'data' listener does not restart a stream an earlier middleware explicitly paused.
+  req.resume();
 }
 
 export function closeHost(hostname) {

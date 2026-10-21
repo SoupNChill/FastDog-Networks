@@ -71,7 +71,13 @@ describe('tunneled request body cap', () => {
       }));
     });
     agent.ws = await serverSide;
-    edge = http.createServer((req, res) => proxyViaTunnel(agent, req, res, { maxBodyBytes: CAP }));
+    edge = http.createServer((req, res) => {
+      const proxy = () => proxyViaTunnel(agent, req, res, { maxBodyBytes: CAP });
+      // Stand-ins for earlier middleware: one consumed the body, one paused the stream.
+      if (req.url === '/consumed') return req.resume().once('end', () => setImmediate(proxy));
+      if (req.url === '/paused') { req.pause(); return setImmediate(proxy); }
+      return proxy();
+    });
     await new Promise((resolve) => edge.listen(0, '127.0.0.1', resolve));
     edgePort = edge.address().port;
   });
@@ -82,10 +88,10 @@ describe('tunneled request body cap', () => {
     await new Promise((resolve) => wss.close(resolve));
   });
 
-  function request({ body, chunked = false, headers = {} }) {
+  function request({ body, chunked = false, headers = {}, path = '/upload' }) {
     return new Promise((resolve, reject) => {
       const req = http.request({
-        host: '127.0.0.1', port: edgePort, method: 'POST', path: '/upload',
+        host: '127.0.0.1', port: edgePort, method: 'POST', path,
         headers: { host: agent.hostname, ...headers },
         agent: false,
       }, (res) => {
@@ -93,6 +99,7 @@ describe('tunneled request body cap', () => {
         res.on('data', (c) => parts.push(c));
         res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(parts) }));
       });
+      req.setTimeout(5000, () => req.destroy(new Error('timed out')));
       req.on('error', reject);
       if (chunked) {
         // Write in pieces without Content-Length so the edge must count as data arrives.
@@ -185,6 +192,21 @@ describe('tunneled request body cap', () => {
       assert.equal(r.status, 200);
       assert.deepEqual(r.body, body);
     }
+  });
+
+  it('still proxies (empty body, no hang) when an earlier middleware consumed the stream', async () => {
+    const r = await request({ body: Buffer.from('eaten'), chunked: true, path: '/consumed' });
+    assert.equal(r.status, 200);
+    assert.equal(r.headers['x-body-bytes'], '0');
+  });
+
+  it('reads and caps a stream an earlier middleware paused', async () => {
+    const before = frames.length;
+    assert413(await request({ body: Buffer.alloc(CAP + 1), chunked: true, path: '/paused' }));
+    assert.equal(frames.length, before);
+    const r = await request({ body: Buffer.from('paused-ok'), chunked: true, path: '/paused' });
+    assert.equal(r.status, 200);
+    assert.equal(String(r.body), 'paused-ok');
   });
 
   it('keeps the tunnel open and serving after over-cap requests', async () => {
