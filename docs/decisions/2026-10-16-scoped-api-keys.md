@@ -17,6 +17,16 @@ v1 built (`portal/src/api-keys.js`, routes under `/api/v1/`, UI at `/keys`), wit
 
 The connect token (`portal/src/connect-tokens.js`) is unchanged.
 
+## Trial keys (flag TRIAL_API_KEY_ENABLED, default off)
+
+Added 2026-10-21 so a trial can use the "AI assistant puts your app on FastDog" flow. With the flag unset (anything but `1`) behaviour is unchanged: trials get `plan_required` and `available: false`. With it on:
+
+- Eligible: effective plan is `trial` (`trials.js`, overrides respected), the trial is running (not ended, no `paused_at` or `pause_requested_at`, extensions count), tenant active and not suspended, creating user email-verified. An unreadable trial file means no trial key (fail closed). Paid plans keep the rules above unchanged.
+- Limits, enforced server-side: exactly 1 hostname (`invalid_key`), 1 live key per tenant (`key_limit_reached`), `expires_at` = trial end (earlier only if a shorter lifetime is requested; never past it or 90 days). Records carry `trial: true`. Same password re-auth and rate limits.
+- `/api/v1` accepts a key of a non-paid tenant only if it is a trial key with 1 hostname, unexpired, the flag is on and the trial still running; otherwise `unauthorized`. Suspension and `auth_version` checks run first, as before.
+- A trial tenant that becomes paid keeps its trial key under paid rules until it expires (at the old trial end); it can then create normal keys.
+- `GET /api/keys` adds `trial: { max_keys, max_hostnames, expires_at }` only when trial limits apply; the keys page explains them and asks for one hostname.
+
 ## Context
 
 Customers increasingly set up servers with AI coding assistants and scripts. Today every portal action needs a browser session with CSRF, so automation either can't help or would need the user's password. Handing out a session cookie or password to a tool is worse than a narrow key.

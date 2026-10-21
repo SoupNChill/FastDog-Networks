@@ -15,9 +15,9 @@ import { createFileMailer } from './mailer-file.js';
 import { createConnectTokens, assistantPrompt } from './connect-tokens.js';
 import { dockerDetails, serializeDockerEnv, dockerEnvFile, buildCommand, validOrigin, originError } from './connect-command.js';
 import { verifyPassword } from './passwords.js';
-import { createApiKeys, planAllowsKeys, API_KEY_SCOPES, DEFAULT_DAYS, MAX_DAYS } from './api-keys.js';
+import { createApiKeys, planAllowsKeys, API_KEY_SCOPES, DEFAULT_DAYS, MAX_DAYS, TRIAL_MAX_LIVE, TRIAL_MAX_HOSTNAMES } from './api-keys.js';
 import { createSuspensions, effectiveTenant } from './suspensions.js';
-import { tenantPlan } from './trials.js';
+import { tenantPlan, activeTrial } from './trials.js';
 
 const authPaths = new Set(['/api/signup', '/api/login', '/api/logout', '/api/verify-email', '/api/password-reset', '/api/password-reset/confirm']);
 const staticRoutes = new Map([
@@ -68,7 +68,7 @@ function clientIp(request, trustProxy) {
 }
 export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, now = Date.now, config = {} } = {}) {
   config = { defaultPlan: 'assigned', defaultHostnameLimit: 3, openSignup: false, openSignupPlan: 'trial', openSignupHostnameLimit: 1,
-    openConnectTokensPerHour: 3, signupIpPerHour: 3, signupDomainPerDay: 5, signupBigmailPerDay: 200, signupGlobalPerDay: 100, ...config,
+    openConnectTokensPerHour: 3, signupIpPerHour: 3, signupDomainPerDay: 5, signupBigmailPerDay: 200, signupGlobalPerDay: 100, trialApiKey: false, ...config,
     origin: config.origin || config.portalOrigin || 'https://portal.example.test' };
   const origin = new URL(config.origin);
   if (origin.protocol !== 'https:' || origin.origin !== config.origin) throw new Error('HTTPS portal origin required');
@@ -79,6 +79,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
     || !['openConnectTokensPerHour', 'signupIpPerHour', 'signupDomainPerDay', 'signupBigmailPerDay', 'signupGlobalPerDay'].every((key) => count(config[key], 100000))) {
     throw new Error('Invalid open sign-up settings');
   }
+  if (typeof config.trialApiKey !== 'boolean') throw new Error('Invalid trial API key setting');
   // Public edge address agents dial (PORTAL_EDGE_URL). Without it the portal never renders a connect command.
   const edgeUrl = config.edgeUrl ? String(config.edgeUrl).replace(/\/$/, '') : null;
   if (edgeUrl) {
@@ -105,6 +106,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
   // The edge keeps no per-tenant suspended flag, so every call that creates, verifies or connects re-checks
   // the kill switch at the last moment (after any awaits since authentication).
   const unsuspended = (tid) => { if (suspensions.has(tid)) throw fail('unauthorized'); return tid; };
+  // Trial keys (TRIAL_API_KEY_ENABLED, default off): the running trial of a tenant without a paid plan, else null.
+  const keyTrial = (tenant) => (config.trialApiKey && tenant && !planAllowsKeys(tenant) && !suspensions.has(tenant.id) ? activeTrial(store, tenant, now()) : null);
   const docsUrl = typeof config.docsUrl === 'string' && /^https:\/\/[a-z0-9.-]+(?:\/[a-z0-9/_-]*)?$/i.test(config.docsUrl) ? config.docsUrl : null;
   const server = http.createServer(async (request, response) => {
     const started = now();
@@ -164,8 +167,11 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
         if (tenant?.status === 'suspended' && suspensions.has(tenant.id)) { apiKeys.revokeTenant(tenant.id); throw fail('unauthorized'); }
         // Keys issued before a suspension stay dead after resume, used during the suspension or not.
         if (suspensions.stale(key.tenant_id, key.created_at)) { apiKeys.revoke(key.tenant_id, key.id); throw fail('unauthorized'); }
-        // Suspension, losing a paid plan, or a password change (auth_version bump) ends every key.
-        if (!planAllowsKeys(tenant) || !issuer || !issuer.email_verified_at || (issuer.auth_version ?? null) !== (key.auth_version ?? null)) throw fail('unauthorized');
+        // Suspension, losing a paid plan, or a password change (auth_version bump) ends every key. Without a paid
+        // plan only a trial key works, and only while the flag is on and the trial runs. A trial key of a tenant
+        // that became paid keeps working under paid rules until it expires.
+        const trialKeyOk = key.trial === true && key.hostnames?.length === 1 && Date.parse(key.expires_at) > now() && Boolean(keyTrial(tenant));
+        if (!(planAllowsKeys(tenant) || trialKeyOk) || !issuer || !issuer.email_verified_at || (issuer.auth_version ?? null) !== (key.auth_version ?? null)) throw fail('unauthorized');
         limits.take(`api-key:${key.id}`, 60, 60000);
         const allowedScope = scope === 'hostnames:read' ? key.scopes.some((s) => ['status:read', 'hostnames:create'].includes(s)) : key.scopes.includes(scope);
         if (!allowedScope) throw fail('forbidden');
@@ -343,14 +349,16 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
         return send(201, record);
       }
       if (path === '/api/keys' || keyMatch) {
+        const trial = user.email_verified_at ? keyTrial(tenant) : null;
         if (request.method === 'GET') {
-          return send(200, { available: planAllowsKeys(tenant), scopes: API_KEY_SCOPES, default_days: DEFAULT_DAYS, max_days: MAX_DAYS,
+          return send(200, { available: planAllowsKeys(tenant) || Boolean(trial), scopes: API_KEY_SCOPES, default_days: DEFAULT_DAYS, max_days: MAX_DAYS,
+            ...(trial ? { trial: { max_keys: TRIAL_MAX_LIVE, max_hostnames: TRIAL_MAX_HOSTNAMES, expires_at: apiKeys.trialExpiry(trial) } } : {}),
             keys: apiKeys.list(tenant.id), recent_use: apiKeys.auditFor(tenant.id) });
         }
         if (request.method === 'DELETE') return send(200, apiKeys.revoke(tenant.id, keyMatch[1]));
         if (!user.email_verified_at) throw fail('unauthorized');
-        if (!planAllowsKeys(tenant)) throw fail('plan_required');
-        const parsed = apiKeys.parse(body);
+        if (!planAllowsKeys(tenant) && !trial) throw fail('plan_required');
+        const parsed = apiKeys.parse(body, trial);
         // Re-authenticate: a stolen session alone cannot mint a long-lived key. Wrong passwords spend
         // only the per-user budget, never the tenant's creation budget.
         limits.take(`api-key-password:${user.id}`, 10, 3600000, true);
