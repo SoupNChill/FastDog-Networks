@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { fixture, listen, request, tids, temporary } from './helpers.js';
 import { createApp } from '../src/app.js';
 
@@ -150,4 +151,91 @@ test('flag on: paid plans are unchanged', async (t) => {
   assert.equal(Object.hasOwn(made.data, 'trial'), false);
   assert.equal(Object.hasOwn(f.store.read('api_keys')[0], 'trial'), false);
   assert.equal((await a.client.call('/api/keys', 'POST', { password: a.password, scopes: ['status:read'] })).status, 201, 'more than one key');
+});
+
+// Polls between event-loop turns (the server runs in this process) until check() holds.
+async function until(check) {
+  for (let i = 0; i < 2000 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 1));
+  assert.ok(check(), 'condition reached');
+}
+const pauseTrial = (f) => f.store.write('trials', { tenants: { [tids[0]]: { pause_requested_at: new Date(f.now()).toISOString() } } });
+
+test('/api/v1: trial-key invariants still apply after an upgrade (flag off, extra hostname, old trial end)', async (t) => {
+  const { f, create, ends } = await setup(t);
+  const key = (await create({ hostnames: [host] })).data.key;
+  await api(f.port, key, '/api/v1/hostnames', 'POST', { hostname: host });
+  const accounts = f.store.read('accounts');
+  accounts.tenants[0].plan = 'pro';
+  f.store.write('accounts', accounts);
+  const read = (port = f.port) => api(port, key, `/api/v1/hostnames/${host}`);
+  assert.equal((await read()).status, 200, 'paid, flag on');
+  const off = await listen(t, createApp({ dataDir: f.dataDir, edge: f.edge, now: f.now, mailer: { async send() {} }, config: { origin: 'https://portal.example.test' } }));
+  assert.equal((await read(off)).status, 401, 'paid, flag off');
+  const records = f.store.read('api_keys');
+  records[0].hostnames = [host, 'other.example.test'];
+  f.store.write('api_keys', records);
+  assert.equal((await read()).status, 401, 'paid, two hostnames');
+  records[0].hostnames = [host];
+  f.store.write('api_keys', records);
+  assert.equal((await read()).status, 200);
+  f.advance(Date.parse(ends) - f.now());
+  assert.equal((await read()).status, 401, 'paid, at the old trial end');
+});
+
+test('/api/v1: eligibility is re-checked after a delayed request body', async (t) => {
+  const { f, create } = await setup(t);
+  const key = (await create({ hostnames: [host] })).data.key;
+  const slow = (between) => new Promise((resolve, reject) => {
+    const body = JSON.stringify({ hostname: host });
+    const req = http.request({ host: '127.0.0.1', port: f.port, path: '/api/v1/hostnames', method: 'POST', agent: false,
+      headers: { ...bearer(key), 'content-length': Buffer.byteLength(body) } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    req.on('error', reject);
+    req.write(body.slice(0, 5));
+    setTimeout(() => { between(); req.end(body.slice(5)); }, 50);
+  });
+  assert.equal(await slow(() => pauseTrial(f)), 401, 'trial paused while the body was in flight');
+  assert.equal(f.calls.some(([op]) => op === 'create'), false, 'the edge was never called');
+  f.store.write('trials', { tenants: {} });
+  assert.equal(await slow(() => {}), 201, 'control: nothing changed in flight');
+});
+
+test('key creation re-checks trial and suspension after the password check', async (t) => {
+  const { f, create } = await setup(t);
+  // The per-user password budget is written just before the password await.
+  const during = async (change) => {
+    const before = JSON.stringify(f.store.read('rate_limits', {}));
+    const pending = create({ hostnames: [host] });
+    await until(() => JSON.stringify(f.store.read('rate_limits', {})) !== before);
+    change();
+    return pending;
+  };
+  assert.equal((await during(() => pauseTrial(f))).data.error, 'plan_required', 'trial paused during the password check');
+  f.store.write('trials', { tenants: {} });
+  const at = f.now();
+  const suspend = () => f.store.write('suspensions', { tenants: { [tids[0]]: { at: new Date(at).toISOString(), reason: 'x', revoked_before: at } } });
+  assert.equal((await during(suspend)).status, 401, 'suspended during the password check');
+  f.advance(1000);
+  f.store.write('suspensions', { tenants: { [tids[0]]: { at: new Date(at).toISOString(), reason: 'x', revoked_before: at, resumed_at: new Date(f.now()).toISOString() } } });
+  assert.deepEqual(f.store.read('api_keys', []), [], 'no key was minted to survive the resume');
+});
+
+test('flag on: a set-plan override upgrade keeps the trial key and allows paid keys; flag off is unchanged', async (t) => {
+  const { f, a, create } = await setup(t);
+  const made = (await create({ hostnames: [host] })).data;
+  await api(f.port, made.key, '/api/v1/hostnames', 'POST', { hostname: host });
+  f.store.write('trial_overrides', { tenants: { [tids[0]]: { plan: 'pro' } } });
+  assert.equal((await api(f.port, made.key, `/api/v1/hostnames/${host}`)).status, 200, 'trial key survives the override upgrade');
+  const list = await a.client.call('/api/keys');
+  assert.equal(list.data.available, true);
+  assert.equal(Object.hasOwn(list.data, 'trial'), false);
+  await a.client.call(`/api/keys/${made.id}`, 'DELETE');
+  const paid = await create({});
+  assert.equal(paid.status, 201);
+  assert.equal(paid.data.hostnames, null);
+  assert.equal(Object.hasOwn(paid.data, 'trial'), false);
+  assert.equal((await api(f.port, paid.data.key, `/api/v1/hostnames/${host}`)).status, 200);
+
+  const o = await setup(t, {});
+  o.f.store.write('trial_overrides', { tenants: { [tids[0]]: { plan: 'pro' } } });
+  assert.equal((await o.create({})).data.error, 'plan_required', 'flag off reads the raw plan, as before');
 });

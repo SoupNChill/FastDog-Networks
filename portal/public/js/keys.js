@@ -33,14 +33,16 @@ let liveKeys = 0;
 
 function showTrial() {
   const note = document.querySelector('#keys-trial');
-  note.hidden = !trial;
-  if (!trial) return;
-  note.textContent = `Trial key: ${trial.max_hostnames} hostname, expires when your trial ends (${when(trial.expires_at)}), ${trial.max_keys} key at a time.`;
-  document.querySelector('label[for="key-hosts"]').textContent = 'The one website this key may use (required)';
+  const label = document.querySelector('label[for="key-hosts"]');
   const hosts = document.querySelector('#key-hosts');
-  hosts.required = true;
-  hosts.rows = 1;
-  for (const element of [document.querySelector('label[for="key-days"]'), document.querySelector('#key-days')]) element.hidden = true;
+  // The page's own label text, kept so a reload without trial metadata (after an upgrade) restores the normal form.
+  label.dataset.normal ??= label.textContent;
+  note.hidden = !trial;
+  if (trial) note.textContent = `Trial key: ${trial.max_hostnames} hostname, expires when your trial ends (${when(trial.expires_at)}), ${trial.max_keys} key at a time.`;
+  label.textContent = trial ? 'The one website this key may use (required)' : label.dataset.normal;
+  hosts.required = Boolean(trial);
+  hosts.rows = trial ? 1 : 3;
+  for (const element of [document.querySelector('label[for="key-days"]'), document.querySelector('#key-days')]) element.hidden = Boolean(trial);
 }
 
 async function load() {

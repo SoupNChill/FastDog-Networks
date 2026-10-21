@@ -106,8 +106,31 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
   // The edge keeps no per-tenant suspended flag, so every call that creates, verifies or connects re-checks
   // the kill switch at the last moment (after any awaits since authentication).
   const unsuspended = (tid) => { if (suspensions.has(tid)) throw fail('unauthorized'); return tid; };
+  // Paid key rules. With TRIAL_API_KEY_ENABLED the effective plan (a set-plan override) counts; off, the raw plan.
+  const paidKeys = (tenant) => planAllowsKeys(config.trialApiKey && tenant ? { ...tenant, plan: tenantPlan(store, tenant, now()).plan } : tenant);
   // Trial keys (TRIAL_API_KEY_ENABLED, default off): the running trial of a tenant without a paid plan, else null.
-  const keyTrial = (tenant) => (config.trialApiKey && tenant && !planAllowsKeys(tenant) && !suspensions.has(tenant.id) ? activeTrial(store, tenant, now()) : null);
+  const keyTrial = (tenant) => (config.trialApiKey && tenant && !paidKeys(tenant) && !suspensions.has(tenant.id) ? activeTrial(store, tenant, now()) : null);
+  // Fresh check that an API key may act right now; run again after every await before a protected call.
+  // A trial-marked key always needs the flag, exactly one hostname and its own expiry (the old trial end),
+  // even once the tenant is paid; without a paid plan it also needs the running trial.
+  const keyAllowed = (key) => {
+    const accounts = store.read('accounts', { tenants: [], users: [] });
+    const tenant = effectiveTenant(accounts.tenants.find((t) => t.id === key.tenant_id), suspensions);
+    const issuer = accounts.users.find((u) => u.id === key.user_id && u.tenant_id === key.tenant_id);
+    if (!tenant || suspensions.has(key.tenant_id) || suspensions.stale(key.tenant_id, key.created_at)) return false;
+    if (!issuer || !issuer.email_verified_at || (issuer.auth_version ?? null) !== (key.auth_version ?? null)) return false;
+    if (key.trial === true && !(config.trialApiKey && key.hostnames?.length === 1 && Date.parse(key.expires_at) > now())) return false;
+    return paidKeys(tenant) || (key.trial === true && Boolean(keyTrial(tenant)));
+  };
+  // Fresh check that the signed-in user may create a key right now (after the password await): same session
+  // and auth_version, verified, not suspended, and a paid plan or running trial. Returns the fresh identity.
+  const keyIssuer = (session, user) => {
+    const fresh = auth.identity(session);
+    if (!fresh || fresh.user.id !== user.id || !fresh.user.email_verified_at || suspensions.has(fresh.tenant.id)) throw fail('unauthorized');
+    const trial = keyTrial(fresh.tenant);
+    if (!paidKeys(fresh.tenant) && !trial) throw fail('plan_required');
+    return { ...fresh, trial };
+  };
   const docsUrl = typeof config.docsUrl === 'string' && /^https:\/\/[a-z0-9.-]+(?:\/[a-z0-9/_-]*)?$/i.test(config.docsUrl) ? config.docsUrl : null;
   const server = http.createServer(async (request, response) => {
     const started = now();
@@ -162,20 +185,19 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
         });
         const accounts = store.read('accounts', { tenants: [], users: [] });
         const tenant = effectiveTenant(accounts.tenants.find((t) => t.id === key.tenant_id), suspensions);
-        const issuer = accounts.users.find((u) => u.id === key.user_id && u.tenant_id === key.tenant_id);
         // A kill-switch suspension revokes every key of the tenant on first touch.
         if (tenant?.status === 'suspended' && suspensions.has(tenant.id)) { apiKeys.revokeTenant(tenant.id); throw fail('unauthorized'); }
         // Keys issued before a suspension stay dead after resume, used during the suspension or not.
         if (suspensions.stale(key.tenant_id, key.created_at)) { apiKeys.revoke(key.tenant_id, key.id); throw fail('unauthorized'); }
         // Suspension, losing a paid plan, or a password change (auth_version bump) ends every key. Without a paid
-        // plan only a trial key works, and only while the flag is on and the trial runs. A trial key of a tenant
-        // that became paid keeps working under paid rules until it expires.
-        const trialKeyOk = key.trial === true && key.hostnames?.length === 1 && Date.parse(key.expires_at) > now() && Boolean(keyTrial(tenant));
-        if (!(planAllowsKeys(tenant) || trialKeyOk) || !issuer || !issuer.email_verified_at || (issuer.auth_version ?? null) !== (key.auth_version ?? null)) throw fail('unauthorized');
+        // plan only a trial key works, and only while the flag is on and the trial runs. Re-checked after every await.
+        const allowed = () => { if (!keyAllowed(key)) throw fail('unauthorized'); return key.tenant_id; };
+        allowed();
         limits.take(`api-key:${key.id}`, 60, 60000);
         const allowedScope = scope === 'hostnames:read' ? key.scopes.some((s) => ['status:read', 'hostnames:create'].includes(s)) : key.scopes.includes(scope);
         if (!allowedScope) throw fail('forbidden');
         const body = request.method === 'GET' ? {} : await readBody(request);
+        allowed();
         const hostname = normalizeHostname(m[1] ? m[1] : body.hostname);
         // The tenant always comes from the key; the edge re-checks ownership on every route.
         if (key.hostnames && !key.hostnames.includes(hostname)) throw fail('forbidden');
@@ -183,7 +205,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
         const tid = key.tenant_id;
         if (!m[1]) {
           limits.take(`api-create:${tid}`, 10, 3600000, true);
-          const created = hostnameRecord(await edge.createHostname(unsuspended(tid), hostname, tenantPlan(store, tenant, now()).hostname_limit));
+          const created = hostnameRecord(await edge.createHostname(allowed(), hostname, tenantPlan(store, tenant, now()).hostname_limit));
           const commands = store.read('connect_commands', {});
           if (delete commands[commandKey(tid, hostname)]) store.write('connect_commands', commands);
           return send(201, { ...created, docker: dockerDetails(hostname) });
@@ -196,7 +218,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
         if (m[2] === 'verify') {
           limits.take(`verify:${tid}`, 6, 60000);
           // The first verify mints an agent credential; only the connect scope may see one.
-          return send(200, pick(await edge.verifyHostname(unsuspended(tid), hostname), ['hostname', 'status', 'verified', 'verified_at', 'method', 'checks']));
+          return send(200, pick(await edge.verifyHostname(allowed(), hostname), ['hostname', 'status', 'verified', 'verified_at', 'method', 'checks']));
         }
         const upstream = validOrigin(body.origin);
         const platform = body.platform === undefined ? 'linux' : body.platform;
@@ -205,12 +227,13 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
         if (!upstream || !['linux', 'docker'].includes(platform)) throw Object.assign(fail('invalid_origin'), { detail: originError(body.origin) });
         if (!edgeUrl) throw fail('internal_error');
         if ((await edge.getHostname(tid, hostname)).status !== 'active') throw fail('not_active');
+        allowed();
         // Key-driven rotations get their own budget on top of the shared 5/day rotate limit, so a
         // leaked key cannot use up the customer's own rotations. Budgets stay spent once the edge is called.
         limits.take(`api-rotate:${tid}:${hostname}`, 3, 86400000, true);
         try { limits.take(`rotate:${tid}:${hostname}`, 5, 86400000, true); }
         catch (error) { limits.refund(`api-rotate:${tid}:${hostname}`, true); throw error; }
-        const rotated = withConnection(await edge.rotateCredential(unsuspended(tid), hostname));
+        const rotated = withConnection(await edge.rotateCredential(allowed(), hostname));
         markCommand(tid, hostname);
         const command = buildCommand(rotated.credential?.agent_env, { platform, portalOrigin: config.origin, origin: upstream });
         if (!command) throw fail('internal_error');
@@ -351,20 +374,23 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
       if (path === '/api/keys' || keyMatch) {
         const trial = user.email_verified_at ? keyTrial(tenant) : null;
         if (request.method === 'GET') {
-          return send(200, { available: planAllowsKeys(tenant) || Boolean(trial), scopes: API_KEY_SCOPES, default_days: DEFAULT_DAYS, max_days: MAX_DAYS,
+          return send(200, { available: paidKeys(tenant) || Boolean(trial), scopes: API_KEY_SCOPES, default_days: DEFAULT_DAYS, max_days: MAX_DAYS,
             ...(trial ? { trial: { max_keys: TRIAL_MAX_LIVE, max_hostnames: TRIAL_MAX_HOSTNAMES, expires_at: apiKeys.trialExpiry(trial) } } : {}),
             keys: apiKeys.list(tenant.id), recent_use: apiKeys.auditFor(tenant.id) });
         }
         if (request.method === 'DELETE') return send(200, apiKeys.revoke(tenant.id, keyMatch[1]));
         if (!user.email_verified_at) throw fail('unauthorized');
-        if (!planAllowsKeys(tenant) && !trial) throw fail('plan_required');
-        const parsed = apiKeys.parse(body, trial);
+        if (!paidKeys(tenant) && !trial) throw fail('plan_required');
+        apiKeys.parse(body, trial);
         // Re-authenticate: a stolen session alone cannot mint a long-lived key. Wrong passwords spend
         // only the per-user budget, never the tenant's creation budget.
         limits.take(`api-key-password:${user.id}`, 10, 3600000, true);
         if (!(await verifyPassword(body.password, user.password_hash))) throw fail('password_required');
-        limits.take(`api-key-create:${tenant.id}`, 5, 3600000, true);
-        return send(201, apiKeys.create(tenant.id, { user_id: user.id, auth_version: user.auth_version ?? null }, parsed));
+        // A suspension, password change or plan/trial change may have landed during the check: re-read and re-parse.
+        const fresh = keyIssuer(session, user);
+        const parsed = apiKeys.parse(body, fresh.trial);
+        limits.take(`api-key-create:${fresh.tenant.id}`, 5, 3600000, true);
+        return send(201, apiKeys.create(fresh.tenant.id, { user_id: fresh.user.id, auth_version: fresh.user.auth_version ?? null }, parsed));
       }
       if (path === '/api/hostnames') {
         if (request.method === 'GET') {
