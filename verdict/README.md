@@ -178,3 +178,13 @@ setting and the UTC date in each filename. I/O failures warn and remain fail-ope
 failed trims can temporarily exceed retention/size limits until storage recovers.
 Use one writer process per shadow file; writes within a writer are serialized.
 Decision-log retention is unchanged.
+
+Stored rows keep IPv4 as /24 and IPv6 as /48 (live rate-limit/clearance keys stay /64),
+and paths never carry a query string (summaries strip it from older rows too).
+`shadow-tail.js` persists per-log `{ino, offset}` to `shadow-offsets.json` next to the
+shadow file (`VERDICT_SHADOW_OFFSETS_FILE` overrides; atomic 0600). A restart resumes;
+a log with no saved entry starts at its end; rotation or truncation restarts at 0.
+Only complete lines are consumed, and NUL bytes (sparse holes left by in-place log
+rewrites) are stripped before parsing. `scripts/shadow-cleanup.mjs plan|apply` is a
+one-time, tailer-stopped cleanup of query strings and re-scan duplicate blocks;
+`scripts/masked-replay.mjs asis` scores already-masked logs as they are.

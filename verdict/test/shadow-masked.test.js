@@ -18,7 +18,7 @@ const unmasked = (ip, uri, headers) => JSON.stringify({ ts: 1792535152.64, reque
 const masked = (prefix, uri, ua) => JSON.stringify({ level: 'info', ts: 1792535152.64, logger: 'http.log.access.log3', msg: 'handled request',
   request: { client_ip: prefix, method: 'GET', host: DEMO_HOST, uri }, duration: 0.001, status: 200, user_agent: ua });
 const pick = r => ({ action: r.action, score: r.score, reasons: r.reasons });
-const notRawIp = r => assert.ok(r.ip_prefix === null || (!isIP(r.ip_prefix) && /\/(24|64)$/.test(r.ip_prefix)), r.ip_prefix);
+const notRawIp = r => assert.ok(r.ip_prefix === null || (!isIP(r.ip_prefix) && /\/(24|48)$/.test(r.ip_prefix)), r.ip_prefix);
 
 test('masked browser line: UA read from user_agent, no header or velocity signals, allow', () => {
   let r;
@@ -45,17 +45,17 @@ test('masked line with a probe path still fires probe_path', () => {
 
 test('masked IPv6 /48 line never persists a raw address', () => {
   const r = scoreAccessLogLine(masked('2001:db8:1::', '/', CHROME), opts);
-  assert.equal(r.ip_prefix, '2001:0db8:0001:0000::/64');
+  assert.equal(r.ip_prefix, '2001:0db8:0001::/48');
   notRawIp(r);
 });
 
-// Expected values captured from the 0.3.2 scorer before this change.
+// Expected values captured from the 0.3.2 scorer before this change (stored IPv6 prefix is now /48).
 test('unmasked lines score exactly as before', () => {
   const cases = [
     ['192.0.2.10', '/', HEADERS, { action: 'allow', score: 0.2, reasons: [] }, CHROME, '192.0.2.0/24'],
     ['192.0.2.11', '/wp-login.php', HEADERS, { action: 'block', score: 0.75, reasons: ['probe_path'] }, CHROME, '192.0.2.0/24'],
     ['192.0.2.12', '/', { 'User-Agent': ['sqlmap/1.7'] }, { action: 'block', score: 0.85, reasons: ['malicious_tool', 'missing_accept_language'] }, 'sqlmap/1.7', '192.0.2.0/24'],
-    ['2001:db8:5::7', '/', HEADERS, { action: 'allow', score: 0.2, reasons: [] }, CHROME, '2001:0db8:0005:0000::/64'],
+    ['2001:db8:5::7', '/', HEADERS, { action: 'allow', score: 0.2, reasons: [] }, CHROME, '2001:0db8:0005::/48'],
   ];
   for (const [ip, uri, headers, expected, ua, prefix] of cases) {
     const r = scoreAccessLogLine(unmasked(ip, uri, headers), opts);

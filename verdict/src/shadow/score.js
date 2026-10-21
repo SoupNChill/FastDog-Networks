@@ -3,10 +3,12 @@ import { localHeuristic } from '../engine/heuristic.js';
 import { lookupAsn } from '../asn/lookup.js';
 export { createShadowWriter } from './retention.js';
 import { ipPrefix } from '../edge/security.js';
+import { stripQuery } from './summary.js';
 
 export function scoreAccessLogLine(line, { hosting, allowedHosts, verifyBot = verifyGoodBot, dnsEnabled = process.env.VERDICT_EDGE_GOODBOT_DNS === '1' } = {}) {
   let row;
   try { row = typeof line === 'string' ? JSON.parse(line) : line; } catch { return null; }
+  if (!row || typeof row !== 'object') return null; // e.g. a bare "null" line must not throw in the tailer
   const host = String(row.host || row.request?.host || '').toLowerCase();
   const allowed = new Set(['fastdognetworks.com', 'www.fastdognetworks.com', 'verdict-demo.fastdognetworks.com']);
   if (!(allowedHosts || allowed).has(host)) return null;
@@ -38,8 +40,8 @@ export function scoreAccessLogLine(line, { hosting, allowedHosts, verifyBot = ve
     return {
       ts,
       host,
-      ip_prefix: ipPrefix(ip) || null, // raw IP is never persisted
-      path,
+      ip_prefix: ipPrefix(ip, { v6Bits: 48 }) || null, // raw IP is never persisted; IPv6 stored as /48
+      path: stripQuery(path), // scored with the full uri, persisted without the query
       method,
       ua: String(ua).slice(0, 200),
       action: decision.action,

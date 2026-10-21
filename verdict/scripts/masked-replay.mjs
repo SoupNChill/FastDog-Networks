@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 // Compare shadow scoring of the same unmasked access-log lines raw vs converted to the masked format
-// written by the Caddy filter encoder. Usage: node masked-replay.mjs <raw|masked> <maxLines> <log>...
+// written by the Caddy filter encoder. Usage: node masked-replay.mjs <raw|masked|asis> <maxLines> <log>...
+// raw|masked use only lines that still have request.headers; asis scores every JSON line exactly as
+// it is in the file (e.g. logs already rewritten into the masked shape).
 // Run each mode in its own process (heuristic velocity state is module-level). Prints counts only.
 import { readFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { loadHostingAsns } from '../src/asn/lookup.js';
 import { scoreAccessLogLine } from '../src/shadow/score.js';
+import { cleanLine } from '../src/shadow/lines.js';
 
 const [mode, maxArg, ...logs] = process.argv.slice(2);
 const maxLines = Number(maxArg);
-if (!['raw', 'masked'].includes(mode) || !Number.isInteger(maxLines) || maxLines < 1 || !logs.length) {
-  console.error('usage: node masked-replay.mjs <raw|masked> <maxLines> <log>...');
+if (!['raw', 'masked', 'asis'].includes(mode) || !Number.isInteger(maxLines) || maxLines < 1 || !logs.length) {
+  console.error('usage: node masked-replay.mjs <raw|masked|asis> <maxLines> <log>...');
   process.exit(2);
 }
 
@@ -44,11 +47,13 @@ const actions = { allow: 0, challenge: 0, block: 0 };
 let scored = 0;
 for (const log of logs) {
   const rows = [];
-  for (const line of (await readFile(log, 'utf8')).split('\n')) {
+  for (const rawLine of (await readFile(log, 'utf8')).split('\n')) {
+    const line = cleanLine(rawLine);
     if (!line.trim()) continue;
     let row;
     try { row = JSON.parse(line); } catch { continue; }
-    if (row?.request?.headers && typeof row.request.headers === 'object') rows.push(row);
+    if (!row || typeof row !== 'object') continue;
+    if (mode === 'asis' || (row.request?.headers && typeof row.request.headers === 'object')) rows.push(row);
   }
   for (const row of rows.slice(-maxLines)) {
     const result = await scoreAccessLogLine(mode === 'masked' ? maskRow(row) : row, { hosting, verifyBot: () => null });

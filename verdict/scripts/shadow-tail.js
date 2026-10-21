@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-import { stat } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
-import { createInterface } from 'node:readline';
 import { loadHostingAsns, asnDb } from '../src/asn/lookup.js';
 import { scoreAccessLogLine, createShadowWriter } from '../src/shadow/score.js';
+import { offsetsFile, loadOffsets, saveOffsets, consumeLog } from '../src/shadow/offsets.js';
 
 import { createCountStore, createCustomerTail, excludedHosts } from '../src/shadow/customer.js';
 
@@ -29,30 +27,41 @@ if (customerDir && countsFile) {
   await store.load();
   customer = createCustomerTail({ logDir: customerDir, store, hosting, exclude: excludedHosts() });
 }
-const offsets = new Map();
+// Offsets survive restarts (src/shadow/offsets.js): resume, or start at the end of a log never seen before.
+const offsetsPath = offsetsFile({ ...process.env, VERDICT_SHADOW_FILE: outFile });
+const saved = await loadOffsets(offsetsPath);
+const offsets = new Map(); // path -> {ino, offset}; ino null = absent when first polled
+let offsetsDirty = false;
 const writeRow = createShadowWriter(outFile, { maxBytes });
 
 async function consume(path) {
-  let size = 0;
-  try { size = (await stat(path)).size; } catch { return; }
-  let start = offsets.get(path) || 0;
-  if (size < start) start = 0;
-  if (size <= start) return;
-  const stream = createReadStream(path, { encoding: 'utf8', start });
-  const rl = createInterface({ input: stream, crlfDelay: Infinity });
-  for await (const line of rl) {
-    const scored = await scoreAccessLogLine(line, { hosting });
-    if (scored) await writeRow(scored);
-    await new Promise(r => setImmediate(r));
+  const prev = offsets.has(path) ? offsets.get(path) : saved[path];
+  let next;
+  try {
+    next = await consumeLog(path, prev, async line => {
+      const scored = await scoreAccessLogLine(line, { hosting });
+      if (scored) await writeRow(scored);
+      await new Promise(r => setImmediate(r));
+    });
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+    if (!offsets.has(path)) offsets.set(path, { ino: null, offset: 0 }); // appears later: read from 0
+    return;
   }
-  offsets.set(path, size);
+  if (prev?.ino !== next.ino || prev?.offset !== next.offset) offsetsDirty = true;
+  offsets.set(path, next);
 }
 
-console.log(JSON.stringify({ shadow_tail: true, logs: logPaths, out: logPaths.length ? outFile : null, customer: Boolean(customer) }));
+console.log(JSON.stringify({ shadow_tail: true, logs: logPaths, out: logPaths.length ? outFile : null, offsets: logPaths.length ? offsetsPath : null, customer: Boolean(customer) }));
 for (;;) {
   if (logPaths.length) await writeRow.trim();
   for (const p of logPaths) {
     try { await consume(p); } catch (e) { console.error('tail_error', p, e.message); }
+  }
+  if (offsetsDirty) {
+    await writeRow.ready();
+    const state = Object.fromEntries([...offsets].filter(([, v]) => v.ino !== null));
+    try { await saveOffsets(offsetsPath, state); offsetsDirty = false; } catch (e) { console.error('offsets_error', e.code || e.message); }
   }
   if (customer) { try { await customer.poll(); } catch (e) { console.error('customer_tail_error', e.message); } }
   await new Promise(r => setTimeout(r, pollMs));
