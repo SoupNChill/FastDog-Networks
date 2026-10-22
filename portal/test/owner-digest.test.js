@@ -238,7 +238,7 @@ test('countVisitors: page views, unique visitors and bots; masked and unmasked l
   writeLog(join(dir, 'full.json'), lines);
   writeLog(join(dir, 'masked.json'), siteEntries.map((entry) => logLine(maskedCopy(entry))));
   const full = await countVisitors({ files: [join(dir, 'full.json')], window: WINDOW });
-  assert.deepEqual(full, { available: true, partial: false, page_views: 5, unique_visitors: 3, bot_hits: 3, probe_hits: 0, bot_top_paths: [['/', 1], ['/pricing', 1], ['/x', 1]],
+  assert.deepEqual(full, { available: true, partial: false, page_views: 5, unique_visitors: 3, bot_hits: 3, probe_hits: 0, probe_categories: [],
     top_paths: [['/pricing', 2], ['/', 1], ['/about.html', 1], ['/docs/', 1]], skipped_lines: 4, shadow_join: 'off' });
   const masked = await countVisitors({ files: [join(dir, 'masked.json')], window: WINDOW });
   assert.equal(masked.skipped_lines, 0);
@@ -248,7 +248,7 @@ test('countVisitors: page views, unique visitors and bots; masked and unmasked l
   assert.equal((await countVisitors({ files: [join(dir, 'full.json')], window: WINDOW, cap: 2 })).unique_visitors, '2+');
   // Missing files are unavailable without throwing; a mix is partial.
   assert.deepEqual(await countVisitors({ files: [join(dir, 'missing.json')], window: WINDOW }),
-    { available: false, partial: true, page_views: 0, unique_visitors: 0, bot_hits: 0, probe_hits: 0, bot_top_paths: [], top_paths: [], skipped_lines: 0, shadow_join: 'off' });
+    { available: false, partial: true, page_views: 0, unique_visitors: 0, bot_hits: 0, probe_hits: 0, probe_categories: [], top_paths: [], skipped_lines: 0, shadow_join: 'off' });
   const mixed = await countVisitors({ files: [join(dir, 'full.json'), join(dir, 'missing.json')], window: WINDOW });
   assert.equal(mixed.available, true);
   assert.equal(mixed.partial, true);
@@ -301,7 +301,7 @@ test('countVisitors and countFunnel: logs truncated in place (leading NULs), jun
   assert.ok(readFileSync(live).subarray(0, 600000).every((byte) => byte === 0));
 
   const one = await countVisitors({ files: [live], window: WINDOW });
-  assert.deepEqual(one, { available: true, partial: false, page_views: 3, unique_visitors: 2, bot_hits: 0, probe_hits: 0, bot_top_paths: [],
+  assert.deepEqual(one, { available: true, partial: false, page_views: 3, unique_visitors: 2, bot_hits: 0, probe_hits: 0, probe_categories: [],
     top_paths: [['/', 1], ['/pricing', 1], ['/signup', 1]], skipped_lines: 2, shadow_join: 'off' });
   assert.deepEqual(await countVisitors({ files: [rolled], window: WINDOW }), one);
   const files = logFiles({ logDir: dir, names: ['access-apex.json'], window: WINDOW });
@@ -378,7 +378,6 @@ test('renderDigest: sections, masked addresses by default, short printable lines
     '  Failures: auth_failed 1',
     'Visitors: 5 page views, 3 unique human visitors; bots: 3 bot page hits, 0 probe requests',
     '  Top pages: /pricing 2, / 1, /about.html 1, /docs/ 1',
-    '  Top probe paths: / 1, /pricing 1, /x 1',
     'Funnel: 4 sign-up page views from 3 networks',
   ]);
   const text = masked.join('\n');
@@ -404,7 +403,7 @@ test('renderDigest: unavailable sections, long lists and hostile values stay wit
   assert.ok(partial.includes('Hostnames: unavailable (partial, 1 of 3 accounts: 2 total, 1 active, 0 with a connected agent, 0 on paused trials)'));
   const ending = Array.from({ length: 25 }, (_, i) => ({ tenant_id: `t_${i}‮`, email: `${'x'.repeat(300)}${i}@example.com`, ends_at: NOW }));
   const long = renderDigest({ day: WINDOW.day, showEmail: true, trials: { available: true, active: 25, ending, paused: [] },
-    visitors: { available: true, partial: true, page_views: 1, unique_visitors: '200000+', bot_hits: 0, probe_hits: 0, bot_top_paths: [], top_paths: [[`/${'p'.repeat(300)}`, 1]] } });
+    visitors: { available: true, partial: true, page_views: 1, unique_visitors: '200000+', bot_hits: 0, probe_hits: 0, probe_categories: [], top_paths: [[`/${'p'.repeat(300)}`, 1]] } });
   assert.ok(long.includes('  ... and 5 more'));
   assert.equal(long.filter((line) => line.startsWith('  Ends ')).length, 20);
   assert.ok(long.some((line) => line.includes('tenant ? (')));

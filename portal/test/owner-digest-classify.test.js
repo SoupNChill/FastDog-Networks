@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { temporary } from './helpers.js';
 import { digestConfig } from '../bin/owner-digest.js';
-import { collectAccounts, countVisitors, countFunnel, PROBE_PATH, BOT_UA, renderDigest } from '../src/owner-digest.js';
+import { collectAccounts, countVisitors, countFunnel, PROBE_PATH, PROBE_CATEGORIES, SHADOW_CAP, readShadow, BOT_UA, renderDigest } from '../src/owner-digest.js';
 const window = { start: 1000, end: 3000 };
 const created_at = new Date(2000).toISOString();
 // Synthetic non-reserved suffix: no real customer address or DNS lookup.
@@ -95,4 +95,44 @@ test('reserved domains match only whole suffixes; internal suspensions and pause
   assert.deepEqual(result.trials.paused, []);
   assert.equal(result.tenants.length, 6);
   assert.equal(result.tenants.find((tenant) => tenant.id === 't_0').paused, true);
+});
+
+
+test('shadow keys have fixed size, skip long paths and stop at the cap', async (t) => {
+  const file = join(temporary(t), 'shadow.jsonl');
+  const shadow = (path) => JSON.stringify({ ts: 2, path, action: 'block', ip_prefix: '203.0.113.0/24' }) + '\n';
+  writeFileSync(file, shadow('/' + 'x'.repeat(2048)));
+  const skipped = await readShadow(file, window, 'test-salt');
+  assert.equal(skipped.keys.size, 0);
+  assert.equal(skipped.status, 'partial');
+  for (let i = 0; i < SHADOW_CAP + 100; i += 100) {
+    appendFileSync(file, Array.from({ length: 100 }, (_, j) => shadow('/' + 'x'.repeat(1800) + (i + j))).join(''));
+  }
+  const result = await readShadow(file, window, 'test-salt');
+  assert.equal(result.keys.size, SHADOW_CAP);
+  assert.equal(result.status, 'partial');
+  assert.ok([...result.keys].every((key) => /^[A-Za-z0-9+/]{22}$/.test(key)));
+  const visitors = await countVisitors({ files: [], window, shadowFile: file });
+  assert.equal(visitors.shadow_join, 'partial');
+});
+
+test('decoded probes use finite categories and never render request identifiers', async (t) => {
+  const dir = temporary(t), file = join(dir, 'access.json'), shadowFile = join(dir, 'shadow.jsonl');
+  const token = 'abcdef0123456789'.repeat(12);
+  const sensitive = ['/.env/203.0.113.7', '/.git/' + token];
+  writeFileSync(file, [...sensitive, '/%2eenv', '/%2Egit/config', '/wp%2dlogin.php', '/%E0%A4%A',
+    '//docs//%67uide', '/%73ignup'].map((path) => row(path)).concat(row('/crawler-page', 'Googlebot')).map(JSON.stringify).join('\n'));
+  writeFileSync(shadowFile, JSON.stringify({ ts: 2, path: '//sign%75p', action: 'block', ip_prefix: '203.0.113.0/24' }));
+  const result = await countVisitors({ files: [file], window, shadowFile });
+  assert.equal(result.page_views, 1);
+  assert.deepEqual(result.top_paths, [['/docs/guide', 1]]);
+  assert.equal(result.probe_hits, 5);
+  assert.deepEqual(result.probe_categories, [['.env', 2], ['.git', 2], ['wp-login', 1]]);
+  assert.ok(result.probe_categories.every(([label]) => PROBE_CATEGORIES.some(([fixed]) => fixed === label)));
+  assert.equal(result.bot_hits, 5);
+  assert.equal((await countFunnel({ files: [file], window, shadowFile })).signup_views, 0);
+  const lines = renderDigest({ visitors: result });
+  assert.ok(lines.includes('  Top probe types: .env 2, .git 2, wp-login 1'));
+  for (const value of [...sensitive, '203.0.113.7', token, 'crawler-page']) assert.ok(!lines.join('\n').includes(value));
+  assert.equal('bot_top_paths' in result, false);
 });

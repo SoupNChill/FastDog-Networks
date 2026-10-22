@@ -25,7 +25,13 @@ Customer totals and trials exclude internal tenants; hostname inventory still co
 all non-suspended tenants. The digest shows an internal account count without emails.
 Visitors count humans only; empty/scanner UAs and probe paths count as bots, with
 probe requests counted across all methods/statuses. Shadow joins are bounded at
-200,000 entries per collector and expose `shadow_join` as `on`, `off`, or `unavailable`.
+50,000 salted, fixed-size hash keys per collector; paths longer than 2048 characters
+are skipped. `shadow_join` is `partial` when paths are skipped or the cap is reached,
+and otherwise `on`, `off`, or `unavailable`. Paths are decoded once and duplicate
+slashes collapsed for classification and shadow matching. Malformed percent encoding
+counts as bot traffic. The digest's **Top probe types** lists up to three fixed probe
+categories, never raw probe paths. Ordinary crawler page hits contribute only to bot
+page hits, not probe categories.
 
 ## Enable
 
