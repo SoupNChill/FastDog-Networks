@@ -5,6 +5,9 @@ import { createInterface } from 'node:readline';
 import { readdir, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+// Persisted/emitted paths never carry a query string (rows written before 0.3.3 may still have one).
+export const stripQuery = path => typeof path === 'string' ? path.split('?', 1)[0] : path;
+
 export function redactIp(ip) {
   if (!ip || typeof ip !== 'string') return null;
   if (ip.includes(':')) {
@@ -20,7 +23,7 @@ export function redactSample(row) {
   return {
     ts: row.ts,
     host: row.host,
-    path: typeof row.path === 'string' ? row.path.slice(0, 120) : null,
+    path: typeof row.path === 'string' ? stripQuery(row.path).slice(0, 120) : null,
     method: row.method,
     action: row.action,
     reason: row.reason,

@@ -7,12 +7,13 @@ import { createApp } from '../src/server.js';
 import { decide } from '../src/engine/jev.js';
 import { createRateLimiter } from '../src/middleware/rateLimit.js';
 
-async function withServer(fn, { rateLimit } = {}) {
+async function withServer(fn, { rateLimit, ipRateLimit } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'verdict-test-'));
   const app = await createApp({
     keyFile: join(dir, 'keys.json'),
     usageFile: join(dir, 'usage.json'),
     rateLimit,
+    ipRateLimit,
   });
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
@@ -50,6 +51,20 @@ test('bootstrap, auth, decision and usage', async () => withServer(async base =>
   assert.equal(usage.decisions, 1);
   assert.equal(usage.period, 'persistent');
 }));
+
+test('API state cannot opt out of ip_velocity with ip_velocity:false', async () => {
+  const open = (_req, _res, next) => next();
+  await withServer(async base => {
+    const { key } = await (await post(`${base}/v1/keys`, { name: 'velocity' })).json();
+    let decision;
+    for (let i = 0; i < 31; i += 1) {
+      const res = await post(`${base}/v1/decide`, { ip: '203.0.113.91', path: '/', ip_velocity: false }, key);
+      assert.equal(res.status, 200);
+      decision = await res.json();
+    }
+    assert.ok(decision.reasons.includes('ip_velocity'), JSON.stringify(decision.reasons));
+  }, { rateLimit: open, ipRateLimit: open });
+});
 
 test('reject invalid decide bodies', async () => withServer(async (base) => {
   const created = await post(`${base}/v1/keys`, { name: 'validation' });

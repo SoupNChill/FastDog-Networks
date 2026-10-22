@@ -107,10 +107,10 @@ test('bad paths warn and fail open; writer recovers after I/O failure', async t 
   await mkdir(file);
   const writer = createShadowWriter(file, { now: () => time, warn: code => warnings.push(code) });
   await writer.trim();
-  await writer(row(0, 'failed'));
+  assert.equal(await writer(row(0, 'failed')), false); // failure is reported to the caller, not thrown
   await pruneShadowSummaries(join(dir, 'missing'), { warn: code => warnings.push(code) });
   assert.ok(warnings.length >= 3);
   await rm(file, { recursive: true });
-  await writer(row(0, 'recovered'));
+  assert.equal(await writer(row(0, 'recovered')), true);
   assert.equal(await readFile(file, 'utf8'), lines([row(0, 'recovered')]));
 });

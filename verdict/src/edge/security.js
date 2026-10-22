@@ -3,7 +3,8 @@ import { isIP } from 'node:net';
 import { normalizeHost } from '../config/hosts.js';
 export const sign = (payload, secret) => createHmac('sha256', secret).update(payload).digest('base64url');
 export function equal(a, b) { if (typeof a !== 'string' || typeof b !== 'string') return false; const x=Buffer.from(a), y=Buffer.from(b); return x.length === y.length && timingSafeEqual(x,y); }
-export function ipPrefix(ip) {
+// v6Bits: 64 (default; live rate-limit and clearance keys) or 48 (stored shadow rows only).
+export function ipPrefix(ip, { v6Bits = 64 } = {}) {
   if (!isIP(ip || '')) return null;
   if (isIP(ip) === 4) return ip.split('.').slice(0, 3).join('.') + '.0/24';
   let value = ip.toLowerCase().split('%')[0];
@@ -13,7 +14,8 @@ export function ipPrefix(ip) {
   const words = right !== undefined ? [...a, ...Array(8-a.length-b.length).fill('0'), ...b] : a;
   const nums = words.map(x => parseInt(x,16));
   if (nums.slice(0,5).every(x => x === 0) && nums[5] === 65535) return `${nums[6]>>8}.${nums[6]&255}.${nums[7]>>8}.0/24`;
-  return nums.slice(0,4).map(x => x.toString(16).padStart(4,'0')).join(':') + '::/64';
+  const bits = v6Bits === 48 ? 48 : 64;
+  return nums.slice(0, bits / 16).map(x => x.toString(16).padStart(4,'0')).join(':') + `::/${bits}`;
 }
 export const DEMO_HOST = 'verdict-demo.fastdognetworks.com';
 export function binding(req) {
