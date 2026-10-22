@@ -88,6 +88,7 @@ Portal state is 0600 under a 0700 directory. Edge JSON uses atomic file replacem
 | `INVITE_REQUIRED` | **True**, legacy zone gate; portal is independently invite-only |
 | `STATUS_INTERVAL_MS` | **60000**, not off; `0` disables the timer but status requests still probe |
 | `STATUS_ALERT_WEBHOOK_URL` | Unset; no alert POST unless configured |
+| `EDGE_MAX_BODY_BYTES` | **52428800** (50 MiB) tunneled request-body cap; larger bodies get 413 `payload_too_large` and never reach the agent. Integer 1..73400320 (70 MiB, under the ws 100 MiB frame limit after base64), otherwise startup fails |
 
 Other important settings: `ATTACH_TARGET`, `ALT_ATTACH_TARGET`, `EDGE_PUBLIC_IP`, `RESERVED_SUFFIXES`, `EDGE_BIND/PORT`, `INTERNAL_BIND/PORT`, `OPERATOR_BIND/PORT`, `PORTAL_ORIGIN`, `STATE_DIRECTORY`, `OUTBOX_DIR`, `EDGE_INTERNAL_URL`, `DOMAIN_SEARCH_URL`. See [portal configuration](../portal/README.md) and [internal operations](INTERNAL_API_OPS.md). Do not set an empty reserved list: its treatment is an open finding. Synthetic `example.test` examples below are documentation placeholders; the default reserved suffix policy deliberately rejects `.test` in real tenant onboarding.
 

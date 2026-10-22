@@ -18,6 +18,7 @@ import {
   detachWs,
   getAgentByHost,
   proxyViaTunnel,
+  parseMaxBodyBytes,
 } from '../control/tunnels.js';
 import { operatorAuth } from '../control/auth.js';
 import { createInternalServer, assertLoopbackBind } from '../internal/server.js';
@@ -37,6 +38,7 @@ const PORT = Number(env('EDGE_PORT', '8787'));
 const BIND = env('EDGE_BIND', '127.0.0.1');
 assertSafeStartup();
 const AGENT_TOKEN = process.env.AGENT_TOKEN?.trim() ? process.env.AGENT_TOKEN : DEFAULT_AGENT_TOKEN;
+const MAX_BODY_BYTES = parseMaxBodyBytes(process.env.EDGE_MAX_BODY_BYTES);
 const ALLOW_QUERY_TOKEN = env('ALLOW_QUERY_TOKEN', '1') !== '0';
 // Successful legacy tunnel connections since this process started.
 let queryTokenFallbackUses = 0;
@@ -200,7 +202,7 @@ app.use((req, res) => {
 
   if (resolved.kind === 'tunnel') {
     inc('requestsTunnel');
-    return proxyViaTunnel(resolved.agent, req, res);
+    return proxyViaTunnel(resolved.agent, req, res, { maxBodyBytes: MAX_BODY_BYTES });
   }
 
   if (resolved.kind === 'static') inc('requestsStatic');

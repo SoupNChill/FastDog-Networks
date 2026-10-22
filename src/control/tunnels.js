@@ -104,6 +104,30 @@ export function detachWs(agentId, ws) {
   if (a && a.ws === ws) { a.ws = null; delete a.originReachable; delete a.originCheckedAt; }
 }
 
+// The whole request body travels in one JSON frame as base64 (4/3 size). ws closes
+// the tunnel with 1009 above its 100 MiB maxPayload, so the ceiling leaves headroom.
+export const DEFAULT_MAX_BODY_BYTES = 50 * 1024 * 1024;
+export const MAX_BODY_BYTES_CEILING = 70 * 1024 * 1024;
+
+/** Parse EDGE_MAX_BODY_BYTES; unset/empty means the default, anything else invalid throws. */
+export function parseMaxBodyBytes(value) {
+  if (value === undefined || value === '') return DEFAULT_MAX_BODY_BYTES;
+  const n = /^\d+$/.test(String(value)) ? Number(value) : NaN;
+  if (!Number.isSafeInteger(n) || n < 1 || n > MAX_BODY_BYTES_CEILING) {
+    throw new Error(`invalid EDGE_MAX_BODY_BYTES: must be an integer from 1 to ${MAX_BODY_BYTES_CEILING}`);
+  }
+  return n;
+}
+
+function rejectTooLarge(req, res, limit) {
+  if (res.headersSent) return;
+  // Stop the edge reading the rest of the body once the 413 is out.
+  res.once('close', () => { if (!req.destroyed) req.destroy(); });
+  const body = JSON.stringify({ error: 'payload_too_large', limit });
+  res.writeHead(413, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), connection: 'close' });
+  res.end(body);
+}
+
 /**
  * Send an HTTP-over-WS frame to the agent and wait for response.
  * Frame protocol (v0 JSON):
@@ -111,10 +135,17 @@ export function detachWs(agentId, ws) {
  *   agent -> edge: { type:'http_res', id, status, headers, bodyBase64? }
  * TODO: multiplex many streams, binary frames, backpressure, reconnect.
  */
-export function proxyViaTunnel(agent, req, res) {
+export function proxyViaTunnel(agent, req, res, { maxBodyBytes = DEFAULT_MAX_BODY_BYTES } = {}) {
   if (!agent.ws || agent.ws.readyState !== 1) {
     res.writeHead(502, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: 'tunnel_not_connected', hostname: agent.hostname }));
+    return;
+  }
+
+  // Node's parser already rejects malformed or negative Content-Length with 400.
+  const declared = req.headers['content-length'];
+  if (declared !== undefined && Number(declared) > maxBodyBytes) {
+    rejectTooLarge(req, res, maxBodyBytes);
     return;
   }
 
@@ -176,20 +207,35 @@ export function proxyViaTunnel(agent, req, res) {
 
   // Defense in depth: if a prior middleware already consumed the stream (e.g. express.json),
   // 'end' will never fire again — proceed with an empty body rather than hang forever.
-  if (req.readableEnded || req.complete) {
+  // A request that is merely complete (fully received, still buffered) must not take this
+  // path: its data and 'end' are still pending, so it is read and counted below.
+  if (req.readableEnded) {
     sendFrame(Buffer.alloc(0));
     return;
   }
 
-  const chunks = [];
-  req.on('data', (c) => chunks.push(c));
-  req.on('end', () => sendFrame(Buffer.concat(chunks)));
+  let chunks = [];
+  let received = 0;
+  req.on('data', (c) => {
+    if (!chunks) return;
+    received += c.length;
+    if (received > maxBodyBytes) {
+      chunks = null;
+      req.pause();
+      rejectTooLarge(req, res, maxBodyBytes);
+      return;
+    }
+    chunks.push(c);
+  });
+  req.on('end', () => { if (chunks) sendFrame(Buffer.concat(chunks)); });
   req.on('error', (err) => {
-    if (!res.headersSent) {
+    if (chunks && !res.headersSent) {
       res.writeHead(400, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'request_body_error', detail: err.message }));
     }
   });
+  // A 'data' listener does not restart a stream an earlier middleware explicitly paused.
+  req.resume();
 }
 
 export function closeHost(hostname) {
