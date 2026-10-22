@@ -4,7 +4,7 @@ import { writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { temporary } from './helpers.js';
 import { digestConfig } from '../bin/owner-digest.js';
-import { collectAccounts, countVisitors, countFunnel, PROBE_PATH, PROBE_CATEGORIES, SHADOW_CAP, readShadow, BOT_UA, renderDigest } from '../src/owner-digest.js';
+import { collectAccounts, collectHostnames, countVisitors, countFunnel, PROBE_PATH, PROBE_CATEGORIES, SHADOW_CAP, readShadow, BOT_UA, renderDigest } from '../src/owner-digest.js';
 const window = { start: 1000, end: 3000 };
 const created_at = new Date(2000).toISOString();
 // Synthetic non-reserved suffix: no real customer address or DNS lookup.
@@ -24,18 +24,23 @@ test('internal tenants exclude all their users and trials, but retain hostname i
   assert.deepEqual(result.accounts, { available: true, signups: 1, signups_open: 1, signups_invite: 0, verified_in_window: 1, tenants: 1, users: 1, verified: 1, suspended: 0 });
   assert.equal(result.trials.active, 1);
   assert.equal(result.tenants.length, 6);
+  assert.deepEqual(result.tenants.map((tenant) => tenant.internal), [true, true, true, true, true, false]);
   const lines = renderDigest(result);
   assert.equal(lines[lines.findIndex((s) => s.startsWith('  Totals:')) + 1], '  Internal/test: 5 accounts (excluded above)');
   assert.ok(!lines.join('\n').includes('@'));
   const disabled = collectAccounts({ store, now: 2500, window, config: { ...cfg, internalAuto: false } });
   assert.equal(disabled.internal.tenants, 2);
+  assert.deepEqual(disabled.tenants.map((tenant) => tenant.internal), [false, false, false, true, true, false]);
   assert.equal(config({ OWNER_DIGEST_INTERNAL_AUTO: '0' }).internalAuto, false);
   tenants[4].internal = false;
   const none = collectAccounts({ store, now: 2500, window, config: { internalAuto: false } });
+  assert.ok(none.tenants.every((tenant) => tenant.internal === false));
   assert.ok(!renderDigest(none).some((s) => s.includes('Internal/test')));
   for (const target of [tenants[5], users[5]]) for (const flag of ['test', 'internal']) {
     target[flag] = true;
-    assert.equal(collectAccounts({ store, now: 2500, window, config: { internalAuto: false } }).internal.tenants, 1);
+    const flagged = collectAccounts({ store, now: 2500, window, config: { internalAuto: false } });
+    assert.equal(flagged.internal.tenants, 1);
+    assert.equal(flagged.tenants.find((tenant) => tenant.id === 't_5').internal, true);
     delete target[flag];
   }
 });
@@ -135,4 +140,53 @@ test('decoded probes use finite categories and never render request identifiers'
   assert.ok(lines.includes('  Top probe types: .env 2, .git 2, wp-login 1'));
   for (const value of [...sensitive, '203.0.113.7', token, 'crawler-page']) assert.ok(!lines.join('\n').includes(value));
   assert.equal('bot_top_paths' in result, false);
+});
+
+test('hostname inventory separates internal tenants in complete and partial digests', async () => {
+  const tenants = [
+    { id: 't_customer', paused: true, internal: false },
+    { id: 't_internal', paused: true, internal: true },
+    { id: 't_legacy', paused: false },
+  ];
+  const data = {
+    t_customer: [{ hostname: 'customer.example.test', status: 'active', agent: { connected: true } }],
+    t_internal: [
+      { hostname: 'internal.example.test', status: 'active', agent: { connected: true } },
+      { hostname: 'pending.example.test', status: 'pending' },
+    ],
+    t_legacy: [{ hostname: 'legacy.example.test', status: 'pending' }],
+  };
+  for (const partial of [false, true]) {
+    const calls = [];
+    let inFlight = false;
+    const edge = { async listHostnames(id) {
+      assert.equal(inFlight, false);
+      inFlight = true;
+      calls.push(id);
+      await Promise.resolve();
+      inFlight = false;
+      if (partial && id === 't_legacy') throw new Error('unavailable');
+      return { hostnames: data[id] };
+    } };
+    const hostnames = await collectHostnames({ edge, tenants });
+    assert.deepEqual(calls, tenants.map((tenant) => tenant.id));
+    assert.deepEqual(hostnames, {
+      available: !partial, total: partial ? 1 : 2, active: 1, connected: 1, on_paused: 1,
+      internal: { total: 2, active: 1, connected: 1 }, checked: partial ? 2 : 3, tenants: 3,
+    });
+    const lines = renderDigest({ hostnames });
+    const index = lines.findIndex((line) => line.startsWith('Hostnames:'));
+    assert.equal(lines[index], partial
+      ? 'Hostnames: unavailable (partial, 2 of 3 accounts: 1 total, 1 active, 1 with a connected agent, 1 on paused trials)'
+      : 'Hostnames: 2 total, 1 active, 1 with a connected agent, 1 on paused trials');
+    assert.equal(lines[index + 1], '  Internal/test hostnames: 2 (1 active, 1 with a connected agent) (excluded above)');
+    for (const tenant of tenants) assert.ok(!lines.join('\n').includes(tenant.id));
+    assert.ok(!lines.join('\n').includes('example.test'));
+  }
+  const hostnames = await collectHostnames({
+    tenants, edge: { listHostnames: (id) => ({ hostnames: id === 't_internal' ? [] : data[id] }) },
+  });
+  assert.deepEqual(hostnames.internal, { total: 0, active: 0, connected: 0 });
+  assert.equal(hostnames.total, 2);
+  assert.ok(!renderDigest({ hostnames }).some((line) => line.includes('Internal/test hostnames')));
 });

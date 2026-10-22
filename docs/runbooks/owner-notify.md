@@ -21,8 +21,9 @@ tickets or logs. Keys and behaviour: [portal README](../../portal/README.md)
 | `OWNER_DIGEST_INTERNAL_AUTO` | `1` | Set `0` to disable owner/plus-address and reserved test-domain detection. Explicit addresses and tenant/user `internal: true` or `test: true` flags still apply. |
 | `OWNER_DIGEST_SHADOW_FILE` | Unset (off) | Absolute path to Verdict shadow JSONL; windowed challenge/block prefix+path matches count as bots. Missing/unreadable files are skipped. The digest unit needs read access to this file, which is not granted today; an operator must arrange file permissions and unit sandbox access before enabling. |
 
-Customer totals and trials exclude internal tenants; hostname inventory still covers
-all non-suspended tenants. The digest shows an internal account count without emails.
+Customer totals, trials and Hostnames counts exclude internal tenants; internal/test
+hostname counts appear separately when nonzero, including in partial results. Hostname
+collection still queries all non-suspended tenants. The digest shows an internal account count without emails.
 Visitors count humans only; empty/scanner UAs and probe paths count as bots, with
 probe requests counted across all methods/statuses. Shadow joins are bounded at
 50,000 salted, fixed-size hash keys per collector; paths longer than 2048 characters
