@@ -139,12 +139,12 @@ const hostTenants = [{ id: tid('a'), paused: false }, { id: tid('b'), paused: tr
 test('collectHostnames: sequential counts; a failing tenant marks the section unavailable with partial counts', async () => {
   const ok = recordingEdge(hostData);
   assert.deepEqual(await collectHostnames({ edge: ok.edge, tenants: hostTenants }),
-    { available: true, total: 4, active: 3, connected: 2, on_paused: 1, checked: 3, tenants: 3 });
+    { available: true, total: 4, active: 3, connected: 2, on_paused: 1, internal: { total: 0, active: 0, connected: 0 }, checked: 3, tenants: 3 });
   assert.equal(ok.stats.maxInFlight, 1, 'never parallel');
   assert.deepEqual(ok.stats.calls, hostTenants.map((tenant) => tenant.id));
   const partial = recordingEdge(hostData, { fail: new Set([tid('b')]) });
   assert.deepEqual(await collectHostnames({ edge: partial.edge, tenants: hostTenants }),
-    { available: false, total: 3, active: 2, connected: 2, on_paused: 0, checked: 2, tenants: 3 });
+    { available: false, total: 3, active: 2, connected: 2, on_paused: 0, internal: { total: 0, active: 0, connected: 0 }, checked: 2, tenants: 3 });
   const slow = recordingEdge(hostData, { hang: new Set([tid('a')]) });
   const timed = await collectHostnames({ edge: slow.edge, tenants: hostTenants, timeoutMs: 20 });
   assert.equal(timed.available, false);

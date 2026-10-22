@@ -54,7 +54,7 @@ export function digestWindow(nowMs) {
 
 // ---- Accounts and trials ----
 
-// Returns { accounts, internal, trials, tenants }; tenants ([{ id, paused }], non-suspended only) feeds collectHostnames and is
+// Returns { accounts, internal, trials, tenants }; tenants ([{ id, paused, internal }], non-suspended only) feeds collectHostnames and is
 // null when suspensions cannot be read. Account emails are kept for rendering, which masks them by default.
 export function collectAccounts({ store, now, window, config = {} }) {
   const inWindow = (value) => { const at = parse(value); return Number.isFinite(at) && at >= window.start && at < window.end; };
@@ -113,7 +113,7 @@ export function collectAccounts({ store, now, window, config = {} }) {
     paused = new Set(pausedList.map((entry) => entry.tenant_id));
     out.trials = { available: true, active, ending: ending.sort((a, b) => a.ends_at - b.ends_at), paused: pausedList.filter((entry) => !internalIds.has(entry.tenant_id)) };
   } catch { /* trials stay unavailable */ }
-  if (suspended) out.tenants = tenants.filter((tenant) => !suspended.has(tenant.id)).map((tenant) => ({ id: tenant.id, paused: paused.has(tenant.id) }));
+  if (suspended) out.tenants = tenants.filter((tenant) => !suspended.has(tenant.id)).map((tenant) => ({ id: tenant.id, paused: paused.has(tenant.id), internal: internalIds.has(tenant.id) }));
   return out;
 }
 
@@ -127,7 +127,7 @@ function withTimeout(promise, ms) {
 
 // One listHostnames call at a time. Stops early after three consecutive failures or once budgetMs is spent.
 export async function collectHostnames({ edge, tenants, timeoutMs = 6000, budgetMs = 90000, now = Date.now }) {
-  const out = { available: false, total: 0, active: 0, connected: 0, on_paused: 0, checked: 0, tenants: Array.isArray(tenants) ? tenants.length : 0 };
+  const out = { available: false, total: 0, active: 0, connected: 0, on_paused: 0, internal: { total: 0, active: 0, connected: 0 }, checked: 0, tenants: Array.isArray(tenants) ? tenants.length : 0 };
   if (!edge || typeof edge.listHostnames !== 'function' || !Array.isArray(tenants)) return out;
   const started = now();
   let streak = 0;
@@ -137,10 +137,11 @@ export async function collectHostnames({ edge, tenants, timeoutMs = 6000, budget
       const result = await withTimeout(Promise.resolve().then(() => edge.listHostnames(tenant.id)), timeoutMs);
       if (!Array.isArray(result?.hostnames)) throw new Error('shape');
       const list = result.hostnames.filter(plain);
-      out.total += list.length;
-      out.active += list.filter((host) => host.status === 'active').length;
-      out.connected += list.filter((host) => host.agent?.connected === true).length;
-      if (tenant.paused) out.on_paused += list.length;
+      const counts = tenant.internal === true ? out.internal : out;
+      counts.total += list.length;
+      counts.active += list.filter((host) => host.status === 'active').length;
+      counts.connected += list.filter((host) => host.agent?.connected === true).length;
+      if (tenant.internal !== true && tenant.paused) out.on_paused += list.length;
       out.checked++;
       streak = 0;
     } catch { streak++; }
@@ -451,6 +452,7 @@ export function renderDigest({ day, showEmail = false, accounts, internal, trial
   if (hostnames?.available) lines.push(`Hostnames: ${hostCounts(hostnames)}`);
   else if (hostnames?.checked > 0) lines.push(`Hostnames: unavailable (partial, ${hostnames.checked} of ${hostnames.tenants} accounts: ${hostCounts(hostnames)})`);
   else lines.push('Hostnames: unavailable');
+  if (hostnames?.internal?.total > 0) lines.push(`  Internal/test hostnames: ${hostnames.internal.total} (${hostnames.internal.active} active, ${hostnames.internal.connected} with a connected agent) (excluded above)`);
   if (mail?.available) {
     lines.push(`Mail: ${mail.total} messages (${mail.sent} sent, ${mail.failed} failed, ${mail.queued} queued in outbox)`);
     if (mail.kinds.length) lines.push(`  By kind: ${mail.kinds.map(([kind, n]) => `${kind} ${n}`).join(', ')}`);
