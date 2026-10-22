@@ -16,6 +16,7 @@ No HIGH findings. Items fixed before merge: bare `log {}` in the generated Caddy
 - INFO: 409 `hostname_unavailable` is an existence oracle, as the contract specifies.
 
 ## Lane B (portal)
+- DONE (owner digest classification): exclude internal/test tenants from customer counts, support masked-log UAs, separate humans and probes, and optionally join bounded Verdict shadow decisions; offline regression coverage and owner-notify settings documented.
 - DONE (open-signup flip): integration test boots the real portal on one data dir with the flag unset, `1`, then `0`, sending `accept_terms: true` and checking a sign-up without it is refused; runbooks/open-signup.md covers preflight (including `SITE_ORIGIN` and terms version bumps), flip, first hour, rollback and kill switch. Pending open registrations can still verify after rollback, and expired unverified ones are locked out until a re-flip (documented, not changed).
 - DONE (#87, #88 merged into the flip PR): `portal/server.js` reads `MAIL_TRANSPORT` (file default, smtp opt-in) and runbooks/open-signup.md documents both, keeping file for the flip; the runbook's kill switch section now uses `portal/bin/tenant.js` suspend/resume/release, and the flip test suspends an open account through the CLI and checks its session and login are refused.
 - DONE (OS-C2): sign-up requires a Terms/Privacy checkbox; the server refuses generically unless `accept_terms` is JSON `true` (invite, open and reclaimed open registrations) and stores its own document versions, acceptance time and a per-install salted IP hash.
