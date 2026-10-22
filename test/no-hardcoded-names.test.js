@@ -54,12 +54,14 @@ test('deny-list is lowercase data and exemptions are explicitly reviewed', () =>
 // Approved Terms and FAQ contacts add two files, two hashes and two occurrences.
 // Site copy fixes: the header sign-up button (portal URL) adds the docs and FAQ navigation lines, which had no
 // public host before: one file (docs), two hashes, two occurrences. Edited lines elsewhere only swap hashes.
+// SEO basics: absolute own-origin URLs in page heads (canonical, og:url, og:image,
+// twitter:image, JSON-LD), robots.txt and sitemap.xml add two files, 33 hashes and 33 occurrences.
 test('allowlist stays grouped by directory and at exact reviewed baseline counts', () => {
   assert.deepEqual(Object.keys(allow), Object.keys(allow).sort());
-  assert.equal(Object.keys(allow).length, 65, 'review required to change exempt files');
+  assert.equal(Object.keys(allow).length, 67, 'review required to change exempt files');
   const lines = Object.values(allow).flatMap((rule) => Object.values(rule.lines || {}));
-  assert.equal(lines.length, 357, 'review required to change line-hash entries');
-  assert.equal(lines.reduce((sum, count) => sum + count, 0), 405, 'review required to change exempt occurrences');
+  assert.equal(lines.length, 390, 'review required to change line-hash entries');
+  assert.equal(lines.reduce((sum, count) => sum + count, 0), 438, 'review required to change exempt occurrences');
 });
 
 test('whole-file flags cannot exempt documentation or arbitrary source files', () => {
