@@ -8,7 +8,10 @@ const site = fileURLToPath(new URL('../site/', import.meta.url));
 const read = (path) => readFileSync(join(site, path), 'utf8');
 const pages = ['terms/index.html', 'privacy/index.html', 'faq/index.html'];
 // Head metadata (canonical, og:url, og:image, twitter:image) must carry the absolute origin; body copy must not.
-const body = (html) => html.slice(html.indexOf('</head>'));
+const body = (html) => {
+  assert.ok(html.includes('</head>'), 'page has a closing </head> tag');
+  return html.slice(html.indexOf('</head>'));
+};
 const resolves = (href) => {
   const path = href.split('#')[0];
   return existsSync(join(site, path.endsWith('/') ? `${path}index.html` : path));
