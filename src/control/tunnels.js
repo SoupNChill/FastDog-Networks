@@ -136,6 +136,7 @@ function rejectTooLarge(req, res, limit) {
  * TODO: multiplex many streams, binary frames, backpressure, reconnect.
  */
 export function proxyViaTunnel(agent, req, res, { maxBodyBytes = DEFAULT_MAX_BODY_BYTES } = {}) {
+  if (res.destroyed || res.headersSent || req.aborted) return;
   if (!agent.ws || agent.ws.readyState !== 1) {
     res.writeHead(502, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: 'tunnel_not_connected', hostname: agent.hostname }));
@@ -152,6 +153,15 @@ export function proxyViaTunnel(agent, req, res, { maxBodyBytes = DEFAULT_MAX_BOD
   const id = randomUUID();
 
   function sendFrame(body) {
+    if (res.destroyed || res.headersSent || req.aborted) return;
+    // Bind the whole pending request to this socket, even across reconnects.
+    const ws = agent.ws;
+    if (!ws || ws.readyState !== 1) {
+      res.writeHead(502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'tunnel_not_connected', hostname: agent.hostname }));
+      return;
+    }
+    let settled = false;
     const frame = {
       type: 'http_req',
       id,
@@ -161,15 +171,32 @@ export function proxyViaTunnel(agent, req, res, { maxBodyBytes = DEFAULT_MAX_BOD
       bodyBase64: body.length ? body.toString('base64') : undefined,
     };
 
-    const timer = setTimeout(() => {
+    const timer = setTimeout(() => fail(504, { error: 'tunnel_timeout', id }), 30000);
+
+    function fail(status, payload) {
+      if (settled) return;
       cleanup();
-      if (!res.headersSent) {
-        res.writeHead(504, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'tunnel_timeout', id }));
+      if (!res.headersSent && !res.destroyed && !req.aborted) {
+        res.writeHead(status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(payload));
       }
-    }, 30000);
+    }
+
+    function onClose() {
+      fail(502, { error: 'tunnel_disconnected', id });
+    }
+
+    function onClientClose() {
+      cleanup();
+    }
+
+    function onRequestClose() {
+      // IncomingMessage also closes after a normally completed upload.
+      if (!req.complete && !req.readableEnded) cleanup();
+    }
 
     function onMessage(data) {
+      if (settled) return;
       let msg;
       try {
         msg = JSON.parse(String(data));
@@ -178,6 +205,7 @@ export function proxyViaTunnel(agent, req, res, { maxBodyBytes = DEFAULT_MAX_BOD
       }
       if (msg.type !== 'http_res' || msg.id !== id) return;
       cleanup();
+      if (res.headersSent || res.destroyed || req.aborted) return;
       const headers = msg.headers || {};
       // Avoid hop-by-hop issues
       delete headers['transfer-encoding'];
@@ -188,20 +216,33 @@ export function proxyViaTunnel(agent, req, res, { maxBodyBytes = DEFAULT_MAX_BOD
     }
 
     function cleanup() {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      agent.ws.off('message', onMessage);
+      for (const [emitter, event, listener] of [
+        [ws, 'message', onMessage], [ws, 'close', onClose], [ws, 'error', onClose],
+        [res, 'close', onClientClose], [req, 'aborted', onClientClose],
+        [req, 'close', onRequestClose],
+      ]) {
+        try {
+          (emitter?.off || emitter?.removeListener)?.call(emitter, event, listener);
+        } catch { /* Cleanup must never bring down the edge. */ }
+      }
     }
 
-    agent.ws.on('message', onMessage);
+    ws.on('message', onMessage);
+    ws.on('close', onClose);
+    ws.on('error', onClose);
+    res.on('close', onClientClose);
+    req.on('aborted', onClientClose);
+    req.on('close', onRequestClose);
     try {
-      agent.ws.send(JSON.stringify(frame));
+      ws.send(JSON.stringify(frame), (err) => {
+        if (err) fail(502, { error: 'tunnel_send_failed', detail: err.message });
+      });
       touch(agent.id);
     } catch (err) {
-      cleanup();
-      if (!res.headersSent) {
-        res.writeHead(502, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'tunnel_send_failed', detail: err.message }));
-      }
+      fail(502, { error: 'tunnel_send_failed', detail: err.message });
     }
   }
 
