@@ -109,7 +109,7 @@ Poll the hostname endpoint every 15 seconds until agent.connected is true and ag
 
 ## API keys (fdak_)
 
-Signed-in users with any paid plan create API keys on the portal's API keys page. A key is shown once, stored only as a hash, belongs to one account, can be limited to exact hostnames, expires after 30 days by default (90 at most), and can be revoked at any time. A password change or a suspended account ends every key. A key can never create another key.
+Signed-in users with any paid plan create API keys on the portal's API keys page. A key is shown once, stored only as a hash, belongs to one account, can be limited to exact hostnames, expires after 30 days by default (90 at most), and can be revoked at any time. A password change or a suspended account ends every key. A key can never create another key. If the API keys page offers a key on a trial account, that key is limited to exactly one hostname, expires when the trial ends, and only one can exist at a time.
 
 Scopes (a key holds one or more):
 - `hostnames:create`: add a hostname, read it, and check its DNS (verify). Counts against the plan's hostname limit.

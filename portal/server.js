@@ -46,7 +46,7 @@ export function start(env = process.env) {
       openSignupHostnameLimit: Number(env.OPEN_SIGNUP_HOSTNAME_LIMIT || 1), openConnectTokensPerHour: Number(env.OPEN_CONNECT_TOKENS_PER_HOUR || 3),
       signupIpPerHour: Number(env.SIGNUP_IP_PER_HOUR || 3), signupDomainPerDay: Number(env.SIGNUP_DOMAIN_PER_DAY || 5),
       signupBigmailPerDay: Number(env.SIGNUP_BIGMAIL_PER_DAY || 200), signupGlobalPerDay: Number(env.SIGNUP_GLOBAL_PER_DAY || 100),
-      logger: logJson },
+      trialApiKey: env.TRIAL_API_KEY_ENABLED === '1', logger: logJson },
   });
   const purgeTimer = scheduleOutboxPurge(outboxDir);
   app.once('close', () => clearInterval(purgeTimer));

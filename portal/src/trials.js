@@ -50,6 +50,16 @@ export function tenantPlan(store, tenant, now) {
     trial: trialInfo(tenant, safe(readTrials), override, now) };
 }
 
+// Trial details while the tenant's trial is running (not ended, not paused or being paused) and the tenant is
+// active, else null. Fail-closed: an unreadable trial file means no trial key (TRIAL_API_KEY_ENABLED).
+export function activeTrial(store, tenant, now) {
+  if (!tenant || (tenant.status && tenant.status !== 'active')) return null;
+  let override, state;
+  try { override = own(readOverrides(store), tenant.id); state = own(readTrials(store), tenant.id); } catch { return null; }
+  const info = trialInfo(tenant, state, override, now);
+  return info?.active && !info.paused && !state?.pause_requested_at && Number.isFinite(parse(info.ends_at)) ? info : null;
+}
+
 // CLI only (portal/bin/tenant.js, under its lock).
 export function writeOverride(store, tid, patch) {
   const all = readOverrides(store);

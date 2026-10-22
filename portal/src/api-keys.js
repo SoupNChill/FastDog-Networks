@@ -13,6 +13,9 @@ export const DAY_MS = 86400000;
 export const DEFAULT_DAYS = 30;
 export const MAX_DAYS = 90;
 export const MAX_LIVE_PER_TENANT = 10;
+// Trial keys (TRIAL_API_KEY_ENABLED, default off): one live key, exactly one hostname, never past the trial end.
+export const TRIAL_MAX_LIVE = 1;
+export const TRIAL_MAX_HOSTNAMES = 1;
 const MAX_ALLOW_HOSTS = 20;
 const AUDIT_KEEP_PER_TENANT = 1000;
 const AUDIT_MAX_AGE_DAYS = 30;
@@ -29,9 +32,10 @@ export function createApiKeys(store, now) {
   const live = (k) => !k.revoked_at && Date.parse(k.expires_at) > now();
   const view = (k) => ({ id: k.id, name: k.name, prefix: k.prefix, scopes: [...k.scopes], hostnames: k.hostnames ? [...k.hostnames] : null,
     created_at: k.created_at, expires_at: k.expires_at, revoked_at: k.revoked_at, last_used_at: k.last_used_at ?? null,
-    state: k.revoked_at ? 'revoked' : live(k) ? 'active' : 'expired' });
+    state: k.revoked_at ? 'revoked' : live(k) ? 'active' : 'expired', ...(k.trial ? { trial: true } : {}) });
   return {
-    parse(body) {
+    // trial: the tenant's active trial ({ ends_at }) when this is a trial key, else null (paid rules).
+    parse(body, trial = null) {
       const name = body.name === undefined ? '' : body.name;
       if (typeof name !== 'string' || name.length > 60 || /[\x00-\x1f\x7f<>]/.test(name)) throw fail('invalid_key');
       const scopes = body.scopes;
@@ -45,18 +49,27 @@ export function createApiKeys(store, now) {
           catch { throw fail('invalid_key'); }
         }
       }
-      const days = body.expires_in_days === undefined ? DEFAULT_DAYS : body.expires_in_days;
+      if (trial && hostnames?.length !== TRIAL_MAX_HOSTNAMES) throw fail('invalid_key');
+      // A trial key without a lifetime runs until the trial ends (within the 90-day maximum).
+      const days = body.expires_in_days === undefined ? (trial ? MAX_DAYS : DEFAULT_DAYS) : body.expires_in_days;
       if (!Number.isInteger(days) || days < 1 || days > MAX_DAYS) throw fail('invalid_key');
-      return { name: name.trim(), scopes: API_KEY_SCOPES.filter((s) => scopes.includes(s)), hostnames, days };
+      const parsed = { name: name.trim(), scopes: API_KEY_SCOPES.filter((s) => scopes.includes(s)), hostnames, days };
+      if (!trial) return parsed;
+      const ends = Date.parse(trial.ends_at);
+      if (!Number.isFinite(ends) || ends <= now()) throw fail('plan_required');
+      return { ...parsed, trial_ends: ends };
     },
-    create(tenantId, issuer, { name, scopes, hostnames, days }) {
+    // Latest expiry a trial key created now can get.
+    trialExpiry: (trial) => new Date(Math.min(Date.parse(trial.ends_at), now() + MAX_DAYS * DAY_MS)).toISOString(),
+    create(tenantId, issuer, { name, scopes, hostnames, days, trial_ends }) {
       const records = all();
-      if (records.filter((k) => k.tenant_id === tenantId && live(k)).length >= MAX_LIVE_PER_TENANT) throw fail('key_limit_reached');
+      const trial = trial_ends !== undefined;
+      if (records.filter((k) => k.tenant_id === tenantId && live(k)).length >= (trial ? TRIAL_MAX_LIVE : MAX_LIVE_PER_TENANT)) throw fail('key_limit_reached');
       const secret = `${API_KEY_PREFIX}${randomBytes(32).toString('base64url')}`;
       const record = { id: randomUUID(), digest: digest(secret), prefix: secret.slice(0, 9), tenant_id: tenantId, name,
         scopes, hostnames, user_id: issuer.user_id, auth_version: issuer.auth_version ?? null,
-        created_at: new Date(now()).toISOString(), expires_at: new Date(now() + days * DAY_MS).toISOString(),
-        revoked_at: null, last_used_at: null };
+        created_at: new Date(now()).toISOString(), expires_at: new Date(Math.min(now() + days * DAY_MS, trial ? trial_ends : Infinity)).toISOString(),
+        revoked_at: null, last_used_at: null, ...(trial ? { trial: true } : {}) };
       records.push(record);
       store.write('api_keys', records);
       return { key: secret, ...view(record) };

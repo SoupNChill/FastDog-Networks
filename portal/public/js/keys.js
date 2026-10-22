@@ -27,10 +27,31 @@ function render(data) {
   }
 }
 
+// Set only when the API says trial limits apply (TRIAL_API_KEY_ENABLED); otherwise the page is unchanged.
+let trial = null;
+let liveKeys = 0;
+
+function showTrial() {
+  const note = document.querySelector('#keys-trial');
+  const label = document.querySelector('label[for="key-hosts"]');
+  const hosts = document.querySelector('#key-hosts');
+  // The page's own label text, kept so a reload without trial metadata (after an upgrade) restores the normal form.
+  label.dataset.normal ??= label.textContent;
+  note.hidden = !trial;
+  if (trial) note.textContent = `Trial key: ${trial.max_hostnames} hostname, expires when your trial ends (${when(trial.expires_at)}), ${trial.max_keys} key at a time.`;
+  label.textContent = trial ? 'The one website this key may use (required)' : label.dataset.normal;
+  hosts.required = Boolean(trial);
+  hosts.rows = trial ? 1 : 3;
+  for (const element of [document.querySelector('label[for="key-days"]'), document.querySelector('#key-days')]) element.hidden = Boolean(trial);
+}
+
 async function load() {
   const data = await api('/api/keys');
+  trial = data.trial ?? null;
+  liveKeys = data.keys.filter((key) => key.state === 'active').length;
   document.querySelector('#keys-unavailable').hidden = data.available;
   document.querySelector('#key-form').hidden = !data.available;
+  showTrial();
   render(data);
 }
 
@@ -45,8 +66,11 @@ async function main() {
     try {
       const scopes = [...form.querySelectorAll('input[name="scope"]:checked')].map((box) => box.value);
       const hostnames = form.hostnames.value.split(/\s+/).map((h) => h.trim()).filter(Boolean);
+      if (trial && liveKeys >= trial.max_keys) throw new Error('A trial account can have 1 active key. Revoke it first.');
+      if (trial && hostnames.length !== trial.max_hostnames) throw new Error('A trial key needs exactly one website address.');
+      // A trial key always runs until the trial ends, so no lifetime is sent.
       const made = await api('/api/keys', 'POST', { name: form.name.value, scopes, hostnames,
-        expires_in_days: Number(form.expires_in_days.value), password: form.password.value });
+        ...(trial ? {} : { expires_in_days: Number(form.expires_in_days.value) }), password: form.password.value });
       document.querySelector('#key-secret').textContent = made.key;
       document.querySelector('#key-new').hidden = false;
       document.querySelector('#key-copy').onclick = () => copy(made.key);
