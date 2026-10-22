@@ -52,12 +52,14 @@ test('deny-list is lowercase data and exemptions are explicitly reviewed', () =>
 // hash/occurrence; add its replacement and the assistant support link (one each).
 // Approved Privacy contact adds one file, one hash and one occurrence.
 // Approved Terms and FAQ contacts add two files, two hashes and two occurrences.
+// SEO basics: absolute own-origin URLs in page heads (canonical, og:url, og:image,
+// twitter:image, JSON-LD), robots.txt and sitemap.xml add three files, 33 hashes and 33 occurrences.
 test('allowlist stays grouped by directory and at exact reviewed baseline counts', () => {
   assert.deepEqual(Object.keys(allow), Object.keys(allow).sort());
-  assert.equal(Object.keys(allow).length, 64, 'review required to change exempt files');
+  assert.equal(Object.keys(allow).length, 67, 'review required to change exempt files');
   const lines = Object.values(allow).flatMap((rule) => Object.values(rule.lines || {}));
-  assert.equal(lines.length, 355, 'review required to change line-hash entries');
-  assert.equal(lines.reduce((sum, count) => sum + count, 0), 403, 'review required to change exempt occurrences');
+  assert.equal(lines.length, 388, 'review required to change line-hash entries');
+  assert.equal(lines.reduce((sum, count) => sum + count, 0), 436, 'review required to change exempt occurrences');
 });
 
 test('whole-file flags cannot exempt documentation or arbitrary source files', () => {

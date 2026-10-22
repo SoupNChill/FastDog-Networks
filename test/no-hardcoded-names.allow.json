@@ -358,7 +358,17 @@
       "4ea432d10e7df4fd845eb440aa1624a2be676fa057407c684a431c8b438386b4": 1,
       "664f9b47fe8eb12b22665ed583c1b70b78de36db4387bb99aae96ad8334fb7fe": 1,
       "daf6bfa3cd3460967c44ba8dbf36b21b2458f3797b9355d7139304d943633ee8": 1,
-      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1
+      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1,
+      "a962e933d8d63f699930856517fcbc24dbd3bda21eaa2d90007d1eeed35fdc3b": 1
+    }
+  },
+  "site/docs/index.html": {
+    "reason": "Own public origin in SEO head metadata, robots.txt and sitemap.xml (canonical/og/twitter URLs must be absolute); reviewed with the SEO basics PR.",
+    "lines": {
+      "35e28c5b9f870b1187f6711bcf3fb955283a00bc30cbd5f82ab56bb88ec0fe0e": 1,
+      "300e4ee83042635b166425b34e9ad581b64c204bff6b2d190579a9d3658da473": 1,
+      "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
+      "a962e933d8d63f699930856517fcbc24dbd3bda21eaa2d90007d1eeed35fdc3b": 1
     }
   },
   "site/domains/index.html": {
@@ -371,7 +381,8 @@
       "8d231849d2634eac7a2a79ed2bd76b6bd2c1e036addc844ff8968762a41f1eed": 1,
       "65bb610bf42cab1d8244c66ffbbe8387508f184a3ab165fa19533b4570b7833a": 1,
       "59814d5f329820b787bafe7e3bd160809dff566aa3d16dbd94d67df7f411d6d8": 1,
-      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1
+      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1,
+      "a962e933d8d63f699930856517fcbc24dbd3bda21eaa2d90007d1eeed35fdc3b": 1
     }
   },
   "site/edge/index.html": {
@@ -388,13 +399,18 @@
       "8e74fd90d576788adddb67423802d1281a7d45c2a917f599295496c3951c676d": 1,
       "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1,
       "1c13430a3380ae2d52f2b1c3340bef2a1570f8f932288281c912d8d5f0d00aca": 1,
-      "e7d7f556e956bca59bb011df17f9ab4858df57f98c804d44ab19f787cd167985": 1
+      "e7d7f556e956bca59bb011df17f9ab4858df57f98c804d44ab19f787cd167985": 1,
+      "a962e933d8d63f699930856517fcbc24dbd3bda21eaa2d90007d1eeed35fdc3b": 1
     }
   },
   "site/faq/index.html": {
     "reason": "Approved public FAQ contact; exempt only the exact contact line.",
     "lines": {
-      "d2cc92f133b861130642c4bed65ec5b9298538f636c3a637b3f7251071a35b2e": 1
+      "d2cc92f133b861130642c4bed65ec5b9298538f636c3a637b3f7251071a35b2e": 1,
+      "7d9ebf6f37c3976bbdb3d8211789b110b6210a1a8d5b11ed402fd94d5bf1fb48": 1,
+      "94cf385379693403a776e418223a9b45dcaa77dafd3f3f57459fd01cae799b1b": 1,
+      "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
+      "a962e933d8d63f699930856517fcbc24dbd3bda21eaa2d90007d1eeed35fdc3b": 1
     }
   },
   "site/index.html": {
@@ -414,7 +430,10 @@
       "ab87943db5c429e8e7e93e9cdd5dd76729c0fc1ac540c019d3991397e8e0f971": 1,
       "1c13430a3380ae2d52f2b1c3340bef2a1570f8f932288281c912d8d5f0d00aca": 1,
       "6edea3540068763c6ebfb1e4ee679e1e4439e9e3cebfdc019d4f4c6a1a23e570": 1,
-      "ef5188073448974dec3352191fe1b143361c8b48ac72c307409a758f08e089d9": 1
+      "ef5188073448974dec3352191fe1b143361c8b48ac72c307409a758f08e089d9": 1,
+      "a962e933d8d63f699930856517fcbc24dbd3bda21eaa2d90007d1eeed35fdc3b": 1,
+      "2ee26b3203df83475216d20fdc5b6729a220797502aa808f9edb020f276d9512": 1,
+      "e19fb74bfb39687e30eeac27214faea4dbe4dd76c213f045435759b53533708d": 1
     }
   },
   "site/js/domain-search.js": {
@@ -426,13 +445,41 @@
   "site/privacy/index.html": {
     "reason": "Approved public Privacy contact; exempt only the exact contact line.",
     "lines": {
-      "bc6defe9a78bc7b520ea9b969971fd13fa131879ed7a23668e18d228c0a20bde": 1
+      "bc6defe9a78bc7b520ea9b969971fd13fa131879ed7a23668e18d228c0a20bde": 1,
+      "96fa298be49f9e821e3e8076def5edcba2ce3d9516fae906f2ff5f9d85185172": 1,
+      "c67daa97b4224fff362f081b114de38c54b17c03f34bcfff7a3db4fb6c4b2502": 1,
+      "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
+      "a962e933d8d63f699930856517fcbc24dbd3bda21eaa2d90007d1eeed35fdc3b": 1
+    }
+  },
+  "site/robots.txt": {
+    "reason": "Own public origin in SEO head metadata, robots.txt and sitemap.xml (canonical/og/twitter URLs must be absolute); reviewed with the SEO basics PR.",
+    "lines": {
+      "2a3c9c1697103952cb4d3eb120dc1d8ba994ae5a9330d9dd650a47dafc35df60": 1
+    }
+  },
+  "site/sitemap.xml": {
+    "reason": "Own public origin in SEO head metadata, robots.txt and sitemap.xml (canonical/og/twitter URLs must be absolute); reviewed with the SEO basics PR.",
+    "lines": {
+      "a05772640e2117d0f9d305605a9105f4f344aa48356a12a692cf2650ef9b6b77": 1,
+      "ce88afcaabce8a2a3a187eced2e48ba77aa7a3123f207679c3e4097487eaf449": 1,
+      "addc09528977a1b9b2b8eb4d699192c2ef4789007d55d7f5ccd16eecfc1cc9f2": 1,
+      "413001a316045e4c736d64ceeba74645f636f364e9e990683a37bf1d8fa00e69": 1,
+      "d5713af6e776a985ac5ed54993b19670059a7eb16bc82bad0c8b80f0bd6707f8": 1,
+      "75f157863130ecb4449c374de5b2427a71bc091a0d606b0a700692394d39ed65": 1,
+      "c2dbf7afa2d286c32094dcd48ee9d166c714b6802e37031880155d0ebb18cce0": 1,
+      "9d3a7899ea15ae2aece161e301e4cc960d8207e6d1a239b8e1a68a451b9d11f2": 1,
+      "cd714901ec0a5affb5fbff520cf101b1378af7223a93678261afff1e90c46aa4": 1
     }
   },
   "site/terms/index.html": {
     "reason": "Approved public Terms contact; exempt only the exact contact line.",
     "lines": {
-      "6cae9f1dd70678d93330bf98039dd5fed419a0d8236f32c5246e44d575d2a4da": 1
+      "6cae9f1dd70678d93330bf98039dd5fed419a0d8236f32c5246e44d575d2a4da": 1,
+      "18d8270d9db5a26cf8a38acf9183d97fdcddcf54bb9983026db9b3c50c46d68a": 1,
+      "e15728b4d07539a0c58e97c763417f37b311ebf0541601c43d27e5aa990ec33f": 1,
+      "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
+      "a962e933d8d63f699930856517fcbc24dbd3bda21eaa2d90007d1eeed35fdc3b": 1
     }
   },
   "site/verdict/index.html": {
@@ -443,7 +490,8 @@
       "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1,
       "58f5028c1ebbf397ee13b380c376f0c354f194a3595bcb590952bf1bd957ba64": 1,
       "dd5c0c157952f1c3dcc12baca22fefb13cbd1fa7c1fc6b74b99be850c67d7b05": 1,
-      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1
+      "5f044bcbcbd2731820cf66061285a8209aa1fbe0e7ba898958171f5c8b180afd": 1,
+      "a962e933d8d63f699930856517fcbc24dbd3bda21eaa2d90007d1eeed35fdc3b": 1
     }
   },
   "src/dns/validate-zone.js": {
