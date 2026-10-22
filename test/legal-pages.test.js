@@ -7,6 +7,8 @@ import { join } from 'node:path';
 const site = fileURLToPath(new URL('../site/', import.meta.url));
 const read = (path) => readFileSync(join(site, path), 'utf8');
 const pages = ['terms/index.html', 'privacy/index.html', 'faq/index.html'];
+// Head metadata (canonical, og:url, og:image, twitter:image) must carry the absolute origin; body copy must not.
+const body = (html) => html.slice(html.indexOf('</head>'));
 const resolves = (href) => {
   const path = href.split('#')[0];
   return existsSync(join(site, path.endsWith('/') ? `${path}index.html` : path));
@@ -51,7 +53,7 @@ for (const [page, title] of [['terms/index.html', 'Terms of Service'], ['faq/ind
     // The FAQ header also carries the site-wide sign-up button (Terms and Privacy do not).
     const signupLink = `<a class="nav-cta" href="https://portal.${host}/signup">Start free: 7 days, no card</a>`;
     assert.equal(html.includes(signupLink), page === 'faq/index.html');
-    assert.ok(!html.replace(contactLink, '').replace(signupLink, '').includes(host), 'public host appears only in the contact and sign-up links');
+    assert.ok(!body(html).replace(contactLink, '').replace(signupLink, '').includes(host), 'public host appears only in the contact and sign-up links');
   });
 }
 
@@ -72,7 +74,7 @@ test('privacy/index.html is final copy (no DRAFT), version 2026-10-20', () => {
   assert.doesNotMatch(html, /TODO/);
   assert.doesNotMatch(html, /Stripe/i);
   assert.doesNotMatch(html, /DigitalOcean|Hetzner|MXRoute/i);
-  assert.ok(!html.replace(contactLink, '').includes(host), 'public host appears only in the contact link');
+  assert.ok(!body(html).replace(contactLink, '').includes(host), 'public host appears only in the contact link (head SEO metadata excluded)');
 });
 
 test('legal pages cover the required topics', () => {

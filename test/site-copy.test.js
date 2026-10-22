@@ -31,7 +31,7 @@ test('timing claims carry their context and unbacked promises are gone', () => {
   }
   const [home, domains, verdict, customer] = pages;
   assert.ok(home.includes('<p>Registered at cost, in your name.</p><p>You are the registrant. Then attach a hostname to the edge.</p>'));
-  assert.equal(domains.split('in your name, then attached to the FastDog edge. You are the registrant.').length - 1, 3);
+  assert.equal(domains.split('in your name, then attached to the FastDog edge. You are the registrant.').length - 1, 4); // meta, og and twitter descriptions + body
   const local = 'Verdict runs on the edge server itself, so each decision is a local call, not a trip across the internet.';
   assert.ok(home.includes(`<p>${local}</p>`));
   assert.ok(verdict.includes(`<h2 id="a-measured-decision-path">A local decision path.</h2><p class="measurement">${local}</p>`));
