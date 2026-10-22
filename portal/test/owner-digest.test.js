@@ -74,7 +74,7 @@ function seedState(store) {
 test('collectAccounts: sign-ups, verification, totals, trials ending and paused', (t) => {
   const store = createStore(temporary(t));
   seedState(store);
-  const result = collectAccounts({ store, now: NOW, window: WINDOW });
+  const result = collectAccounts({ store, now: NOW, window: WINDOW, config: { internalAuto: false } });
   assert.deepEqual(result.accounts, { available: true, signups: 3, signups_open: 2, signups_invite: 1, verified_in_window: 2,
     tenants: 7, users: 7, verified: 3, suspended: 1 });
   assert.equal(result.trials.available, true);
@@ -85,7 +85,7 @@ test('collectAccounts: sign-ups, verification, totals, trials ending and paused'
   assert.deepEqual(result.tenants.filter((tenant) => tenant.paused).map((tenant) => tenant.id), [tid('e')]);
   // An override extension moves a trial out of the 48-hour notice.
   store.write('trial_overrides', { tenants: { [tid('c')]: { extra_days: 3 } } });
-  assert.deepEqual(collectAccounts({ store, now: NOW, window: WINDOW }).trials.ending, []);
+  assert.deepEqual(collectAccounts({ store, now: NOW, window: WINDOW, config: { internalAuto: false } }).trials.ending, []);
 });
 
 test('collectAccounts: unreadable files mark only their sections unavailable', (t) => {
@@ -94,19 +94,19 @@ test('collectAccounts: unreadable files mark only their sections unavailable', (
   seedState(store);
   for (const content of ['{"tenants":[]}', '{not json', '[]']) {
     writeFileSync(join(dir, 'trials.json'), content);
-    const result = collectAccounts({ store, now: NOW, window: WINDOW });
+    const result = collectAccounts({ store, now: NOW, window: WINDOW, config: { internalAuto: false } });
     assert.equal(result.accounts.available, true, content);
     assert.deepEqual(result.trials, { available: false }, content);
     assert.equal(result.tenants.length, 6, content);
   }
   writeFileSync(join(dir, 'suspensions.json'), '{"tenants":[1]}');
-  const noSuspensions = collectAccounts({ store, now: NOW, window: WINDOW });
+  const noSuspensions = collectAccounts({ store, now: NOW, window: WINDOW, config: { internalAuto: false } });
   assert.equal(noSuspensions.accounts.suspended, null);
   assert.equal(noSuspensions.tenants, null);
   writeFileSync(join(dir, 'accounts.json'), '{"tenants":{}}');
-  assert.deepEqual(collectAccounts({ store, now: NOW, window: WINDOW }), { accounts: { available: false }, trials: { available: false }, tenants: null });
+  assert.deepEqual(collectAccounts({ store, now: NOW, window: WINDOW, config: { internalAuto: false } }), { accounts: { available: false }, trials: { available: false }, tenants: null });
   writeFileSync(join(dir, 'accounts.json'), 'garbage');
-  assert.doesNotThrow(() => collectAccounts({ store, now: NOW, window: WINDOW }));
+  assert.doesNotThrow(() => collectAccounts({ store, now: NOW, window: WINDOW, config: { internalAuto: false } }));
 });
 
 // ---- Hostnames ----
@@ -238,8 +238,8 @@ test('countVisitors: page views, unique visitors and bots; masked and unmasked l
   writeLog(join(dir, 'full.json'), lines);
   writeLog(join(dir, 'masked.json'), siteEntries.map((entry) => logLine(maskedCopy(entry))));
   const full = await countVisitors({ files: [join(dir, 'full.json')], window: WINDOW });
-  assert.deepEqual(full, { available: true, partial: false, page_views: 7, unique_visitors: 4, bot_hits: 1,
-    top_paths: [['/', 2], ['/pricing', 2], ['/about.html', 1], ['/docs/', 1], ['/x', 1]], skipped_lines: 4 });
+  assert.deepEqual(full, { available: true, partial: false, page_views: 5, unique_visitors: 3, bot_hits: 3, probe_hits: 0, probe_categories: [],
+    top_paths: [['/pricing', 2], ['/', 1], ['/about.html', 1], ['/docs/', 1]], skipped_lines: 4, shadow_join: 'off' });
   const masked = await countVisitors({ files: [join(dir, 'masked.json')], window: WINDOW });
   assert.equal(masked.skipped_lines, 0);
   assert.deepEqual({ ...masked, skipped_lines: full.skipped_lines }, full);
@@ -248,7 +248,7 @@ test('countVisitors: page views, unique visitors and bots; masked and unmasked l
   assert.equal((await countVisitors({ files: [join(dir, 'full.json')], window: WINDOW, cap: 2 })).unique_visitors, '2+');
   // Missing files are unavailable without throwing; a mix is partial.
   assert.deepEqual(await countVisitors({ files: [join(dir, 'missing.json')], window: WINDOW }),
-    { available: false, partial: true, page_views: 0, unique_visitors: 0, bot_hits: 0, top_paths: [], skipped_lines: 0 });
+    { available: false, partial: true, page_views: 0, unique_visitors: 0, bot_hits: 0, probe_hits: 0, probe_categories: [], top_paths: [], skipped_lines: 0, shadow_join: 'off' });
   const mixed = await countVisitors({ files: [join(dir, 'full.json'), join(dir, 'missing.json')], window: WINDOW });
   assert.equal(mixed.available, true);
   assert.equal(mixed.partial, true);
@@ -301,19 +301,19 @@ test('countVisitors and countFunnel: logs truncated in place (leading NULs), jun
   assert.ok(readFileSync(live).subarray(0, 600000).every((byte) => byte === 0));
 
   const one = await countVisitors({ files: [live], window: WINDOW });
-  assert.deepEqual(one, { available: true, partial: false, page_views: 3, unique_visitors: 2, bot_hits: 0,
-    top_paths: [['/', 1], ['/pricing', 1], ['/signup', 1]], skipped_lines: 2 });
+  assert.deepEqual(one, { available: true, partial: false, page_views: 3, unique_visitors: 2, bot_hits: 0, probe_hits: 0, probe_categories: [],
+    top_paths: [['/', 1], ['/pricing', 1], ['/signup', 1]], skipped_lines: 2, shadow_join: 'off' });
   assert.deepEqual(await countVisitors({ files: [rolled], window: WINDOW }), one);
   const files = logFiles({ logDir: dir, names: ['access-apex.json'], window: WINDOW });
   assert.equal(files.length, 2);
   const both = await countVisitors({ files, window: WINDOW });
   assert.deepEqual([both.page_views, both.unique_visitors, both.skipped_lines, both.partial], [6, 2, 4, false]);
   const funnel = await countFunnel({ files, window: WINDOW });
-  assert.deepEqual(funnel, { available: true, partial: false, signup_views: 2, unique_networks: 1, skipped_lines: 4 });
+  assert.deepEqual(funnel, { available: true, partial: false, signup_views: 2, unique_networks: 1, skipped_lines: 4, shadow_join: 'off' });
 
   // Only the count reaches the digest, never the skipped content.
   const lines = renderDigest({ day: WINDOW.day, visitors: both, funnel });
-  assert.ok(lines.includes('Visitors: 6 page views, 2 unique visitors, 0 bot hits (4 malformed log lines skipped)'));
+  assert.ok(lines.includes('Visitors: 6 page views, 2 unique human visitors; bots: 0 bot page hits, 0 probe requests (4 malformed log lines skipped)'));
   assert.ok(lines.includes('Funnel: 2 sign-up page views from 1 networks (4 malformed log lines skipped)'));
   const rendered = lines.join('\n');
   assert.doesNotMatch(rendered, LEAK);
@@ -343,7 +343,7 @@ test('countFunnel: GET 200 /signup views and distinct masked networks', async (t
     logLine({ uri: '/signup', ua: 'curl/8.0' }), logLine({ uri: '/login' }), logLine({ uri: '/signup', ts: WINDOW.end }),
   ]);
   const result = await countFunnel({ files: [join(dir, 'portal.json')], window: WINDOW });
-  assert.deepEqual(result, { available: true, partial: false, signup_views: 4, unique_networks: 3, skipped_lines: 0 });
+  assert.deepEqual(result, { available: true, partial: false, signup_views: 4, unique_networks: 3, skipped_lines: 0, shadow_join: 'off' });
   assert.doesNotMatch(JSON.stringify(result), LEAK);
   assert.equal((await countFunnel({ files: [join(dir, 'none.json')], window: WINDOW })).available, false);
 });
@@ -353,7 +353,7 @@ test('countFunnel: GET 200 /signup views and distinct masked networks', async (t
 async function digestData(t, showEmail) {
   const store = createStore(temporary(t));
   seedState(store);
-  const { accounts, trials } = collectAccounts({ store, now: NOW, window: WINDOW });
+  const { accounts, trials } = collectAccounts({ store, now: NOW, window: WINDOW, config: { internalAuto: false } });
   const dir = temporary(t);
   writeLog(join(dir, 'site.json'), siteEntries.map(logLine));
   return { day: WINDOW.day, showEmail, accounts, trials,
@@ -376,8 +376,8 @@ test('renderDigest: sections, masked addresses by default, short printable lines
     'Mail: 2 messages (1 sent, 1 failed, 0 queued in outbox)',
     '  By kind: verify-email 2',
     '  Failures: auth_failed 1',
-    'Visitors: 7 page views, 4 unique visitors, 1 bot hits',
-    '  Top pages: / 2, /pricing 2, /about.html 1, /docs/ 1, /x 1',
+    'Visitors: 5 page views, 3 unique human visitors; bots: 3 bot page hits, 0 probe requests',
+    '  Top pages: /pricing 2, / 1, /about.html 1, /docs/ 1',
     'Funnel: 4 sign-up page views from 3 networks',
   ]);
   const text = masked.join('\n');
@@ -403,11 +403,11 @@ test('renderDigest: unavailable sections, long lists and hostile values stay wit
   assert.ok(partial.includes('Hostnames: unavailable (partial, 1 of 3 accounts: 2 total, 1 active, 0 with a connected agent, 0 on paused trials)'));
   const ending = Array.from({ length: 25 }, (_, i) => ({ tenant_id: `t_${i}‮`, email: `${'x'.repeat(300)}${i}@example.com`, ends_at: NOW }));
   const long = renderDigest({ day: WINDOW.day, showEmail: true, trials: { available: true, active: 25, ending, paused: [] },
-    visitors: { available: true, partial: true, page_views: 1, unique_visitors: '200000+', bot_hits: 0, top_paths: [[`/${'p'.repeat(300)}`, 1]] } });
+    visitors: { available: true, partial: true, page_views: 1, unique_visitors: '200000+', bot_hits: 0, probe_hits: 0, probe_categories: [], top_paths: [[`/${'p'.repeat(300)}`, 1]] } });
   assert.ok(long.includes('  ... and 5 more'));
   assert.equal(long.filter((line) => line.startsWith('  Ends ')).length, 20);
   assert.ok(long.some((line) => line.includes('tenant ? (')));
-  assert.ok(long.includes('Visitors: 1 page views, 200000+ unique visitors, 0 bot hits (some logs unreadable)'));
+  assert.ok(long.includes('Visitors: 1 page views, 200000+ unique human visitors; bots: 0 bot page hits, 0 probe requests (some logs unreadable)'));
   assert.doesNotThrow(() => renderMail({ kind: 'owner-digest', lines: long }));
 });
 
@@ -460,9 +460,9 @@ test('CLI: disabled, dry run, send once a day, force, test notice; stdout never 
   const dry = c.run(['--dry-run'], { OWNER_DIGEST_VISITORS: '1' });
   assert.equal(dry.status, 0);
   assert.deepEqual(dry.log, { event: 'owner_digest', result: 'dry_run' });
-  for (const line of ['FastDog daily summary for 2026-10-19 (Mountain time)', 'Sign-ups: 1 new (1 open, 0 invite); 1 emails verified',
-    'Trials: 1 active, 0 ending within 48h, 0 paused', 'Hostnames: unavailable', 'Mail: unavailable',
-    'Visitors: 1 page views, 1 unique visitors, 0 bot hits', '  Top pages: / 1']) {
+  for (const line of ['FastDog daily summary for 2026-10-19 (Mountain time)', 'Sign-ups: 0 new (0 open, 0 invite); 0 emails verified',
+    '  Internal/test: 1 accounts (excluded above)', 'Trials: 0 active, 0 ending within 48h, 0 paused', 'Hostnames: unavailable', 'Mail: unavailable',
+    'Visitors: 1 page views, 1 unique human visitors; bots: 0 bot page hits, 0 probe requests', '  Top pages: / 1']) {
     assert.ok(dry.stdout.split('\n').includes(line), line);
   }
   assert.deepEqual(c.snapshot(), before, 'disabled and dry runs write nothing');
@@ -520,7 +520,7 @@ test('CLI: invalid configuration exits 1; an SMTP failure exits 2 without markin
 test('CLI: --dry-run masks account emails even with OWNER_NOTIFY_SHOW_EMAIL=1', async (t) => {
   const c = await cli(t);
   c.store.write('trials', { tenants: { [tid('a')]: { paused_at: '2026-10-19T13:00:00.000Z' } } });
-  const dry = c.run(['--dry-run'], { OWNER_NOTIFY_SHOW_EMAIL: '1' });
+  const dry = c.run(['--dry-run'], { OWNER_NOTIFY_SHOW_EMAIL: '1', OWNER_DIGEST_INTERNAL_AUTO: '0' });
   assert.equal(dry.status, 0);
   assert.ok(dry.stdout.includes(`  Paused: tenant ${tid('a')} (c***@example.com)`), dry.stdout);
   assert.ok(!dry.stdout.includes('customer@example.com'));

@@ -39,7 +39,10 @@ export function digestConfig(env) {
   if (!env.STATE_DIRECTORY) return { error: 'no_state_directory' };
   const stateDir = resolve(env.STATE_DIRECTORY);
   const config = { to: to && normalizeEmail(to), showEmail, stateDir, outboxDir: env.OUTBOX_DIR ? resolve(env.OUTBOX_DIR) : join(stateDir, 'outbox'),
+    internalEmails: (env.OWNER_DIGEST_INTERNAL_EMAILS || '').split(',').map((email) => normalizeEmail(email.trim())).filter(Boolean),
+    internalAuto: env.OWNER_DIGEST_INTERNAL_AUTO !== '0', shadowFile: env.OWNER_DIGEST_SHADOW_FILE || null,
     visitors: env.OWNER_DIGEST_VISITORS === '1', logDir: '/var/log/caddy', siteLogs: [], funnelLog: null };
+  if (config.shadowFile && (!isAbsolute(config.shadowFile) || config.shadowFile.includes('\0'))) return { error: 'invalid_shadow_file' };
   if (!config.visitors) return config;
   if (env.OWNER_DIGEST_LOG_DIR) {
     if (!isAbsolute(env.OWNER_DIGEST_LOG_DIR) || env.OWNER_DIGEST_LOG_DIR.includes('\0')) return { error: 'invalid_log_dir' };
@@ -69,18 +72,18 @@ const lock = (dir) => acquireLock(join(dir, 'owner-digest.lock'), { staleMs: LOC
 
 export async function collect(config, env, now) {
   const window = digestWindow(now);
-  const { accounts, trials, tenants } = collectAccounts({ store: readOnlyStore(config.stateDir), now, window });
+  const { accounts, internal, trials, tenants } = collectAccounts({ store: readOnlyStore(config.stateDir), now, window, config });
   let edge = null;
   try { edge = createEdgeClient({ baseUrl: env.EDGE_INTERNAL_URL || 'http://127.0.0.1:8789', portalKey: env.PORTAL_KEY }); } catch { /* hostnames unavailable */ }
   const hostnames = await collectHostnames({ edge, tenants });
   const mail = collectMailHealth({ outboxDir: config.outboxDir, window });
   let visitors = null, funnel = null;
   if (config.visitors) {
-    visitors = config.siteLogs.length ? await countVisitors({ files: logFiles({ logDir: config.logDir, names: config.siteLogs, window }), window })
+    visitors = config.siteLogs.length ? await countVisitors({ files: logFiles({ logDir: config.logDir, names: config.siteLogs, window }), window, shadowFile: config.shadowFile })
       : { available: false, reason: 'not_configured' };
-    if (config.funnelLog) funnel = await countFunnel({ files: logFiles({ logDir: config.logDir, names: [config.funnelLog], window }), window });
+    if (config.funnelLog) funnel = await countFunnel({ files: logFiles({ logDir: config.logDir, names: [config.funnelLog], window }), window, shadowFile: config.shadowFile });
   }
-  return { day: window.day, lines: renderDigest({ day: window.day, showEmail: config.showEmail, accounts, trials, hostnames, mail, visitors, funnel }) };
+  return { day: window.day, lines: renderDigest({ day: window.day, showEmail: config.showEmail, accounts, internal, trials, hostnames, mail, visitors, funnel }) };
 }
 
 // delivered: 'smtp' means the message left; 'outbox' (file transport) keeps an audit record without the body.

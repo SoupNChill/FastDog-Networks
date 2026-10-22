@@ -13,6 +13,26 @@ tickets or logs. Keys and behaviour: [portal README](../../portal/README.md)
   `fastdog-owner-digest.timer` at 08:00 America/Denver, for the previous
   Mountain-time day. It needs `OWNER_DIGEST_ENABLED=1` and `OWNER_NOTIFY_EMAIL`.
 
+## Digest classification settings
+
+| Environment variable | Default | Meaning |
+| --- | --- | --- |
+| `OWNER_DIGEST_INTERNAL_EMAILS` | Empty | Comma-separated exact internal addresses, normalized case-insensitively; invalid entries ignored. |
+| `OWNER_DIGEST_INTERNAL_AUTO` | `1` | Set `0` to disable owner/plus-address and reserved test-domain detection. Explicit addresses and tenant/user `internal: true` or `test: true` flags still apply. |
+| `OWNER_DIGEST_SHADOW_FILE` | Unset (off) | Absolute path to Verdict shadow JSONL; windowed challenge/block prefix+path matches count as bots. Missing/unreadable files are skipped. The digest unit needs read access to this file, which is not granted today; an operator must arrange file permissions and unit sandbox access before enabling. |
+
+Customer totals and trials exclude internal tenants; hostname inventory still covers
+all non-suspended tenants. The digest shows an internal account count without emails.
+Visitors count humans only; empty/scanner UAs and probe paths count as bots, with
+probe requests counted across all methods/statuses. Shadow joins are bounded at
+50,000 salted, fixed-size hash keys per collector; paths longer than 2048 characters
+are skipped. `shadow_join` is `partial` when paths are skipped or the cap is reached,
+and otherwise `on`, `off`, or `unavailable`. Paths are decoded once and duplicate
+slashes collapsed for classification and shadow matching. Malformed percent encoding
+counts as bot traffic. The digest's **Top probe types** lists up to three fixed probe
+categories, never raw probe paths. Ordinary crawler page hits contribute only to bot
+page hits, not probe categories.
+
 ## Enable
 
 1. Back up as in the [deploy runbook](deploy.md) and stage the new portal build.

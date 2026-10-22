@@ -4,10 +4,10 @@
 // returned, logged or stored. renderDigest() turns the aggregates into the 'owner-digest' mail lines.
 import { createReadStream, readdirSync, readFileSync, lstatSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { createInterface } from 'node:readline';
 import { createGunzip } from 'node:zlib';
 import { createHash, randomBytes } from 'node:crypto';
 import { isIPv4, isIPv6 } from 'node:net';
+import { normalizeEmail } from './tokens.js';
 import { emptyAccounts } from './store.js';
 import { createSuspensions } from './suspensions.js';
 import { readTrials, readOverrides, trialInfo } from './trials.js';
@@ -54,9 +54,9 @@ export function digestWindow(nowMs) {
 
 // ---- Accounts and trials ----
 
-// Returns { accounts, trials, tenants }; tenants ([{ id, paused }], non-suspended only) feeds collectHostnames and is
+// Returns { accounts, internal, trials, tenants }; tenants ([{ id, paused }], non-suspended only) feeds collectHostnames and is
 // null when suspensions cannot be read. Account emails are kept for rendering, which masks them by default.
-export function collectAccounts({ store, now, window }) {
+export function collectAccounts({ store, now, window, config = {} }) {
   const inWindow = (value) => { const at = parse(value); return Number.isFinite(at) && at >= window.start && at < window.end; };
   const out = { accounts: { available: false }, trials: { available: false }, tenants: null };
   let data;
@@ -64,18 +64,36 @@ export function collectAccounts({ store, now, window }) {
   if (!plain(data) || !Array.isArray(data.tenants) || !Array.isArray(data.users)) return out;
   const tenants = data.tenants.filter((tenant) => plain(tenant) && typeof tenant.id === 'string');
   const users = data.users.filter(plain);
+  const explicit = new Set(config.internalEmails || []);
+  const owner = normalizeEmail(config.to);
+  const internalUser = (user) => {
+    if (user.internal === true || user.test === true) return true;
+    const email = normalizeEmail(user.email);
+    if (!email) return false;
+    if (explicit.has(email)) return true;
+    if (config.internalAuto === false) return false;
+    const [local, domain] = email.split('@');
+    return /(?:^|\.)(?:test|example|invalid|localhost|example\.com|example\.net|example\.org)$/.test(domain)
+      || (owner && domain === owner.split('@')[1] && local.split('+')[0] === owner.split('@')[0].split('+')[0]);
+  };
+  const internalIds = new Set(users.filter(internalUser).map((user) => user.tenant_id));
+  for (const tenant of tenants) if (tenant.internal === true || tenant.test === true) internalIds.add(tenant.id);
+  const internal = tenants.filter((tenant) => internalIds.has(tenant.id));
+  const customers = tenants.filter((tenant) => !internalIds.has(tenant.id));
+  const customerUsers = users.filter((user) => !internalIds.has(user.tenant_id));
+  out.internal = { tenants: internal.length, signups: internal.filter((tenant) => inWindow(tenant.created_at)).length };
   const emailOf = (tid) => users.find((user) => user.tenant_id === tid && typeof user.email === 'string')?.email ?? null;
   let suspended = null;
   try {
     const suspensions = createSuspensions(store);
     suspended = new Set(tenants.filter((tenant) => suspensions.has(tenant.id)).map((tenant) => tenant.id));
   } catch { /* suspended stays unknown */ }
-  const created = tenants.filter((tenant) => inWindow(tenant.created_at));
+  const created = customers.filter((tenant) => inWindow(tenant.created_at));
   out.accounts = { available: true, signups: created.length, signups_open: created.filter((tenant) => tenant.source === 'open').length,
     signups_invite: created.filter((tenant) => tenant.source !== 'open').length,
-    verified_in_window: users.filter((user) => inWindow(user.email_verified_at)).length,
-    tenants: tenants.length, users: users.length, verified: users.filter((user) => Number.isFinite(parse(user.email_verified_at))).length,
-    suspended: suspended ? suspended.size : null };
+    verified_in_window: customerUsers.filter((user) => inWindow(user.email_verified_at)).length,
+    tenants: customers.length, users: customerUsers.length, verified: customerUsers.filter((user) => Number.isFinite(parse(user.email_verified_at))).length,
+    suspended: suspended ? customers.filter((tenant) => suspended.has(tenant.id)).length : null };
   let paused = new Set();
   try {
     if (!suspended) throw new Error('suspensions unavailable');
@@ -83,7 +101,7 @@ export function collectAccounts({ store, now, window }) {
     const overrides = readOverrides(store).tenants;
     let active = 0;
     const ending = [];
-    for (const tenant of tenants) {
+    for (const tenant of customers) {
       if (suspended.has(tenant.id)) continue;
       const info = trialInfo(tenant, own(trials, tenant.id), own(overrides, tenant.id), now);
       if (!info?.active) continue;
@@ -93,7 +111,7 @@ export function collectAccounts({ store, now, window }) {
     }
     const pausedList = Object.entries(trials).filter(([, entry]) => entry.paused_at).map(([tid]) => ({ tenant_id: tid, email: emailOf(tid) }));
     paused = new Set(pausedList.map((entry) => entry.tenant_id));
-    out.trials = { available: true, active, ending: ending.sort((a, b) => a.ends_at - b.ends_at), paused: pausedList };
+    out.trials = { available: true, active, ending: ending.sort((a, b) => a.ends_at - b.ends_at), paused: pausedList.filter((entry) => !internalIds.has(entry.tenant_id)) };
   } catch { /* trials stay unavailable */ }
   if (suspended) out.tenants = tenants.filter((tenant) => !suspended.has(tenant.id)).map((tenant) => ({ id: tenant.id, paused: paused.has(tenant.id) }));
   return out;
@@ -166,7 +184,35 @@ export function collectMailHealth({ outboxDir, window, maxFiles = 20000 }) {
 
 // ---- Visitors (Caddy JSON access logs) ----
 
-export const BOT_UA = /bot|crawl|spider|slurp|curl|wget|python|go-http|httpclient|headless|monitor|uptime|scan|preview|facebookexternalhit|bingpreview|ahrefs|semrush|petal|yandex|bytespider|gptbot|claudebot|ccbot|amazonbot|applebot|duckduckbot|googlebot/i;
+export const BOT_UA = /bot|crawl|spider|slurp|curl|wget|python|go-http|httpclient|headless|monitor|uptime|scan|preview|facebookexternalhit|bingpreview|ahrefs|semrush|petal|yandex|bytespider|gptbot|claudebot|ccbot|amazonbot|applebot|duckduckbot|googlebot|zgrab|masscan|nmap|nikto|sqlmap|httpx|okhttp|libwww|java\/|axios|node-fetch|scrapy|censys|expanse|l9explore|nuclei|wpscan/i;
+// Superset of Verdict's inline probe pattern in verdict/src/engine/signals.js (a separate package).
+export const PROBE_CATEGORIES = [
+  ['.env', /(?:^|\/)\.env(?:\.[^/]*)?(?:\/|$)/i],
+  ['.git', /(?:^|\/)\.git(?:\/|$)/i],
+  ['other dotfile', /(?:^|\/)(?:\.aws|\.ssh|\.svn|\.hg|\.DS_Store)(?:\/|$)/i],
+  ['phpinfo', /(?:^|\/)(?:phpinfo|php-info|_profiler)(?:\/|$)/i],
+  ['phpmyadmin', /(?:^|\/)(?:phpmyadmin|pma)(?:\/|$)/i],
+  ['wp-admin', /(?:^|\/)wp-admin(?:\/|$)/i],
+  ['wp-login', /(?:^|\/)wp-login(?:\.php)?(?:\/|$)/i],
+  ['wordpress content', /(?:^|\/)(?:wp-content|wp-includes)(?:\/|$)/i],
+  ['xmlrpc', /(?:^|\/)xmlrpc\.php(?:\/|$)/i],
+  ['cgi-bin', /(?:^|\/)cgi-bin(?:\/|$)/i],
+  ['actuator', /(?:^|\/)actuator(?:\/|$)/i],
+  ['server-status', /(?:^|\/)server-status(?:\/|$)/i],
+  ['phpunit', /(?:^|\/)vendor\/phpunit(?:\/|$)/i],
+  ['config file', /(?:^|\/)config\.(?:json|ya?ml)(?:\/|$)/i],
+  ['php/asp script', /\.(?:php|asp|aspx|jsp|cgi)$/i],
+  ['backup/archive file', /\.(?:bak|sql|zip|tar|gz|old|swp)$/i],
+];
+export const PROBE_PATH = new RegExp(PROBE_CATEGORIES.map(([, pattern]) => `(?:${pattern.source})`).join('|'), 'i');
+
+// Decode exactly once; malformed encodings are bot traffic. Normalize both sides of the shadow join.
+function normalizePath(raw) {
+  let path = raw, malformed = false;
+  try { path = decodeURIComponent(raw); } catch { malformed = true; }
+  return { path: path.replace(/\/{2,}/g, '/'), malformed };
+}
+
 const ASSET = /\.(?:css|js|mjs|png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|otf|eot|xml|txt|json|map|webmanifest)$/i;
 
 // Page paths: '/', a directory ('/x/'), an .html file or a final segment without an extension.
@@ -222,8 +268,8 @@ function readEntry(raw) {
   const cut = uri.search(/[?#]/);
   const agents = plain(request.headers) ? request.headers['User-Agent'] : undefined;
   const ip = typeof request.client_ip === 'string' && request.client_ip ? request.client_ip : request.remote_ip;
-  return { ms, method: request.method, status: entry.status, path: cut >= 0 ? uri.slice(0, cut) : uri, ip,
-    ua: Array.isArray(agents) && typeof agents[0] === 'string' ? agents[0].slice(0, 1024) : '' };
+  return { ms, method: request.method, status: entry.status, ...normalizePath(cut >= 0 ? uri.slice(0, cut) : uri), ip,
+    ua: (Array.isArray(agents) && typeof agents[0] === 'string' ? agents[0] : typeof entry.user_agent === 'string' ? entry.user_agent : '').slice(0, 1024) };
 }
 
 const OVERSIZE = Symbol('oversize');
@@ -302,17 +348,48 @@ export function logFiles({ logDir, names, window }) {
 
 const hasher = (salt) => (value) => createHash('sha256').update(`${salt}${value}`).digest('base64').slice(0, 22);
 const safePath = (path) => path.replace(/[^A-Za-z0-9/._~%+-]/g, '?').slice(0, 100);
-const isBot = (ua) => ua !== '' && BOT_UA.test(ua);
+const isBot = (entry, shadow) => entry.malformed || entry.ua === '' || BOT_UA.test(entry.ua) || PROBE_PATH.test(entry.path)
+  || shadow.keys.has(shadow.hash(`${maskIp(entry.ip)}|${entry.path}`));
+
+// Bounded, run-local join; a failed read discards partial results and never fails the digest.
+export const SHADOW_CAP = 50000;
+export async function readShadow(file, window, salt = randomBytes(32).toString('hex')) {
+  const keys = new Set(), hash = hasher(salt);
+  let partial = false;
+  if (!file) return { keys, hash, status: 'off' };
+  try {
+    if (!statSync(file).isFile()) throw new Error('not a file');
+    await eachLine(file, (line) => {
+      if (line === OVERSIZE || keys.size >= SHADOW_CAP) return;
+      let row;
+      try { row = JSON.parse(line); } catch { return; }
+      if (!plain(row)) return;
+      const ms = typeof row.ts === 'number' ? (row.ts > 1e11 ? row.ts : row.ts * 1000) : parse(row.ts);
+      if (ms < window.start || ms >= window.end || !Number.isFinite(ms)
+        || !['challenge', 'block'].includes(row.action) || typeof row.path !== 'string' || !row.path.startsWith('/')) return;
+      if (row.path.length > 2048) { partial = true; return; }
+      const prefix = maskIp(row.ip_prefix);
+      const { path } = normalizePath(row.path.split(/[?#]/)[0]);
+      if (prefix) keys.add(hash(`${prefix}|${path}`));
+      if (keys.size >= SHADOW_CAP) partial = true;
+    });
+    return { keys, hash, status: partial ? 'partial' : 'on' };
+  } catch { return { keys: new Set(), hash, status: 'unavailable' }; }
+}
 
 // Page views, unique visitors (salted hash of masked address + user agent, in memory only), bot page hits and top pages.
-export async function countVisitors({ files, window, salt = randomBytes(32).toString('hex'), cap = UNIQUE_CAP }) {
+export async function countVisitors({ files, window, salt = randomBytes(32).toString('hex'), cap = UNIQUE_CAP, shadowFile = null }) {
+  const shadow = await readShadow(shadowFile, window, salt);
   const hash = hasher(salt);
   const unique = new Set();
   const paths = new Map();
-  let views = 0, bots = 0, capped = false;
+  const categories = new Map();
+  let views = 0, bots = 0, probes = 0, capped = false;
   const { read, failed, skipped } = await scanLogs(files, window, (entry) => {
+    const probe = PROBE_CATEGORIES.find(([, pattern]) => pattern.test(entry.path))?.[0];
+    if (probe) { probes++; categories.set(probe, (categories.get(probe) || 0) + 1); }
     if (entry.method !== 'GET' || !Number.isInteger(entry.status) || entry.status < 200 || entry.status > 399 || !isPagePath(entry.path)) return;
-    if (isBot(entry.ua)) { bots++; return; }
+    if (isBot(entry, shadow)) { bots++; return; }
     views++;
     const path = safePath(entry.path);
     if (paths.has(path) || paths.size < PATHS_MAX) paths.set(path, (paths.get(path) || 0) + 1);
@@ -321,23 +398,25 @@ export async function countVisitors({ files, window, salt = randomBytes(32).toSt
     if (unique.size < cap) unique.add(key); else if (!unique.has(key)) capped = true;
   });
   const top = [...paths].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 5);
-  return { available: read > 0, partial: failed > 0, page_views: views, unique_visitors: capped ? `${cap}+` : unique.size, bot_hits: bots, top_paths: top,
-    skipped_lines: skipped };
+  return { available: read > 0, partial: failed > 0, page_views: views, unique_visitors: capped ? `${cap}+` : unique.size, bot_hits: bots, probe_hits: probes, top_paths: top,
+    probe_categories: [...categories].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3),
+    skipped_lines: skipped, shadow_join: shadow.status };
 }
 
 // Sign-up page funnel: successful GET /signup requests (bots excluded) and how many distinct masked networks made them.
-export async function countFunnel({ files, window, salt = randomBytes(32).toString('hex'), cap = UNIQUE_CAP }) {
+export async function countFunnel({ files, window, salt = randomBytes(32).toString('hex'), cap = UNIQUE_CAP, shadowFile = null }) {
+  const shadow = await readShadow(shadowFile, window, salt);
   const hash = hasher(salt);
   const networks = new Set();
   let views = 0, capped = false;
   const { read, failed, skipped } = await scanLogs(files, window, (entry) => {
-    if (entry.method !== 'GET' || entry.status !== 200 || entry.path !== '/signup' || isBot(entry.ua)) return;
+    if (entry.method !== 'GET' || entry.status !== 200 || entry.path !== '/signup' || isBot(entry, shadow)) return;
     views++;
     const key = hash(maskIp(entry.ip));
     if (networks.size < cap) networks.add(key); else if (!networks.has(key)) capped = true;
   });
   return { available: read > 0, partial: failed > 0, signup_views: views, unique_networks: capped ? `${cap}+` : networks.size,
-    skipped_lines: skipped };
+    skipped_lines: skipped, shadow_join: shadow.status };
 }
 
 // ---- Rendering ----
@@ -349,7 +428,7 @@ const clip = (line) => {
 
 // Short printable lines for the 'owner-digest' mail. Never includes IPs, user agents or hashes; account emails are
 // masked unless showEmail.
-export function renderDigest({ day, showEmail = false, accounts, trials, hostnames, mail, visitors, funnel } = {}) {
+export function renderDigest({ day, showEmail = false, accounts, internal, trials, hostnames, mail, visitors, funnel } = {}) {
   const who = (email) => (typeof email !== 'string' || !email ? '?' : showEmail ? email : maskEmail(email));
   const lines = [`FastDog daily summary for ${/^\d{4}-\d{2}-\d{2}$/.test(day) ? day : '?'} (Mountain time)`, ''];
   // Only the number of skipped log lines is shown, never their content.
@@ -361,6 +440,7 @@ export function renderDigest({ day, showEmail = false, accounts, trials, hostnam
   if (accounts?.available) {
     lines.push(`Sign-ups: ${accounts.signups} new (${accounts.signups_open} open, ${accounts.signups_invite} invite); ${accounts.verified_in_window} emails verified`);
     lines.push(`  Totals: ${accounts.tenants} accounts, ${accounts.users} users, ${accounts.verified} verified, ${accounts.suspended ?? 'unknown'} suspended`);
+    if (internal?.tenants > 0) lines.push(`  Internal/test: ${internal.tenants} accounts (excluded above)`);
   } else lines.push('Sign-ups: unavailable');
   if (trials?.available) {
     lines.push(`Trials: ${trials.active} active, ${trials.ending.length} ending within 48h, ${trials.paused.length} paused`);
@@ -380,9 +460,10 @@ export function renderDigest({ day, showEmail = false, accounts, trials, hostnam
   else if (visitors.reason === 'not_configured') lines.push('Visitors: not configured');
   else if (!visitors.available) lines.push('Visitors: unavailable');
   else {
-    lines.push(`Visitors: ${visitors.page_views} page views, ${visitors.unique_visitors} unique visitors, ${visitors.bot_hits} bot hits${visitors.partial ? ' (some logs unreadable)' : ''}${skipped(visitors)}`);
+    lines.push(`Visitors: ${visitors.page_views} page views, ${visitors.unique_visitors} unique human visitors; bots: ${visitors.bot_hits} bot page hits, ${visitors.probe_hits ?? 0} probe requests${visitors.partial ? ' (some logs unreadable)' : ''}${skipped(visitors)}`);
     if (visitors.top_paths.length) lines.push(`  Top pages: ${visitors.top_paths.map(([path, n]) => `${path} ${n}`).join(', ')}`);
   }
+  if (visitors?.available && visitors.probe_categories?.length) lines.push(`  Top probe types: ${visitors.probe_categories.map(([path, n]) => `${path} ${n}`).join(', ')}`);
   if (funnel) {
     lines.push(funnel.available ? `Funnel: ${funnel.signup_views} sign-up page views from ${funnel.unique_networks} networks${funnel.partial ? ' (some logs unreadable)' : ''}${skipped(funnel)}`
       : 'Funnel: unavailable');
