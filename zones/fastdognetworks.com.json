@@ -6,7 +6,7 @@
       "name": "@",
       "type": "SOA",
       "ttl": 3600,
-      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026101206 3600 600 604800 300",
+      "content": "ns1.fastdognetworks.com. hostmaster.fastdognetworks.com. 2026102201 3600 600 604800 300",
       "comment": "Serial: YYYYMMDDNN \u2014 bump NN on each edit"
     },
     {
@@ -108,6 +108,13 @@
       "comment": "SPF via MXRoute"
     },
     {
+      "name": "@",
+      "type": "TXT",
+      "ttl": 300,
+      "content": "google-site-verification=7chhR8qAjAQegRLMI5XEW280GkZp03SEZ4hBgerwJCU",
+      "comment": "Google Search Console domain verification"
+    },
+    {
       "name": "_dmarc",
       "type": "TXT",
       "ttl": 300,
@@ -143,5 +150,5 @@
       "comment": "Verdict antibot decide / demo (FastDog edge)"
     }
   ],
-  "updated_at": "2026-10-18T01:00:00Z"
+  "updated_at": "2026-10-22T23:05:00Z"
 }
