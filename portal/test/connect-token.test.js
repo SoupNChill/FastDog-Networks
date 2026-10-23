@@ -36,7 +36,7 @@ test('connect tokens need an active owned hostname, CSRF and a verified session'
   assert.ok(issued.data.prompt.includes(`I can delete ${headerFile}`), 'delete the header file after connecting');
   assert.ok(issued.data.prompt.includes('Never use curl -v or --trace'));
   const prompt = issued.data.prompt;
-  for (const needle of ['curl 7.75 or newer', 'only ask which port', '"format":"env"', 'the ONLY new command needing approval is the single docker run',
+  for (const needle of ['(umask 077; curl -sS -w', 'only ask which port', '"format":"env"', 'the ONLY new command needing approval is the single docker run',
     'docker.run', 'ENV_FILE', 'never read, print, cat or copy', 'root-equivalent', 'ALREADY',
     'Do not delete them yourself', 'same env file', 'every 15 seconds', '3 a day', 'live true']) assert.ok(prompt.includes(needle), needle);
   assert.doesNotMatch(prompt, /fastdog-run\.sh|python3/);
@@ -199,7 +199,7 @@ test('assistant prompt explains approvals and immediate cleanup without a live s
     'one-time header-file setup at the start', 'env-file fetch and status polling', 'once/up front',
     'the ONLY new command needing approval is the single docker run', 'only on a reconnect name conflict',
     '"format":"env"', 'http://127.0.0.1:PORT', 'PORT is the app port I gave',
-    'app.example.test.agent-2.env rather than overwrite it', '--create-file-mode only applies to a new file',
+    'app.example.test.agent-2.env rather than overwrite it', 'umask only applies to a new file', 'chmod 600',
     'As soon as agent.connected is true, immediately', 'rm -f /home/USER/.config/fastdog/app.example.test.agent.env',
     'absolute path you used', 'Docker stored the env at create time', 'Do not delete them yourself',
     'single-use bootstrap code', 'needs a new agent image']) assert.ok(prompt.includes(needle), needle);

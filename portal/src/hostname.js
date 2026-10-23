@@ -22,3 +22,26 @@ export function isReserved(host, reservedSuffixes = []) {
     return name && (host === name || host.endsWith(`.${name}`));
   });
 }
+
+// Reserved names for API key allow-lists, mirroring the edge's reservedSuffixes() (src/lib/config.js):
+// PORTAL_RESERVED_SUFFIXES (comma-separated) if set, else the generic defaults; plus the registrable
+// domain (final two labels) of the portal origin and the public edge URL. The edge stays the authority
+// when a hostname is created; this only stops a key from being locked to a name that can never be added.
+export const DEFAULT_RESERVED_SUFFIXES = Object.freeze(['localhost', 'local', 'lan', 'internal', 'test', 'invalid', 'example']);
+export function portalReservedSuffixes(env = {}) {
+  const configured = env.PORTAL_RESERVED_SUFFIXES;
+  const suffixes = configured !== undefined ? configured.split(',').map((s) => s.trim().toLowerCase().replace(/\.$/, '')).filter(Boolean)
+    : [...DEFAULT_RESERVED_SUFFIXES];
+  const domains = [env.PORTAL_ORIGIN, env.PORTAL_EDGE_URL].filter(Boolean).map((url) => {
+    try { return new URL(url).hostname.toLowerCase().split('.').slice(-2).join('.'); } catch { return ''; }
+  }).filter((d) => d.includes('.'));
+  return [...new Set([...domains, ...suffixes])];
+}
+// Internal operator test labels (e2e-<label>.<domain>, one extra label) are decided by the edge per tenant.
+const TEST_LABEL = /^e2e-[a-z0-9-]{1,40}$/;
+export function isReservedForKey(host, reservedSuffixes = []) {
+  if (!isReserved(host, reservedSuffixes)) return false;
+  const dot = host.indexOf('.');
+  const rest = host.slice(dot + 1);
+  return !(TEST_LABEL.test(host.slice(0, dot)) && rest.includes('.') && reservedSuffixes.some((s) => s.trim().toLowerCase().replace(/\.$/, '') === rest));
+}
