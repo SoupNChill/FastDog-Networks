@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const site = fileURLToPath(new URL('../site/', import.meta.url));
 const read = (path) => readFileSync(join(site, path), 'utf8');
-const paths = ['docs/ai-assistants/', 'compare/cloudflare-tunnel/', 'compare/ngrok/', 'compare/tailscale-funnel/'];
+const paths = ['docs/ai-assistants/', 'compare/', 'compare/cloudflare-tunnel/', 'compare/ngrok/', 'compare/tailscale-funnel/'];
 const origin = new URL(read('index.html').match(/rel=\x22canonical\x22 href=\x22([^\x22]+)\x22/)[1]).origin;
 const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => entry.isDirectory()
   ? walk(join(dir, entry.name)) : [join(dir, entry.name)]);
@@ -21,18 +21,18 @@ for (const path of paths) test(`${path} has metadata, sitemap entry and approved
   assert.ok(read(['sitemap', 'xml'].join('.')).includes(`<loc>${origin}/${path}</loc>`));
   assert.match(html, /7 days/);
   assert.match(html, /no card/i);
-  if (path.startsWith('compare/')) {
+  if (path.startsWith('compare/') && path !== 'compare/') {
     for (const price of ['$9', '$29', '$149']) assert.ok(html.includes(price));
     assert.match(html, /class=\x22comparison-table\x22[^>]*tabindex=\x220\x22><table>/);
     assert.match(html, /<h2>Sources \(checked Oct 22, 2026\)<\/h2>\s*<ol>/);
   }
 });
 
-test('all site footers match and link to the four discovery pages', () => {
+test('all site footers match and link to the assistant guide and comparison index', () => {
   const footers = walk(site).filter((path) => path.endsWith('/index.html')).map((path) => {
     const footer = readFileSync(path, 'utf8').match(/<footer[\s\S]*?<\/footer>/)?.[0];
     assert.ok(footer, path);
-    for (const target of paths) assert.ok(footer.includes(`href="/${target}"`), path);
+    for (const target of ['docs/ai-assistants/', 'compare/']) assert.ok(footer.includes(`href="/${target}"`), path);
     return footer;
   });
   assert.equal(new Set(footers).size, 1);
@@ -61,5 +61,16 @@ test('how-to uses the approved screenshot once and every image exists', () => {
   assert.match(html, /width=\x221024\x22 height=\x22594\x22 loading=\x22lazy\x22 alt=\x22[^\x22]+\x22/);
   for (const [, src] of html.matchAll(/<img[^>]*src=\x22([^\x22]+)\x22/g)) {
     assert.ok(existsSync(join(site, src.startsWith('/') ? src.slice(1) : `docs/ai-assistants/${src}`)), src);
+  }
+});
+
+test('comparison index exists and links to every comparison with its own description', () => {
+  assert.ok(existsSync(join(site, 'compare/index.html')));
+  const html = read('compare/index.html');
+  for (const path of paths.filter((path) => path.startsWith('compare/') && path !== 'compare/')) {
+    assert.ok(html.includes(`href="/${path}"`));
+    const description = read(`${path}index.html`).match(/name=\x22description\x22 content=\x22([^\x22]+)\x22/)[1].split('. ')[0] + '.';
+    assert.ok(html.includes(`<dd>${description}</dd>`));
+    assert.match(read(`${path}index.html`), /Related: [^\n]* · <a href=\x22\/compare\/\x22>All comparisons<\/a><\/p>/);
   }
 });

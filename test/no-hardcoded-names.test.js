@@ -58,12 +58,13 @@ test('deny-list is lowercase data and exemptions are explicitly reviewed', () =>
 // twitter:image, JSON-LD), robots.txt and sitemap.xml add two files, 33 hashes and 33 occurrences.
 // AI-discovery pages: approved metadata, product links and support copy add 5 files, 36 hashes and 36 occurrences.
 // Identical docs-style footers remove 5 stale support-link hashes/occurrences (net +31 each).
+// Compare index: own-origin metadata, signup link and sitemap entry add 1 file, 6 hashes and 6 occurrences.
 test('allowlist stays grouped by directory and at exact reviewed baseline counts', () => {
   assert.deepEqual(Object.keys(allow), Object.keys(allow).sort());
-  assert.equal(Object.keys(allow).length, 72, 'review required to change exempt files');
+  assert.equal(Object.keys(allow).length, 73, 'review required to change exempt files');
   const lines = Object.values(allow).flatMap((rule) => Object.values(rule.lines || {}));
-  assert.equal(lines.length, 421, 'review required to change line-hash entries');
-  assert.equal(lines.reduce((sum, count) => sum + count, 0), 469, 'review required to change exempt occurrences');
+  assert.equal(lines.length, 427, 'review required to change line-hash entries');
+  assert.equal(lines.reduce((sum, count) => sum + count, 0), 475, 'review required to change exempt occurrences');
 });
 
 test('whole-file flags cannot exempt documentation or arbitrary source files', () => {

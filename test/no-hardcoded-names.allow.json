@@ -360,6 +360,16 @@
       "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1
     }
   },
+  "site/compare/index.html": {
+    "reason": "Reviewed comparison index: absolute own-origin metadata and the shared portal signup link.",
+    "lines": {
+      "02ed41375e20d80f0a51150194788544b7a8fe576a197647af671bfc8f095a03": 1,
+      "2d19f992ed9816f51bc7d59dfbb78f7f19bc6a2951d225893fbb61c87863fe45": 1,
+      "a962e933d8d63f699930856517fcbc24dbd3bda21eaa2d90007d1eeed35fdc3b": 1,
+      "ba668e36e1e98522183a61c97839f3c78e6832600b96e02d240bb30df6757c5a": 1,
+      "f713534c8eb7fe08dab930a22af686af1ffe2962ce4cd1391ffdca31dbc1400e": 1
+    }
+  },
   "site/compare/ngrok/index.html": {
     "reason": "Reviewed AI-discovery page metadata, approved own-origin links and public support address.",
     "lines": {
@@ -520,6 +530,7 @@
       "413001a316045e4c736d64ceeba74645f636f364e9e990683a37bf1d8fa00e69": 1,
       "75f157863130ecb4449c374de5b2427a71bc091a0d606b0a700692394d39ed65": 1,
       "9650d0bad5cc6e728867e88fc16f12c1c463847633a6c5fbb87193221da974bc": 1,
+      "97a0ea59e4a72d26fed4c51fb6816054b6cd212a3d3a1afe4619769291ef4d11": 1,
       "9d3a7899ea15ae2aece161e301e4cc960d8207e6d1a239b8e1a68a451b9d11f2": 1,
       "a05772640e2117d0f9d305605a9105f4f344aa48356a12a692cf2650ef9b6b77": 1,
       "addc09528977a1b9b2b8eb4d699192c2ef4789007d55d7f5ccd16eecfc1cc9f2": 1,
