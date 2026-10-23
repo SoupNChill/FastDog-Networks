@@ -4,7 +4,7 @@
 // SHA-256 digest. The secret is returned once, at creation.
 import { randomBytes, randomUUID } from 'node:crypto';
 import { digest } from './tokens.js';
-import { normalizeHostname } from './hostname.js';
+import { normalizeHostname, isReservedForKey } from './hostname.js';
 import { fail } from './errors.js';
 
 export const API_KEY_PREFIX = 'fdak_';
@@ -26,7 +26,7 @@ export const UNPAID_PLANS = new Set(['free', 'none', 'trial', 'suspended']);
 export const planAllowsKeys = (tenant) => Boolean(tenant) && (!tenant.status || tenant.status === 'active')
   && typeof tenant.plan === 'string' && tenant.plan.trim() !== '' && !UNPAID_PLANS.has(tenant.plan.trim().toLowerCase());
 
-export function createApiKeys(store, now) {
+export function createApiKeys(store, now, { reservedSuffixes = [] } = {}) {
   // Expired or revoked records are kept for 30 days so the list can show recent history.
   const all = () => store.read('api_keys', []).filter((k) => Date.parse(k.revoked_at || k.expires_at) > now() - 30 * DAY_MS);
   const live = (k) => !k.revoked_at && Date.parse(k.expires_at) > now();
@@ -47,6 +47,8 @@ export function createApiKeys(store, now) {
         if (body.hostnames.length) {
           try { hostnames = [...new Set(body.hostnames.map((h) => normalizeHostname(h)))]; }
           catch { throw fail('invalid_key'); }
+          // Names the edge would refuse (FastDog's own domain, generic reserved names) can never be added.
+          if (hostnames.some((h) => isReservedForKey(h, reservedSuffixes))) throw fail('reserved_hostname');
         }
       }
       if (trial && hostnames?.length !== TRIAL_MAX_HOSTNAMES) throw fail('invalid_key');

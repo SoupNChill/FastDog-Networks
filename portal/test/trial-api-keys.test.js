@@ -239,3 +239,25 @@ test('flag on: a set-plan override upgrade keeps the trial key and allows paid k
   o.f.store.write('trial_overrides', { tenants: { [tids[0]]: { plan: 'pro' } } });
   assert.equal((await o.create({})).data.error, 'plan_required', 'flag off reads the raw plan, as before');
 });
+
+test('keys cannot be limited to reserved hostnames (edge would refuse them on create)', async (t) => {
+  const { f, create } = await setup(t, { trialApiKey: true, reservedSuffixes: ['example.net', 'invalid'] });
+  for (const name of ['app.example.net', 'example.net', 'deep.e2e-probe.example.net', 'app.invalid']) {
+    const refused = await create({ hostnames: [name] });
+    assert.equal(refused.status, 400, name);
+    assert.equal(refused.data.error, 'reserved_hostname', name);
+  }
+  assert.equal(f.store.read('api_keys', []).length, 0, 'nothing stored');
+  const label = await create({ hostnames: ['e2e-probe.example.net'] });
+  assert.equal(label.status, 201, 'operator test labels are left to the edge');
+});
+
+test('portal reserved suffixes mirror the edge defaults plus the portal and edge domains', async () => {
+  const { portalReservedSuffixes, isReservedForKey } = await import('../src/hostname.js');
+  const derived = portalReservedSuffixes({ PORTAL_ORIGIN: 'https://portal.example.net', PORTAL_EDGE_URL: 'https://edge.example.org' });
+  for (const s of ['example.net', 'example.org', 'localhost', 'test', 'invalid', 'example']) assert.ok(derived.includes(s), s);
+  assert.deepEqual(portalReservedSuffixes({ PORTAL_RESERVED_SUFFIXES: ' Foo.Example., ', PORTAL_ORIGIN: 'https://portal.example.net' }), ['example.net', 'foo.example']);
+  assert.equal(isReservedForKey('app.example.org', derived), true);
+  assert.equal(isReservedForKey('app.customer-domain.com', derived), false);
+  assert.throws(() => createApp({ dataDir: temporary({ after() {} }), edge: {}, config: { reservedSuffixes: 'example.net' } }), /reserved suffixes/);
+});

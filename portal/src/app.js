@@ -80,6 +80,8 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
     throw new Error('Invalid open sign-up settings');
   }
   if (typeof config.trialApiKey !== 'boolean') throw new Error('Invalid trial API key setting');
+  const reservedSuffixes = config.reservedSuffixes ?? [];
+  if (!Array.isArray(reservedSuffixes) || reservedSuffixes.some((s) => typeof s !== 'string')) throw new Error('Invalid reserved suffixes');
   // Public edge address agents dial (PORTAL_EDGE_URL). Without it the portal never renders a connect command.
   const edgeUrl = config.edgeUrl ? String(config.edgeUrl).replace(/\/$/, '') : null;
   if (edgeUrl) {
@@ -101,7 +103,7 @@ export function createApp({ dataDir, edge, mailer, domainSearch, ownerNotify, no
   const limits = createRateLimits(now, store);
   const auth = createAuth({ store, sessions, limits, now, mailer, config, ownerNotify });
   const connectTokens = createConnectTokens(store, now);
-  const apiKeys = createApiKeys(store, now);
+  const apiKeys = createApiKeys(store, now, { reservedSuffixes });
   const suspensions = createSuspensions(store);
   // The edge keeps no per-tenant suspended flag, so every call that creates, verifies or connects re-checks
   // the kill switch at the last moment (after any awaits since authentication).

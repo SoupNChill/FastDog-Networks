@@ -21,8 +21,8 @@ test('llms.txt gives assistants a start-here flow with the key facts', () => {
   for (const needle of ["mkdir -p ~/.config/fastdog && (umask 077; printf 'Authorization: Bearer %s\\n' 'PASTE_KEY' > ~/.config/fastdog/HOSTNAME.header)",
     'HOSTNAME.token.header', 'if you fetched this guide from https://DOMAIN/llms.txt, the API origin is https://portal.DOMAIN (never the bare DOMAIN', 'Write every endpoint as https://portal.DOMAIN/api/v1/... (and https://portal.DOMAIN/api/connect/v1/...)', 'POST https://portal.DOMAIN/api/v1/hostnames {',
     'accept only one plain command per call', 'issues the certificate automatically on the first HTTPS request', 'HISTCONTROL=ignorespace', 'delete the file, and to revoke the key', 'right after connecting',
-    'curl 7.75+', 'docker info', 'root-equivalent', 'ALREADY have docker access', 'docker inspect', '--cap-drop ALL','--network host', 'host.docker.internal', 'ENV_FILE', '"platform":"docker"', 'Never use curl -v or --trace',
-    '--create-file-mode 0600 -w', 'do not retry variations', 'HOME may differ', 'Use the port or origin the user already gave you']) {
+    'umask 077; curl -sS -w', 'docker info', 'root-equivalent', 'ALREADY have docker access', 'docker inspect', '--cap-drop ALL','--network host', 'host.docker.internal', 'ENV_FILE', '"platform":"docker"', 'Never use curl -v or --trace',
+    'chmod 600', 'reserved_hostname', 'never sees 409 hostname_limit_reached', 'not on the server where the app runs', 'checks?', 'agent_version (may be null)', 'do not retry variations', 'HOME may differ', 'Use the port or origin the user already gave you']) {
     assert.ok(text.includes(needle), `llms.txt mentions ${needle}`);
   }
   const endpointLines = text.split('\n').filter((l) => /\/api\/(connect\/)?v1\//.test(l) && !l.startsWith('The API origin') && !l.startsWith('Once the hostname'));
@@ -43,10 +43,11 @@ test('llms.txt gives assistants a start-here flow with the key facts', () => {
 test('human docs have an AI assistant section with the same guidance', () => {
   const html = read('site/docs/index.html');
   const section = html.slice(html.indexOf('id="ai-assistant"'), html.indexOf('id="api-keys"'));
-  for (const needle of ['curl -H @/absolute/path/HOSTNAME.header', 'accept only one plain command per call', 'automatically on the first HTTPS request', 'per hostname', 'HISTCONTROL=ignorespace', 'revoke the key', 'right after connecting', 'curl 7.75+', '<code>--trace</code>', 'you save the', 'approve the assistant running it once', 'umask 077', '--create-file-mode 0600 -w', 'docker info', '--network host', 'the ONLY new command needing approval', '24 hours', '3 new commands a day', 'DNS only', '/llms.txt']) {
+  for (const needle of ['curl -H @/absolute/path/HOSTNAME.header', 'accept only one plain command per call', 'automatically on the first HTTPS request', 'per hostname', 'HISTCONTROL=ignorespace', 'revoke the key', 'right after connecting', 'umask 077; curl -sS -w', '<code>--trace</code>', 'you save the', 'approve the assistant running it once', 'umask 077', 'chmod 600', 'not on the server where the app runs', 'docker info', '--network host', 'the ONLY new command needing approval', '24 hours', '3 new commands a day', 'DNS only', '/llms.txt']) {
     assert.ok(section.includes(needle), `docs section mentions ${needle}`);
   }
   assert.doesNotMatch(html, /issued on the first visit/);
+  for (const needle of ['400 reserved_hostname', 'gets 403 for any other website', 'may be null']) assert.ok(html.includes(needle), `docs mention ${needle}`);
   assert.ok(html.includes('if you fetched the guide from <code>https://DOMAIN/llms.txt</code>, the API origin is <code>https://portal.DOMAIN</code> (never the bare <code>DOMAIN</code>)'));
   assert.doesNotMatch(html, /\{portal\}|https:\/\/(?![A-Za-z])/);
 });

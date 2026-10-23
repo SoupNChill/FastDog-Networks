@@ -44,13 +44,17 @@ EARLY, before DNS work, list in one message (a) curl calls to https://portal.DOM
 
 Once the hostname exists, use the exact container name, pinned image and run template from its docker object {container_name, image, run}. API-key create and GET hostname responses and fdct GET /api/connect/v1/hostname expose it without a secret. Replace ENV_FILE with the absolute env-file path below. Docker group access is root-equivalent: the user must ALREADY have docker access without sudo; never add anyone to that group. Ask the user about access, without running docker info. If they lack access, use the systemd installer path (platform "linux"), run by the user.
 
-After DNS is verified, fetch the env file with ONE curl (requires curl 7.75+). Use a new, unused absolute path in the user's private ~/.config/fastdog directory; --create-file-mode does not fix permissions on an existing file. Prefer HOSTNAME.agent.env in ~/.config/fastdog; if it already exists, pick a different new name such as HOSTNAME.agent-2.env rather than overwrite it. PORT is the app port the user gave. The user prepares the header file as described above.
+After DNS is verified, fetch the env file with ONE curl run under umask 077, so the new file is private (curl's --create-file-mode only applies to remote uploads, not to a local -o file, so do not rely on it). Use a new, unused absolute path in the user's private ~/.config/fastdog directory; umask only applies to a new file. Prefer HOSTNAME.agent.env in ~/.config/fastdog; if it already exists, pick a different new name such as HOSTNAME.agent-2.env rather than overwrite it. PORT is the app port the user gave. The user prepares the header file as described above.
 
-    curl -sS --create-file-mode 0600 -w '%{http_code}\n' -X POST -H @/home/USER/.config/fastdog/app.example.com.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:PORT","platform":"docker","format":"env"}' -o /home/USER/.config/fastdog/app.example.com.agent.env https://portal.DOMAIN/api/v1/hostnames/app.example.com/connect
+    (umask 077; curl -sS -w '%{http_code}\n' -X POST -H @/home/USER/.config/fastdog/app.example.com.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:PORT","platform":"docker","format":"env"}' -o /home/USER/.config/fastdog/app.example.com.agent.env https://portal.DOMAIN/api/v1/hostnames/app.example.com/connect)
 
 For an fdct_ connect token, use:
 
-    curl -sS --create-file-mode 0600 -w '%{http_code}\n' -X POST -H @/abs/path/app.example.com.token.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:PORT","platform":"docker","format":"env"}' -o /home/USER/.config/fastdog/app.example.com.agent.env https://portal.DOMAIN/api/connect/v1/command
+    (umask 077; curl -sS -w '%{http_code}\n' -X POST -H @/abs/path/app.example.com.token.header -H 'Content-Type: application/json' -d '{"origin":"http://127.0.0.1:PORT","platform":"docker","format":"env"}' -o /home/USER/.config/fastdog/app.example.com.agent.env https://portal.DOMAIN/api/connect/v1/command)
+
+Fallback: if your command allowlist accepts only a plain curl, run the same curl without the parentheses and umask, then ask the user to approve chmod 600 on that file (for example chmod 600 /home/USER/.config/fastdog/app.example.com.agent.env) before the docker run. Keep the directory private too: chmod 700 ~/.config/fastdog.
+
+If you are not on the server where the app runs: run this curl and the docker run on that server, with the header file saved there. If the env file must move, copy it once over ssh (scp) straight into a 0700 directory on the server, chmod 600 it there, and delete every intermediate copy right away. Never paste it into a chat, log, ticket or repo.
 
 Check the printed HTTP code. If it is not 200, the file holds a JSON error without secrets and may be read; do not run Docker. On transport failure stop too. If 200, never read, print, cat or copy that file. Use the exact docker.run and docker.container_name from the API, never a copied example name. Run exactly docker.run with ENV_FILE replaced by the absolute path you chose, as one command with nothing chained. No docker info / docker pull / docker ps / rm around it: docker run pulls the pinned image itself. If a name conflict occurs on reconnect, ask the user to approve docker rm -f followed by the exact docker.container_name once, then rerun the same docker run with the same env file; do not request a new command. If permission denied on the Docker socket, stop and offer the linux installer path.
 
@@ -72,7 +76,7 @@ GET https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/status -> {live, reasons, ch
 
 - live: true only when the agent is connected, its origin is not failing and a valid certificate is served. This is the stop condition: live true, then open https://HOSTNAME/.
 - reasons (empty when live): agent_disconnected (the command has not been run, or the agent stopped), origin_unreachable (agent is up, app is not answering at the origin: start the app or fix the port), certificate_missing, certificate_invalid, certificate_expired.
-- agent.connected, agent.last_seen, agent.origin_reachable (false = app not answering; absent/null on old agents = unknown), agent.agent_version.
+- agent.connected, agent.last_seen, agent.origin_reachable (false = app not answering; absent/null on old agents = unknown), agent.agent_version (may be null).
 - cert: null when no certificate is served, else {valid, expires_at, issuer}.
 - traffic and verdict are informational (verdict counts are shadow only; nothing is blocked).
 
@@ -117,15 +121,15 @@ Scopes (a key holds one or more):
 - `connect`: get a connect command.
 Removing a hostname is not possible with a key; it is done in the portal.
 
-There is no endpoint that lists a key's scopes. 403 forbidden means the key lacks the scope for that call or the hostname is not on the key's hostname list; ask the user to create a key with the missing scope. Needed scope per call:
+There is no endpoint that lists a key's scopes. 403 forbidden means the key lacks the scope for that call or the hostname is not on the key's hostname list; ask the user to create a key with the missing scope. Needed scope per call: A key limited to one hostname (every trial key) gets 403 forbidden for any other hostname, including a create call, so it never sees 409 hostname_limit_reached.
 
 - POST https://portal.DOMAIN/api/v1/hostnames {"hostname": "app.example.com"} -> 201 {hostname, status, docker, dns: {cname, txt}, expires_at} (`hostnames:create`)
 - GET https://portal.DOMAIN/api/v1/hostnames/HOSTNAME -> {hostname, status, docker, dns?, agent?} (`status:read` or `hostnames:create`)
-- POST https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/verify -> {hostname, status, verified, checks} (`hostnames:create`)
+- POST https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/verify -> {hostname, status, verified, verified_at?, method?, checks?} (`hostnames:create`; checks may be absent once verified)
 - GET https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/status -> see Status fields (`status:read`)
 - POST https://portal.DOMAIN/api/v1/hostnames/HOSTNAME/connect with JSON {"origin": "http://127.0.0.1:PORT", "platform": "docker" | "linux"} and optional "format":"env" -> env text; default JSON -> {command, env_file} (env_file is Docker-only; `connect`)
 
-Errors: 401 unauthorized (missing, expired or revoked key), 403 forbidden, 404 hostname_not_found, 400 invalid_origin, 409 hostname_limit_reached, 409 hostname_unavailable, 409 not_active, 429 rate_limited (60 requests a minute per key; honour Retry-After).
+Errors: 401 unauthorized (missing, expired or revoked key), 403 forbidden, 404 hostname_not_found, 400 invalid_origin, 400 reserved_hostname (names under FastDog's own domain and generic reserved names such as .test or .local cannot be added; use a hostname on a domain the user controls), 409 hostname_limit_reached, 409 hostname_unavailable, 409 not_active, 429 rate_limited (60 requests a minute per key; honour Retry-After).
 
 These return 409 not_active until the hostname is verified (status still pending): /connect, /status, the portal's connect-token creation, and both connect token API calls. Run verify first. Only create, GET HOSTNAME and verify work while pending.
 

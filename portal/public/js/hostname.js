@@ -45,7 +45,7 @@ async function api(...args) {
   try { return await request(...args); }
   catch (error) {
     const replacements = {
-      'This hostname is reserved. Choose another name.': "This address can't be used. It's reserved or already connected to another account.",
+      "This hostname is reserved (for example, a name under FastDog's own domain). Use a hostname on a domain you control.": "This address can't be used. It's reserved or already connected to another account.",
       'This hostname is unavailable.': "This address can't be used. It's reserved or already connected to another account.",
       'Please sign in, verify your email, or check the details and try again.': emailVerified ? 'Your session may have ended. Sign in again to continue.' : 'Open the verification link in your email, then reload this page.',
       'Your plan’s hostname limit has been reached.': 'Your plan has no room for another website address. Remove an unused address or contact support.',

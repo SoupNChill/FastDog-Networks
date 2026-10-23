@@ -3,7 +3,7 @@ export const message = (text) => { document.querySelector('#message').textConten
 const errors = {
   unauthorized: 'Please sign in, verify your email, or check the details and try again.',
   invalid_hostname: 'Enter a complete hostname, such as app.example.com.',
-  reserved_hostname: 'This hostname is reserved. Choose another name.',
+  reserved_hostname: "This hostname is reserved (for example, a name under FastDog's own domain). Use a hostname on a domain you control.",
   hostname_unavailable: 'This hostname is unavailable.',
   hostname_not_found: 'This hostname was not found in your account.',
   hostname_limit_reached: 'Your plan’s hostname limit has been reached.',
