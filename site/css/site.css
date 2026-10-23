@@ -31,6 +31,8 @@ nav a{display:inline-flex;align-items:center;min-height:44px;text-decoration:non
 nav a[aria-current],.nav-contact{box-shadow:inset 0 -1px var(--cyan)}
 nav a[aria-current]{color:var(--accent)}
 .nav-contact{gap:12px}
+.nav-cta{padding:0 16px;background:var(--cyan);color:var(--button-ink);white-space:nowrap}
+.nav-cta:hover{color:var(--button-ink);text-decoration:underline;text-underline-offset:4px}
 .eyebrow,.section-marker,.quiet,.readout-label,.route-caption,.tag{font-size:12px;line-height:1.5;letter-spacing:.09em;text-transform:uppercase}
 .eyebrow{font-weight:600;color:var(--accent)}
 .section-marker,.quiet,.route-caption{color:var(--muted)}
@@ -44,6 +46,7 @@ nav a[aria-current]{color:var(--accent)}
 .hero-copy>p:not(.hero-lede){margin-top:22px;max-width:530px}
 .cta{display:inline-flex;align-items:center;justify-content:space-between;gap:28px;min-height:48px;padding:10px 0;margin-top:28px;border-bottom:1px solid var(--cyan);text-decoration:none;font-weight:600}
 .cta span{color:var(--accent)}
+.section-body>.cta-repeat{margin-top:28px}.cta-repeat .cta{margin-top:0}
 .proof{min-width:0;background:var(--panel);border:1px solid var(--border);border-top:2px solid var(--cyan);padding:25px 26px 24px}
 .proof-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:20px;border-bottom:1px solid var(--rule);margin-bottom:22px}
 .proof-head h2{font-size:17px;letter-spacing:0}
@@ -139,7 +142,7 @@ nav a[aria-current]{color:var(--accent)}
 .control-list{list-style:none;padding:0;margin:38px 0 0;display:grid;grid-template-columns:1fr 1fr;gap:0 40px}
 .control-list li{border-top:1px solid var(--rule);padding:24px 0 28px}.control-list p{font-size:16px;margin-top:10px}
 
-@media(max-width:760px){.control-list{grid-template-columns:1fr}.plans>div{align-items:flex-start}}
+@media(max-width:760px){.control-list{grid-template-columns:1fr}.plans>div{align-items:flex-start}.nav-cta{padding:0 12px;font-size:12px}}
 .domain-search-form{margin-top:28px}
 .domain-search-form[hidden]{display:none}
 .domain-search-form label{display:block;font-weight:600;margin-bottom:8px}

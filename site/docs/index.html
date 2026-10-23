@@ -23,7 +23,7 @@
 <a class="skip" href="#main">Skip to content</a>
 <header class="site-header wrap">
   <a class="brand" href="/" aria-label="FastDog Networks home"><picture><source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/hound-light.svg" width="70" height="21" alt=""></picture><span>FastDog <span class="brand-second">Networks</span></span></a>
-  <nav aria-label="Main navigation"><a href="/edge/">Edge</a><a href="/domains/">Domains</a><a href="/verdict/">Verdict</a><a href="/docs/" aria-current="page">Docs</a></nav>
+  <nav aria-label="Main navigation"><a href="/edge/">Edge</a><a href="/domains/">Domains</a><a href="/verdict/">Verdict</a><a href="/docs/" aria-current="page">Docs</a><a class="nav-cta" href="https://portal.fastdognetworks.com/signup">Start free: 7 days, no card</a></nav>
 </header>
 <main id="main" class="wrap docs">
 <section class="product-hero"><div><span class="eyebrow">Docs</span><h1>Put your website on FastDog.</h1><p class="hero-lede">Four steps: add your address, add two DNS records, connect your server, then check that it’s live. Your app keeps running where it is.</p><p class="small-note">For AI assistants: the same guide in plain text is at <a href="/llms.txt">/llms.txt</a>.</p></div></section>
@@ -100,7 +100,7 @@
 </section>
 
 <section class="section" id="api-keys"><h2>API keys</h2>
-<p>For scripts and AI assistants that do more than one connection, create an API key on the portal?s <strong>API keys</strong> page (every paid plan). You choose what it can do, optionally which websites it covers, and when it expires (30 days by default, 90 at most). It is shown once, stored only as a hash, and you can revoke it at any time. Changing your password ends all your keys.</p>
+<p>For scripts and AI assistants that do more than one connection, create an API key on the portal’s <strong>API keys</strong> page. Paid plans create API keys; on a trial, the page offers one key, limited to exactly one hostname, that expires when the trial ends. You choose what it can do, optionally which websites it covers, and when it expires (30 days by default, 90 at most). It is shown once, stored only as a hash, and you can revoke it at any time. Changing your password ends all your keys.</p>
 <ul>
 <li><code>hostnames:create</code>: add a website and check its DNS records.</li>
 <li><code>status:read</code>: read the live status of your websites.</li>
@@ -114,7 +114,7 @@
 <li><code>GET /api/v1/hostnames/&lt;hostname&gt;/status</code>: the same data as the Status page.</li>
 <li><code>POST /api/v1/hostnames/&lt;hostname&gt;/connect</code> with <code>{"origin":"http://127.0.0.1:PORT","platform":"docker","format":"env"}</code> (or <code>"linux"</code>): returns a connect command.</li>
 </ul>
-<p>Limits: 60 requests a minute per key, 5 new keys an hour, 10 active keys per account. Every use is logged with the key?s name, never the key itself, and the portal shows when each key was last used.</p>
+<p>Limits: 60 requests a minute per key, 5 new keys an hour, 10 active keys per account. Every use is logged with the key’s name, never the key itself, and the portal shows when each key was last used.</p>
 </section>
 <section class="section" id="troubleshooting"><h2>Troubleshooting</h2>
 <dl>

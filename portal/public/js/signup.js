@@ -37,6 +37,15 @@ if (open) {
   });
   intro.textContent = 'Start your 7-day free trial: 1 hostname, no card needed.';
   help.textContent = 'After you create your account, check your inbox and spam folder for a verification link. If you already have an account, sign in below.';
+} else if (me) {
+  // The page may have been rendered while open sign-up was on; an invite-only server needs the code.
+  invite.required = true;
+  invite.setAttribute('required', '');
+  inviteLabel.textContent = 'Invitation code';
+  inviteField.hidden = false;
+  inviteToggle.hidden = true;
+  intro.textContent = 'Use the exact email address that received your invitation. Copy the invitation code from that email.';
+  help.textContent = 'No email yet? Check your spam folder and the email address and code in your invitation. If you already have an account, sign in below.';
 } else if (initError) {
   // Do not let a failed status check force a code: the server decides. (Without a CSRF token
   // from init() the POST itself still fails and shows an error; this only avoids a hard block.)
