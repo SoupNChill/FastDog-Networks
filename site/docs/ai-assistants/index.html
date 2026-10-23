@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#222831">
+  <title>Put your app on FastDog with Claude Code, Codex, or Cursor</title>
+  <meta name="description" content="Step-by-step: let your AI coding assistant connect your self-hosted app to FastDog over HTTPS with no open ports. Trial and paid-plan setups, plus limits.">
+  <link rel="canonical" href="https://fastdognetworks.com/docs/ai-assistants/">
+  <meta property="og:title" content="Put your app on FastDog with Claude Code, Codex, or Cursor">
+  <meta property="og:description" content="Step-by-step: let your AI coding assistant connect your self-hosted app to FastDog over HTTPS with no open ports. Trial and paid-plan setups, plus limits.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://fastdognetworks.com/docs/ai-assistants/">
+  <meta property="og:image" content="https://fastdognetworks.com/og/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="FastDog Networks. Fast by Design.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Put your app on FastDog with Claude Code, Codex, or Cursor">
+  <meta name="twitter:description" content="Step-by-step: let your AI coding assistant connect your self-hosted app to FastDog over HTTPS with no open ports. Trial and paid-plan setups, plus limits.">
+  <meta name="twitter:image" content="https://fastdognetworks.com/og/og.png">
+  <meta name="twitter:image:alt" content="FastDog Networks. Fast by Design.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/SpaceGrotesk-Medium.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="/fonts/SpaceGrotesk-Bold.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap">
+  <a class="brand" href="/" aria-label="FastDog Networks home"><picture><source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/hound-light.svg" width="70" height="21" alt=""></picture><span>FastDog <span class="brand-second">Networks</span></span></a>
+  <nav aria-label="Main navigation"><a href="/edge/">Edge</a><a href="/domains/">Domains</a><a href="/verdict/">Verdict</a><a href="/docs/">Docs</a><a class="nav-cta" href="https://portal.fastdognetworks.com/signup">Start free: 7 days, no card</a></nav>
+</header>
+<main id="main" class="wrap docs">
+<section class="product-hero"><div><span class="eyebrow">Docs</span><h1>Put your app on FastDog with Claude Code, Codex, or Cursor</h1><p class="hero-lede"><strong>Your AI can put your app on FastDog safely in one prompt.</strong></p></div></section>
+<section class="section"><p>If your app runs on your own server, a VPS, a home box, or in Docker, your coding assistant can connect it to FastDog: HTTPS, and a private tunnel to your app, with no inbound ports opened. You stay in charge of the parts that should be yours: your DNS records and approving the commands it runs.</p>
+<p>The setup keys it uses only work for your account and expire on their own. The agent key stays on your server.</p>
+<p>There are two ways to do it:</p>
+<ul>
+<li><strong>Option A (any plan, including the trial; no key needed).</strong> You add your website and its DNS records in the portal. Once the address is verified, press <strong>Create prompt</strong> on the Server page and paste the prompt into your assistant. It connects your server and runs the agent.</li>
+<li><strong>Option B (a trial or paid API key).</strong> With an API key, the assistant does the whole setup from scratch, including adding your website and checking DNS.</li>
+</ul>
+<p>The free trial gets one API key for its one website, once you’ve verified your email. It has the same three permissions as a paid key, can’t touch any other website, and stops working when the trial ends. After you upgrade, create a new key. The website must be on a domain you own. Names under FastDog’s own domain (fastdognetworks.com) can’t be used; the API returns <code>400 reserved_hostname</code> for them. A trial key is locked to its one website, so it gets <code>403 forbidden</code> for any other name. Removing a website is only possible in the portal, never with a key.</p>
+</section>
+<section class="section"><h2>Before you start</h2>
+<ul>
+<li>An app running on a server you can reach in a terminal, and the port it listens on (for example <code>http://127.0.0.1:3000</code>).</li>
+<li>Check the limits below. FastDog carries ordinary HTTP(S) requests only.</li>
+<li>A domain where you can add DNS records. Use a subdomain like <code>app.example.test</code>. Root domains only work if your DNS host supports ALIAS, ANAME, or CNAME flattening.</li>
+<li>Docker on that server, already usable without sudo (recommended). If you don’t have that, the assistant can use the Linux systemd installer instead, which you run yourself.</li>
+<li>A FastDog account. <a href="https://portal.fastdognetworks.com/signup">Start free: 7 days, no card</a> The trial covers one hostname.</li>
+<li>Claude Code, Codex, Cursor, or another assistant that can run terminal commands with your approval.</li>
+</ul>
+</section>
+<section class="section"><h2>Option A: you add the website, the assistant connects it (any plan, no key needed)</h2>
+<ol>
+<li><strong>Sign up</strong> and sign in to the portal.</li>
+<li><strong>Add your website address</strong>, on a domain you own (for example <code>app.example.test</code>).</li>
+<li><strong>Add the two DNS records</strong> the portal shows, at your DNS provider: a CNAME on your hostname and a TXT record on <code>_fastdog-challenge.</code> plus your hostname. On Cloudflare DNS, set the CNAME to &quot;DNS only&quot; (grey cloud). Press <strong>Check</strong> until the hostname is verified. That can take a few minutes or a few hours, depending on your DNS provider.</li>
+<li>On the <strong>Server</strong> page, under &quot;Copy prompt for your AI assistant&quot; (it appears once the address is verified), press <strong>Create prompt</strong>.<figure class="docs-figure"><img src="/docs/ai-assistants/portal-create-prompt.png" width="1024" height="594" loading="lazy" alt="Server page with the Create prompt and Revoke prompt tokens buttons"><figcaption>Copy prompt for your AI assistant on the Server page.</figcaption></figure></li>
+<li><strong>Paste the prompt</strong> into your assistant, and tell it the port your app listens on if it asks. The prompt includes a connect token that works only for this website, only for connecting, and expires in one hour. <strong>Revoke prompt tokens</strong> on the same page cancels it.</li>
+<li><strong>Approve the commands.</strong> The assistant fetches a private env file straight to disk with <code>curl</code>, then asks to run one <code>docker run</code> to start the agent. The agent’s key is never printed in a chat, a command line, or shell history. The env file is created private (umask 077) in <code>~/.config/fastdog</code>, which stays 0700. If your assistant can only run a plain <code>curl</code>, it asks you to approve <code>chmod 600</code> on the file before the <code>docker run</code>. If the assistant isn’t on your server, run the commands on the server, or copy the file once with <code>scp</code> into a 0700 directory there, then delete every other copy.</li>
+<li><strong>Check it’s live.</strong> When the assistant reports the agent connected, open <code>https://app.example.test/</code>. The certificate is issued on the first HTTPS request, which can take about a minute.</li>
+<li><strong>Clean up.</strong> The assistant gives you a one-line <code>rm -f</code> to delete the env file. The running container doesn’t need it. You can delete the connect-token file as well.</li>
+</ol>
+</section>
+<section class="section"><h2>Option B: the assistant does the whole setup (trial or paid API key)</h2>
+<ol>
+<li>
+<p><strong>Create an API key</strong> on the portal’s API keys page. Tick all three: &quot;Read website status&quot; (ticked by default), &quot;Add websites and check their DNS&quot;, and &quot;Get a connect command (this replaces the current server connection)&quot;. It’s shown once and belongs only to your account. On the trial, you get one key, for your one website: enter the website and your password; there’s no expiry field, because it stops working when the trial ends. On a paid plan you can optionally limit a key to specific websites, and it expires after 30 days by default (90 at most).</p>
+</li>
+<li>
+<p><strong>Save the key to a private file yourself</strong>, once. Many assistants refuse commands that contain a secret, so this step is yours. The exact one-line command is in <a href="/llms.txt">/llms.txt</a> under step 0. It writes the key to <code>~/.config/fastdog/HOSTNAME.header</code> with owner-only permissions.</p>
+</li>
+<li>
+<p><strong>Paste this prompt</strong>, with your own values in place of the placeholders. It’s the prompt from the Oct 17 run (operator API key).</p>
+<blockquote>
+<p>I’m connecting my website {{your-hostname}} to FastDog Networks. Please do the whole setup on this server.
+Read the setup guide first: /llms.txt
+My FastDog API key is already saved as a header file at {{/absolute/path/to/key.header}} (absolute path).
+My app runs on this server at http://127.0.0.1:{{port}}.</p>
+</blockquote>
+<p>When it asks, reply once your DNS records are saved:</p>
+<blockquote>
+<p>I have added both DNS records. Yes, I have Docker access without sudo.</p>
+</blockquote>
+<p>And when it shows you the <code>docker run</code> line:</p>
+<blockquote>
+<p>Approved. Run that docker run command now.</p>
+</blockquote>
+</li>
+<li>
+<p><strong>Approve what it lists up front.</strong> The guide tells the assistant to list, before any DNS work, the <code>curl</code> calls it will make to the FastDog portal and the exact <code>docker run</code> line. If you allow curl up front, the only new command it needs approval for later is that one <code>docker run</code>.</p>
+</li>
+<li>
+<p><strong>Add the two DNS records it shows you</strong>, as in Option A step 3, and tell the assistant when they’re saved. It checks every 30 seconds.</p>
+</li>
+<li>
+<p><strong>Approve the <code>docker run</code></strong>, then wait. The assistant polls status until it reports live, then opens your site.</p>
+</li>
+<li>
+<p><strong>Clean up</strong> the env file as in Option A. Delete the API key header file too, and revoke the key if you’re done.</p>
+</li>
+</ol>
+</section>
+<section class="section"><h2>What you still do yourself</h2>
+<ul>
+<li>Add two DNS records. The assistant usually can’t, and it shouldn’t hold your DNS login anyway.</li>
+<li>Approve commands. Your password and sudo prompts stay with you.</li>
+<li>Option A: add your website in the portal, then press Create prompt once it’s verified.</li>
+<li>Option B: save the API key to a file (trial or paid).</li>
+</ul>
+</section>
+<section class="section"><h2>Limits today</h2>
+<p>FastDog is for ordinary websites and HTTP APIs. Today it does <strong>not</strong> support:</p>
+<ul>
+<li><strong>WebSockets.</strong> An upgrade request returns HTTP 400.</li>
+<li><strong>TCP or UDP</strong> services (SSH, databases, game servers). HTTP(S) only.</li>
+<li><strong>Long requests or streaming.</strong> Each request has a 30-second timeout. Streaming responses and server-sent events (SSE) aren’t supported.</li>
+<li><strong>Large uploads.</strong> Request bodies are limited to 50 MiB. Larger requests return HTTP 413.</li>
+</ul>
+<p>FastDog’s edge also runs on one server today, with no multi-region failover.</p>
+<p>If your app needs any of these, FastDog isn’t the right fit yet. See our comparison pages for tools that support them: <a href="/compare/cloudflare-tunnel/">Cloudflare Tunnel</a>, <a href="/compare/ngrok/">ngrok</a>, <a href="/compare/tailscale-funnel/">Tailscale Funnel</a>.</p>
+</section>
+<section class="section"><h2>What a run looks like</h2>
+<p>One Oct 17 run, with an operator API key, not a trial account: a fresh Claude Code session took a new hostname to live HTTPS in under 3 minutes (2:48.8 total, including 63 seconds of DNS and 29 seconds waiting on approval), for about $0.17 of AI usage (a list-price estimate, not a FastDog charge). DNS was quick in that test only because the test name used FastDog’s own nameservers. With your DNS provider it may take longer. Curl and web fetch were allowed up front, so the only command it had to ask for was the <code>docker run</code>. Option A has more steps by hand, because you add the website and records in the portal first.</p>
+<p>In our own test (Oct 22, 2026), a trial API key took a new hostname from added to live HTTPS in under 5 minutes, including adding two DNS records at an external DNS provider.</p>
+</section>
+<section class="section"><h2>If something goes wrong</h2>
+<ul>
+<li>&quot;Records not found yet&quot;: wait and check again. Make sure the TXT name starts with <code>_fastdog-challenge.</code> and your provider didn’t add the domain twice.</li>
+<li>Agent connected but the app isn’t answering: start the app, or fix the port. On Docker Desktop, use <code>host.docker.internal</code> instead of <code>127.0.0.1</code>.</li>
+<li>HTTP 400 on a WebSocket connection, or timeouts on long requests: see &quot;Limits today.&quot;</li>
+<li>Still no certificate after 30 minutes: email support@fastdognetworks.com with the hostname.</li>
+</ul>
+<p>Full reference: <a href="/docs/">/docs</a> for you, <a href="/llms.txt">/llms.txt</a> for your assistant.</p>
+</section>
+</main>
+<footer class="footer wrap"><picture><source srcset="/logos/lockup-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/lockup-light.svg" width="180" height="110" alt="FastDog Networks. Fast by Design."></picture><div><span>DNS · tunnel · TLS</span><span>© FastDog Networks</span><span><a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="/faq/">FAQ</a></span><span><a href="/docs/ai-assistants/">AI assistants</a> · <a href="/compare/cloudflare-tunnel/">vs Cloudflare Tunnel</a> · <a href="/compare/ngrok/">vs ngrok</a> · <a href="/compare/tailscale-funnel/">vs Tailscale Funnel</a></span><a class="footer-link" href="/docs/">Docs</a></div></footer>
+</body>
+</html>

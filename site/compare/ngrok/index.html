@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#222831">
+  <title>FastDog vs ngrok: custom domains, pricing, and limits</title>
+  <meta name="description" content="ngrok vs FastDog for a self-hosted app on your own domain: free tiers, custom domain cost, protocols, timeouts, uploads. Checked Oct 22, 2026.">
+  <link rel="canonical" href="https://fastdognetworks.com/compare/ngrok/">
+  <meta property="og:title" content="FastDog vs ngrok: custom domains, pricing, and limits">
+  <meta property="og:description" content="ngrok vs FastDog for a self-hosted app on your own domain: free tiers, custom domain cost, protocols, timeouts, uploads. Checked Oct 22, 2026.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://fastdognetworks.com/compare/ngrok/">
+  <meta property="og:image" content="https://fastdognetworks.com/og/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="FastDog Networks. Fast by Design.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="FastDog vs ngrok: custom domains, pricing, and limits">
+  <meta name="twitter:description" content="ngrok vs FastDog for a self-hosted app on your own domain: free tiers, custom domain cost, protocols, timeouts, uploads. Checked Oct 22, 2026.">
+  <meta name="twitter:image" content="https://fastdognetworks.com/og/og.png">
+  <meta name="twitter:image:alt" content="FastDog Networks. Fast by Design.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/SpaceGrotesk-Medium.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="/fonts/SpaceGrotesk-Bold.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap">
+  <a class="brand" href="/" aria-label="FastDog Networks home"><picture><source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/hound-light.svg" width="70" height="21" alt=""></picture><span>FastDog <span class="brand-second">Networks</span></span></a>
+  <nav aria-label="Main navigation"><a href="/edge/">Edge</a><a href="/domains/">Domains</a><a href="/verdict/">Verdict</a><a href="/docs/">Docs</a><a class="nav-cta" href="https://portal.fastdognetworks.com/signup">Start free: 7 days, no card</a></nav>
+</header>
+<main id="main" class="wrap docs">
+<section class="product-hero"><div><span class="eyebrow">Compare</span><h1>FastDog vs ngrok</h1><p class="hero-lede">ngrok and FastDog both give an app on your machine or server a public HTTPS address through an outbound agent. ngrok is a mature developer tool and API gateway with a free tier. FastDog is a small, flat-priced service for putting a self-hosted app on your own domain.</p></div></section>
+<section class="section"></section>
+<section class="section"><h2>Short version</h2>
+<ul>
+<li><strong>Pick ngrok</strong> for quick sharing and testing on an ngrok address, for webhooks during development, for WebSockets, for TCP and TLS endpoints, or when you want an API gateway with traffic policy, SSO, and enterprise options.</li>
+<li><strong>Pick FastDog</strong> if you have an ordinary HTTP(S) app (no WebSockets, no long or streaming requests, uploads under 50 MiB) and want it on your own domain on a flat monthly price, with no usage meter, connected by your AI assistant with short-lived keys.</li>
+</ul>
+</section>
+<section class="section"><h2>Side by side</h2>
+<div class="comparison-table" role="region" aria-label="Side by side comparison" tabindex="0"><table>
+<thead>
+<tr>
+<th></th>
+<th>ngrok</th>
+<th>FastDog</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Free option</td>
+<td>Free plan, $0, with a one-time $5 usage credit, up to 3 online endpoints, 1 GB transfer, 20k HTTP/S requests, an interstitial page on HTTP/S endpoints, and an assigned dev domain [1].</td>
+<td>Free for 7 days on one hostname, no card. On day 8 the hostname pauses until you pick a plan.</td>
+</tr>
+<tr>
+<td>Entry paid plan</td>
+<td>Hobbyist $10/mo: $10 of included usage, no interstitial, ngrok-branded domains (10). Custom domains are not included [1].</td>
+<td>Hobby $9/mo: up to 3 hostnames on your own domain. Pro $29/mo (15), Agency $149/mo (50).</td>
+</tr>
+<tr>
+<td>Your own domain</td>
+<td>Pay-as-you-go and up: $20/mo with $20 of included usage, plus $0.01 per active hour per custom domain. Extra usage is billed monthly [1].</td>
+<td>Included on every plan.</td>
+</tr>
+<tr>
+<td>Billing model</td>
+<td>Usage-based: endpoint hours, data transfer ($0.10/GB after included), requests ($1 per 100k after included), and more [1].</td>
+<td>Flat per plan. Fair use applies.</td>
+</tr>
+<tr>
+<td>What happens when included usage runs out</td>
+<td>Hobbyist endpoints stop until the cycle resets. Pay-as-you-go keeps working and bills the extra [1].</td>
+<td>No meter. If traffic outgrows a plan, we talk before anything changes.</td>
+</tr>
+<tr>
+<td>Protocols</td>
+<td>HTTP/S, TCP (with card verification on Free), TLS on Pay-as-you-go [1][3]. No UDP endpoint type is listed [3].</td>
+<td>HTTP(S) only. No TCP or UDP.</td>
+</tr>
+<tr>
+<td>WebSockets</td>
+<td>Supported on HTTP/S endpoints with no configuration [2].</td>
+<td>Not supported. An upgrade request returns 400.</td>
+</tr>
+<tr>
+<td>Request timeout and streaming</td>
+<td>No round-trip, request, or response timeout on HTTP/S endpoints. Connections close after 5 minutes idle [2].</td>
+<td>30-second timeout. No streaming responses or server-sent events (SSE).</td>
+</tr>
+<tr>
+<td>Upload size</td>
+<td>No request body size limit [2].</td>
+<td>50 MiB. Larger requests return HTTP 413.</td>
+</tr>
+<tr>
+<td>Teams and compliance</td>
+<td>SSO/RBAC add-ons, SOC 2 Type II, HIPAA BAAs, AWS Marketplace [1].</td>
+<td>Small team. No compliance certifications.</td>
+</tr>
+<tr>
+<td>AI assistant setup</td>
+<td><em>(Not compared here.)</em></td>
+<td>&quot;Copy prompt for your AI assistant&quot; and /llms.txt. On the trial, you add the hostname and DNS records in the portal, then the prompt’s 1-hour, connect-only token lets the assistant connect it. With an API key (the trial gets one, for its one website), it does the whole setup. The agent key stays on your server.</td>
+</tr>
+</tbody>
+</table></div>
+</section>
+<section class="section"><h2>Where ngrok is better</h2>
+<ul>
+<li><strong>A real free tier</strong> that’s great for quick tests and demos.</li>
+<li><strong>Long requests and big uploads:</strong> no request timeout and no body size limit on HTTP/S endpoints [2], versus our 30 seconds and 50 MiB.</li>
+<li><strong>Breadth:</strong> WebSockets, TCP and TLS endpoints, traffic policy, OAuth/OIDC at the edge, wildcard endpoints, and mTLS [1].</li>
+<li><strong>Maturity and compliance:</strong> SOC 2 Type II, HIPAA, enterprise contracts, and procurement through AWS Marketplace [1].</li>
+<li><strong>Scale:</strong> unlimited endpoints and team features on Pay-as-you-go.</li>
+</ul>
+</section>
+<section class="section"><h2>Where FastDog is different</h2>
+<ul>
+<li><strong>Your own domain from $9/mo</strong>, without a usage meter. On ngrok, a custom domain starts at the $20/mo Pay-as-you-go plan, plus $0.01 per active hour [1].</li>
+<li><strong>Built to run all the time,</strong> not just for a dev session. The agent runs as a Docker container that restarts by itself.</li>
+<li><strong>AI setup with safe keys.</strong> One-hour, connect-only tokens (the portal prompt), account-scoped API keys that expire (trial and paid plans), and an agent key that’s written to a private file on your server and never shows up in a chat or a command line.</li>
+<li><strong>Keep your DNS.</strong> One CNAME and one TXT at your current DNS host.</li>
+</ul>
+</section>
+<section class="section"><h2>Sources (checked Oct 22, 2026)</h2>
+<ol>
+<li>ngrok pricing: <a href="https://ngrok.com/pricing">https://ngrok.com/pricing</a></li>
+<li>HTTP/S agent endpoints (&quot;Websocket connections are supported out-of-the-box&quot;): <a href="https://ngrok.com/docs/gateway/endpoints/http">https://ngrok.com/docs/gateway/endpoints/http</a> (including its &quot;Limits &amp; timeouts&quot; section)</li>
+<li>Agent endpoint protocols (HTTP/S, TCP, TLS): <a href="https://ngrok.com/docs/gateway/endpoints/protocols">https://ngrok.com/docs/gateway/endpoints/protocols</a></li>
+</ol>
+</section><p class="small-note">Related: <a href="/docs/ai-assistants/">AI assistants</a> · <a href="/compare/cloudflare-tunnel/">vs Cloudflare Tunnel</a> · <a href="/compare/tailscale-funnel/">vs Tailscale Funnel</a></p>
+
+</main>
+<footer class="footer wrap"><picture><source srcset="/logos/lockup-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/lockup-light.svg" width="180" height="110" alt="FastDog Networks. Fast by Design."></picture><div><span>DNS · tunnel · TLS</span><span>© FastDog Networks</span><span><a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="/faq/">FAQ</a></span><span><a href="/docs/ai-assistants/">AI assistants</a> · <a href="/compare/cloudflare-tunnel/">vs Cloudflare Tunnel</a> · <a href="/compare/ngrok/">vs ngrok</a> · <a href="/compare/tailscale-funnel/">vs Tailscale Funnel</a></span><a class="footer-link" href="/docs/">Docs</a></div></footer>
+</body>
+</html>

@@ -18,6 +18,7 @@ export const unscannableAllow = Object.freeze({
   'portal/public/fonts/Mulish-SemiBold.ttf': 'Portal copy of the site font.',
   'portal/public/fonts/SpaceGrotesk-Bold.ttf': 'Portal copy of the site font.',
   'portal/public/fonts/SpaceGrotesk-Medium.ttf': 'Portal copy of the site font.',
+  'site/docs/ai-assistants/portal-create-prompt.png': 'Approved portal Create prompt screenshot for the AI-assistant guide; binary asset reviewed by Marketing.',
   'site/og/og.png': 'Existing PNG social preview image used by the site.',
   'verdict/.env.example': 'Existing service environment template; never read environment files.',
 });

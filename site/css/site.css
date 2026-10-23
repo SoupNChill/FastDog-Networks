@@ -171,3 +171,14 @@ nav a[aria-current]{color:var(--accent)}
 /* Longer homepage onboarding headline and existing action styles. */
 .hero-copy #hero-title{font-size:clamp(40px,5vw,72px);line-height:1.05;letter-spacing:-.05em}
 .hero-actions{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 28px}
+
+/* AI setup guide and horizontally scrollable comparisons. */
+.comparison-table{max-width:100%;overflow-x:auto}
+.comparison-table table{width:100%;min-width:720px;border-collapse:collapse;text-align:left}
+.comparison-table th,.comparison-table td{padding:16px;border-bottom:1px solid var(--rule);vertical-align:top}
+.comparison-table th{color:var(--ink);font-weight:600}
+.docs blockquote{margin:20px 0;padding-left:20px;border-left:2px solid var(--rule)}
+.docs .section p,.docs .section li{overflow-wrap:anywhere}
+.docs-figure{margin:24px 0}
+.docs-figure img{display:block;max-width:100%;height:auto}
+.docs-figure figcaption{margin-top:8px;color:var(--sub);font-size:14px}

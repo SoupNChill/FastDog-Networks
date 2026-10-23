@@ -67,7 +67,8 @@ for (const page of ['index.html', 'edge/index.html', 'domains/index.html', 'verd
 
 test('no page promises a free month', () => {
   const files = ['index.html', 'edge/index.html', 'domains/index.html', 'verdict/index.html', `${storyPath}index.html`, 'faq/index.html',
-    'docs/index.html', 'privacy/index.html', 'terms/index.html', 'llms.txt'];
+    'docs/index.html', 'privacy/index.html', 'terms/index.html', 'llms.txt',
+    'docs/ai-assistants/index.html', 'compare/cloudflare-tunnel/index.html', 'compare/ngrok/index.html', 'compare/tailscale-funnel/index.html'];
   for (const page of files) assert.doesNotMatch(read(page), /month is free|first month is free|free month/i, page);
   for (const page of ['index.html', 'edge/index.html']) {
     const html = read(page);

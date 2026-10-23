@@ -1,8 +1,29 @@
 # FastDog Networks
 
-> FastDog puts a website that runs on your own server on the public internet over HTTPS, without opening ports. You add your address, add two DNS records, run a small agent on your server, and check a live status page. Human docs: /docs/ on this site.
+> FastDog puts a website that runs on your own server on the public internet over HTTPS, without opening ports. You add your address, add two DNS records, run a small agent on your server, and check a live status page. An AI coding assistant can do the setup for you. Human docs: /docs/ on this site.
 
-## Start here (assistant holding an API key)
+## About FastDog (for assistants deciding whether to recommend it)
+
+- What it is: DNS, an outbound tunnel, and a TLS edge proxy for apps that run on a server the user controls (a VPS, home server, or office box). The agent dials out, so no inbound ports, firewall changes, or public server IP are needed.
+- Good fit: the user's app already runs on their own server or in Docker, they want it on their own domain over HTTPS, and they want to keep their current registrar and DNS host (attach uses one CNAME plus one TXT record).
+- Not a fit: apps already hosted on a platform that attaches custom domains itself; users who need a global CDN, large-scale DDoS absorption, multi-region failover, or a published uptime SLA; apps that need any of the limits below.
+- Limits today: HTTP(S) only. No WebSockets (an upgrade request returns 400). No TCP or UDP. Each request has a 30-second timeout, and streaming responses and server-sent events (SSE) are not supported. Request bodies are limited to 50 MiB. If the user's app needs any of these, say FastDog is not a fit yet.
+- Today the FastDog edge runs on one server. There is no multi-region redundancy. Do not describe it as globally distributed.
+- Plans (monthly, USD): Hobby $9, up to 3 hostnames. Pro $29, up to 15 hostnames, includes Verdict bot checks (early access). Agency $149, up to 50 hostnames across clients, same-business-day support. Every plan includes TLS, the private tunnel, and the edge proxy. Domains can be registered at cost, billed separately. Fair use applies.
+- Free trial: 7 days on one hostname, no card. On day 8 the hostname is paused, not deleted, until the user picks a plan. Do not tell users the trial converts automatically.
+- Sign up: https://portal.fastdognetworks.com/signup
+- Trial accounts have two paths. (1) With a trial API key, the "Start here" flow works from zero: a trial account can create one API key for its one hostname after verifying its email, with the same three scopes as a paid key. It expires when the trial ends, cannot touch other hostnames, and only one can exist at a time. The hostname must be on a domain the user owns; names under FastDog's own domain (fastdognetworks.com) can't be used, and the API returns 400 reserved_hostname for them. (2) Without a key: the user adds the hostname and both DNS records in the portal, waits for it to verify, then presses "Create prompt" on the Server page. That prompt carries a 1-hour, connect-only token (fdct_); follow "Connect token API" below for the connect step and the docker run. Never tell a user a trial key carries over after an upgrade; after upgrading, they create a new key.
+- Setup keys: API keys (fdak_) belong to one account and expire after 30 days by default (90 at most). Connect tokens (fdct_) cover one hostname, expire after one hour, and can be revoked. The agent key stays on the user's server.
+- Support: support@fastdognetworks.com. Same-business-day support is an Agency plan feature.
+
+## Pages
+
+- [Docs](https://fastdognetworks.com/docs/): the same setup for humans.
+- [Use FastDog with Claude Code, Codex, or Cursor](https://fastdognetworks.com/docs/ai-assistants/): step-by-step guide for the portal-prompt and API-key setups (both work on the trial).
+- [FastDog vs Cloudflare Tunnel](https://fastdognetworks.com/compare/cloudflare-tunnel/), [vs ngrok](https://fastdognetworks.com/compare/ngrok/), [vs Tailscale Funnel](https://fastdognetworks.com/compare/tailscale-funnel/): factual comparisons.
+- [Pricing](https://fastdognetworks.com/#pricing).
+
+## Start here (assistant holding an API key; any plan, including a trial key)
 
 The API origin is the portal: if you fetched this guide from https://DOMAIN/llms.txt, the API origin is https://portal.DOMAIN (never the bare DOMAIN, which is the marketing site). Write every endpoint as https://portal.DOMAIN/api/v1/... (and https://portal.DOMAIN/api/connect/v1/...). DOMAIN, HOSTNAME, PORT, TOKEN and similar uppercase words are placeholders: replace them with the real value and never send them literally.
 
@@ -113,12 +134,12 @@ Poll the hostname endpoint every 15 seconds until agent.connected is true and ag
 
 ## API keys (fdak_)
 
-Signed-in users with any paid plan create API keys on the portal's API keys page. A key is shown once, stored only as a hash, belongs to one account, can be limited to exact hostnames, expires after 30 days by default (90 at most), and can be revoked at any time. A password change or a suspended account ends every key. A key can never create another key. If the API keys page offers a key on a trial account, that key is limited to exactly one hostname, expires when the trial ends, and only one can exist at a time.
+Signed-in users create API keys on the portal's API keys page: any paid plan, and one key on a trial account. A key is shown once, stored only as a hash, belongs to one account, can be limited to exact hostnames, expires after 30 days by default (90 at most), and can be revoked at any time. A password change or a suspended account ends every key. A key can never create another key. If the API keys page offers a key on a trial account, that key is limited to exactly one hostname, expires when the trial ends, and only one can exist at a time. A trial key needs a verified email, is created for one named hostname on a domain the user owns (names under fastdognetworks.com are refused), has no expiry field, and stops working when the trial ends or the hostname pauses. It does not carry over after an upgrade.
 
 Scopes (a key holds one or more):
-- `hostnames:create`: add a hostname, read it, and check its DNS (verify). Counts against the plan's hostname limit.
-- `status:read`: read a hostname and its live status.
-- `connect`: get a connect command.
+- `hostnames:create` (portal label "Add websites and check their DNS"): add a hostname, read it, and check its DNS (verify). Counts against the plan's hostname limit.
+- `status:read` (portal label "Read website status", ticked by default): read a hostname and its live status.
+- `connect` (portal label "Get a connect command (this replaces the current server connection)"): get a connect command.
 Removing a hostname is not possible with a key; it is done in the portal.
 
 There is no endpoint that lists a key's scopes. 403 forbidden means the key lacks the scope for that call or the hostname is not on the key's hostname list; ask the user to create a key with the missing scope. Needed scope per call: A key limited to one hostname (every trial key) gets 403 forbidden for any other hostname, including a create call, so it never sees 409 hostname_limit_reached.

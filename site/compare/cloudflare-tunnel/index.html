@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#222831">
+  <title>FastDog vs Cloudflare Tunnel: an honest comparison</title>
+  <meta name="description" content="Cloudflare Tunnel vs FastDog for self-hosted apps: price, DNS setup, protocols, limits, and when each is the better pick. Sources checked Oct 22, 2026.">
+  <link rel="canonical" href="https://fastdognetworks.com/compare/cloudflare-tunnel/">
+  <meta property="og:title" content="FastDog vs Cloudflare Tunnel: an honest comparison">
+  <meta property="og:description" content="Cloudflare Tunnel vs FastDog for self-hosted apps: price, DNS setup, protocols, limits, and when each is the better pick. Sources checked Oct 22, 2026.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://fastdognetworks.com/compare/cloudflare-tunnel/">
+  <meta property="og:image" content="https://fastdognetworks.com/og/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="FastDog Networks. Fast by Design.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="FastDog vs Cloudflare Tunnel: an honest comparison">
+  <meta name="twitter:description" content="Cloudflare Tunnel vs FastDog for self-hosted apps: price, DNS setup, protocols, limits, and when each is the better pick. Sources checked Oct 22, 2026.">
+  <meta name="twitter:image" content="https://fastdognetworks.com/og/og.png">
+  <meta name="twitter:image:alt" content="FastDog Networks. Fast by Design.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/SpaceGrotesk-Medium.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="/fonts/SpaceGrotesk-Bold.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap">
+  <a class="brand" href="/" aria-label="FastDog Networks home"><picture><source srcset="/logos/hound-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/hound-light.svg" width="70" height="21" alt=""></picture><span>FastDog <span class="brand-second">Networks</span></span></a>
+  <nav aria-label="Main navigation"><a href="/edge/">Edge</a><a href="/domains/">Domains</a><a href="/verdict/">Verdict</a><a href="/docs/">Docs</a><a class="nav-cta" href="https://portal.fastdognetworks.com/signup">Start free: 7 days, no card</a></nav>
+</header>
+<main id="main" class="wrap docs">
+<section class="product-hero"><div><span class="eyebrow">Compare</span><h1>FastDog vs Cloudflare Tunnel</h1><p class="hero-lede">Both products put an app that runs on your own server on the internet through an outbound connection, so you don’t open inbound ports. They’re built for different people. Here’s an honest side-by-side.</p></div></section>
+<section class="section"></section>
+<section class="section"><h2>Short version</h2>
+<ul>
+<li><strong>Pick Cloudflare Tunnel</strong> if your domain already uses Cloudflare DNS, or you’re happy to move it. You get a free tunnel, a large global network, and Cloudflare’s CDN, WAF, and DDoS protection in front of your app.</li>
+<li><strong>Pick FastDog</strong> if you have an ordinary HTTP(S) app (no WebSockets, no long or streaming requests, uploads under 50 MiB), you want to keep your DNS where it is, attach a hostname with one CNAME and one TXT record, and have your AI coding assistant connect it with short-lived, account-scoped keys.</li>
+</ul>
+</section>
+<section class="section"><h2>Side by side</h2>
+<div class="comparison-table" role="region" aria-label="Side by side comparison" tabindex="0"><table>
+<thead>
+<tr>
+<th></th>
+<th>Cloudflare Tunnel</th>
+<th>FastDog</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Price</td>
+<td>Free. No paid Access plan needed to publish an app [1]. Each account includes 1,000 tunnels, and extra tunnels are $4.50 per tunnel per month [2].</td>
+<td>Hobby $9/mo (3 hostnames), Pro $29/mo (15), Agency $149/mo (50). Free for 7 days on one hostname, no card.</td>
+</tr>
+<tr>
+<td>DNS requirement</td>
+<td>The best experience is Full Setup, with your domain on Cloudflare nameservers [3]. Partial (CNAME) setup, which keeps your DNS host, is only available on Business and Enterprise plans [4]. Business is $200/mo billed annually or $250/mo monthly [5].</td>
+<td>Keep your current DNS host and registrar on every plan. Attach uses one CNAME and one TXT record.</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>Cloudflare’s global network. Each tunnel keeps four connections to two Cloudflare data centers, and you can run replicas [6].</td>
+<td>One edge server today. No multi-region failover.</td>
+</tr>
+<tr>
+<td>Security layers</td>
+<td>CDN caching, WAF, Bot Management, and DDoS protection are applied to published apps [6].</td>
+<td>TLS, the tunnel, and the edge proxy. Verdict bot checks are on Pro (early access, shadow mode by default).</td>
+</tr>
+<tr>
+<td>Upload size</td>
+<td>Request bodies are capped at 100 MB on Free and Pro, and 200 MB on Business. Enterprise can raise it to 5 GB [7].</td>
+<td>50 MiB. Larger requests return HTTP 413.</td>
+</tr>
+<tr>
+<td>WebSockets</td>
+<td>Supported [3].</td>
+<td>Not supported. An upgrade request returns 400.</td>
+</tr>
+<tr>
+<td>Request timeout</td>
+<td>Proxy Read Timeout is 125 seconds by default, adjustable on Enterprise [9].</td>
+<td>30 seconds. No streaming responses or server-sent events (SSE).</td>
+</tr>
+<tr>
+<td>Large files and video</td>
+<td>On Free, Pro, and Business, the service terms require a specific paid service for video and other large files on public hostnames [3][8].</td>
+<td>Fair use applies. <em>(No specific media rule published.)</em></td>
+</tr>
+<tr>
+<td>Protocols</td>
+<td>HTTP, HTTPS, plus TCP, SSH, RDP, and SMB (end users run <code>cloudflared</code> on the client for non-HTTP) [8]. TCP or UDP apps can also be routed through Cloudflare Spectrum, a separate product [1]. gRPC works over private network routes, not public hostnames [3].</td>
+<td>HTTP(S) only. No TCP or UDP.</td>
+</tr>
+<tr>
+<td>AI assistant setup</td>
+<td>Docs pages offer &quot;Agent setup&quot; and &quot;Copy as Markdown&quot; options [6].</td>
+<td>A &quot;Copy prompt for your AI assistant&quot; button, plus /llms.txt written for assistants. On the free trial, you add the hostname and DNS records in the portal, and the prompt’s 1-hour, connect-only token lets the assistant do the connect and the <code>docker run</code>. With an account-scoped API key that expires (the trial gets one, for its one website), the assistant does the whole setup.</td>
+</tr>
+<tr>
+<td>Maturity</td>
+<td>Long-running product. It was earlier named Argo Tunnel [3].</td>
+<td>New. Open sign-up since Oct 19, 2026.</td>
+</tr>
+</tbody>
+</table></div>
+</section>
+<section class="section"><h2>Where Cloudflare Tunnel is better</h2>
+<ul>
+<li><strong>It’s free</strong>, and it scales to thousands of published apps per tunnel [8].</li>
+<li><strong>Global network and redundancy.</strong> We can’t match that today.</li>
+<li><strong>More security and more protocols:</strong> WAF, DDoS protection, Access, WebSockets, TCP, SSH, and RDP.</li>
+<li><strong>Longer requests and bigger uploads:</strong> a 125-second default read timeout versus our 30 seconds, and 100 MB uploads on Free versus our 50 MiB.</li>
+<li><strong>Maturity and ecosystem.</strong> It’s widely documented, and most self-hosting guides already cover it.</li>
+</ul>
+</section>
+<section class="section"><h2>Where FastDog is different</h2>
+<ul>
+<li><strong>No DNS move.</strong> Keep your registrar and DNS host on the $9 plan. On Cloudflare, keeping your own DNS host means a Business plan or higher [4].</li>
+<li><strong>Built for the AI setup flow.</strong> The assistant gets short-lived, scoped keys (a 1-hour, connect-only token from the portal prompt, or an account-scoped API key on the trial or a paid plan). The agent key is written straight to a private file and never shows up in a chat or a command line. You approve the commands.</li>
+<li><strong>A person answers.</strong> Founder-run support at support@fastdognetworks.com, with same-business-day replies on Agency.</li>
+<li><strong>Flat pricing</strong> per hostname count.</li>
+</ul>
+</section>
+<section class="section"><h2>Using both</h2>
+<p>You can keep Cloudflare as your DNS host and use FastDog for a hostname. Set that record to &quot;DNS only&quot; (grey cloud) so the request reaches FastDog.</p>
+</section>
+<section class="section"><h2>Sources (checked Oct 22, 2026)</h2>
+<ol>
+<li>Published applications, Cloudflare One docs (last updated Oct 15, 2026): <a href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/">https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/</a> (&quot;You do not need a paid Cloudflare Access plan to publish an application via Cloudflare Tunnel.&quot; Also: &quot;For TCP or UDP applications, Cloudflare can also route traffic through a Spectrum application attached to a virtual network.&quot;)</li>
+<li>Cloudflare One changelog, Oct 16, 2026, &quot;Tunnels for Platforms&quot;: <a href="https://developers.cloudflare.com/cloudflare-one/changelog/">https://developers.cloudflare.com/cloudflare-one/changelog/</a></li>
+<li>Tunnels FAQ: <a href="https://developers.cloudflare.com/cloudflare-one/faq/cloudflare-tunnels-faq/">https://developers.cloudflare.com/cloudflare-one/faq/cloudflare-tunnels-faq/</a></li>
+<li>CNAME setup (Partial): <a href="https://developers.cloudflare.com/dns/zone-setups/partial-setup/">https://developers.cloudflare.com/dns/zone-setups/partial-setup/</a> (availability table: Free No, Pro No, Business Yes, Enterprise Yes)</li>
+<li>Cloudflare plans: <a href="https://www.cloudflare.com/plans/">https://www.cloudflare.com/plans/</a></li>
+<li>Cloudflare Tunnel overview: <a href="https://developers.cloudflare.com/tunnel/">https://developers.cloudflare.com/tunnel/</a></li>
+<li>Request body limits by plan (Workers limits page, which says limits depend on the account plan): <a href="https://developers.cloudflare.com/workers/platform/limits/">https://developers.cloudflare.com/workers/platform/limits/</a></li>
+<li>Tunnel routing: <a href="https://developers.cloudflare.com/tunnel/routing/">https://developers.cloudflare.com/tunnel/routing/</a></li>
+<li>Connection limits (Proxy Read Timeout 125 s, configurable for Enterprise zones): <a href="https://developers.cloudflare.com/fundamentals/reference/connection-limits/">https://developers.cloudflare.com/fundamentals/reference/connection-limits/</a> (last updated Jul 23, 2026)</li>
+</ol>
+</section><p class="small-note">Related: <a href="/docs/ai-assistants/">AI assistants</a> · <a href="/compare/ngrok/">vs ngrok</a> · <a href="/compare/tailscale-funnel/">vs Tailscale Funnel</a></p>
+
+</main>
+<footer class="footer wrap"><picture><source srcset="/logos/lockup-dark.svg" media="(prefers-color-scheme: light)"><img src="/logos/lockup-light.svg" width="180" height="110" alt="FastDog Networks. Fast by Design."></picture><div><span>DNS · tunnel · TLS</span><span>© FastDog Networks</span><span><a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="/faq/">FAQ</a></span><span><a href="/docs/ai-assistants/">AI assistants</a> · <a href="/compare/cloudflare-tunnel/">vs Cloudflare Tunnel</a> · <a href="/compare/ngrok/">vs ngrok</a> · <a href="/compare/tailscale-funnel/">vs Tailscale Funnel</a></span><a class="footer-link" href="/docs/">Docs</a></div></footer>
+</body>
+</html>
